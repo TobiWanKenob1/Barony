@@ -1216,6 +1216,7 @@ void actHudWeapon(Entity* my)
 						pickaxeGimpTimer = 40;
 					}
 					if ( stats[HUDWEAPON_PLAYERNUM]->weapon->type == IRON_SPEAR 
+						|| stats[HUDWEAPON_PLAYERNUM]->weapon->type == HARPOON //mod addon
 						|| stats[HUDWEAPON_PLAYERNUM]->weapon->type == ARTIFACT_SPEAR
 						|| stats[HUDWEAPON_PLAYERNUM]->weapon->type == BONE_SPEAR
 						|| stats[HUDWEAPON_PLAYERNUM]->weapon->type == SILVER_GLAIVE
@@ -2678,6 +2679,25 @@ void actHudWeapon(Entity* my)
 						{
 							players[HUDWEAPON_PLAYERNUM]->entity->attack(1, HUDWEAPON_CHARGE, nullptr);
 						}
+						// mod addition: this part checks if fully charged crit -> throw
+						else if ( !hideWeapon && stats[HUDWEAPON_PLAYERNUM]->weapon && stats[HUDWEAPON_PLAYERNUM]->weapon->type == HARPOON && HUDWEAPON_OVERCHARGE >= (Stat::getMaxAttackCharge(stats[HUDWEAPON_PLAYERNUM]) - 3) )
+						{
+							auto& hotbar_t = players[HUDWEAPON_PLAYERNUM]->hotbar;
+
+							hotbar_t.harpoonHotbarSlot = -1;
+
+							for ( int i = 0; i < NUM_HOTBAR_SLOTS; ++i )
+							{
+    							if ( hotbar_t.slots()[i].item
+        							== stats[HUDWEAPON_PLAYERNUM]->weapon->uid )
+    							{
+        							hotbar_t.harpoonHotbarSlot = i;
+        							break;
+    							}
+							}
+    						players[HUDWEAPON_PLAYERNUM]->entity->attack(3, 100, nullptr);
+						}
+						// mod add end
 						else if ( !hideWeapon && stats[HUDWEAPON_PLAYERNUM]->weapon && stats[HUDWEAPON_PLAYERNUM]->weapon->type == MAGICSTAFF_SCEPTER )
 						{
 							int chargeAmount = HUDWEAPON_CHARGE;
@@ -2798,6 +2818,7 @@ void actHudWeapon(Entity* my)
 					}
 					else if ( stats[HUDWEAPON_PLAYERNUM]->weapon
 						&& itemCategory(stats[HUDWEAPON_PLAYERNUM]->weapon) != MAGICSTAFF
+						&& stats[HUDWEAPON_PLAYERNUM]->weapon->type != HARPOON //mod addon
 						&& stats[HUDWEAPON_PLAYERNUM]->weapon->type != CRYSTAL_SPEAR 
 						&& stats[HUDWEAPON_PLAYERNUM]->weapon->type != IRON_SPEAR 
 						&& stats[HUDWEAPON_PLAYERNUM]->weapon->type != BLACKIRON_TRIDENT

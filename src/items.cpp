@@ -2766,6 +2766,7 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 		case CRYSTAL_SPEAR:
 		case CRYSTAL_BATTLEAXE:
 		case CRYSTAL_MACE:
+		case HARPOON:     //Mod addon
 		case BRONZE_TOMAHAWK:
 		case IRON_DAGGER:
 		case STEEL_CHAKRAM:
@@ -4678,6 +4679,10 @@ Sint32 Item::weaponGetAttack(const Stat* const wielder) const
 	{
 		attack += 5;
 	}
+	else if ( type == HARPOON ) //mod addon
+	{							//mod addon
+		attack += 5;			//mod addon
+	}							//mod addon
 	else if ( type == BONE_AXE )
 	{
 		attack += 5;

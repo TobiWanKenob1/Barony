@@ -545,6 +545,10 @@ typedef enum ItemType
 	SPELLBOOK_SANCTUARY,
 	SPELLBOOK_HOLY_BEAM,
 	SPELLBOOK_DOMINATE,
+		
+	//mod addition:
+	HARPOON,
+
 	ITEM_ENUM_MAX
 } ItemType;
 const int NUMITEMS = ITEM_ENUM_MAX;

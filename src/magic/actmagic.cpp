@@ -10169,7 +10169,7 @@ Entity* createParticleSapCenter(Entity* parent, Entity* target, int spell, int s
 	entity->skill[5] = endSprite; // sprite to spawn on return to caster.
 	entity->skill[6] = spell;
 	entity->behavior = &actParticleSapCenter;
-	if ( target->sprite == 977 )
+	if ( target->sprite == 977  || target->skill[10] == HARPOON ) //mod add harpoon
 	{
 		// boomerang.
 		entity->yaw = target->yaw;
@@ -10177,7 +10177,16 @@ Entity* createParticleSapCenter(Entity* parent, Entity* target, int spell, int s
 		entity->pitch = target->pitch;
 		entity->z = target->z;
 	}
-	entity->flags[INVISIBLE] = true;
+	//mod add: exclude harpoon
+	if ( target->skill[10] == HARPOON ) 
+	{
+		entity->flags[INVISIBLE] = false;
+	}
+	else
+	{
+    	entity->flags[INVISIBLE] = true;
+	}
+	//mod add end
 	entity->flags[PASSABLE] = true;
 	entity->flags[UPDATENEEDED] = true;
 	entity->flags[UNCLICKABLE] = true;
@@ -14084,7 +14093,10 @@ void actParticleSapCenter(Entity* my)
 	{
 		// for clients and server spawn the visible arcing particles.
 		my->skill[3] = 1;
-		createParticleSap(my);
+		if ( my->skill[10] != HARPOON ) //mod add: exclude harpoon here
+    	{
+			createParticleSap(my);
+		}
 	}
 
 	if ( multiplayer == CLIENT )
@@ -14095,6 +14107,109 @@ void actParticleSapCenter(Entity* my)
 	Entity* parent = uidToEntity(my->parent);
 	if ( parent )
 	{
+		// mod add: short pause before retracting Harpoon
+    	if ( my->skill[10] == HARPOON && my->ticks < 30 )
+    	{
+        	return;
+    	}
+    	// mod add end
+		// mod add: Harpoon yank on retract
+		if ( my->skill[10] == HARPOON && my->skill[7] != 0 )
+		{
+			Entity* hookedTarget = uidToEntity(my->skill[7]);
+
+			if ( hookedTarget
+				&& (hookedTarget->behavior == &actMonster
+					|| hookedTarget->behavior == &actPlayer) )
+			{
+				Stat* hookedStats = hookedTarget->getStats();
+
+				if ( hookedStats && hookedStats->HP > 0 )
+				{
+					// Apply bleed once, when retract starts.
+					// Chance scales with Ranged proficiency:
+					// 0-100 Ranged -> 0-50% bleed chance.
+					if ( my->ticks == 30 )
+					{
+						Stat* parentStats = parent->getStats();
+
+						if ( parentStats )
+						{
+							int bleedChance =
+								parentStats->getModifiedProficiency(PRO_RANGED) / 2;
+
+							if ( local_rng.rand() % 100 < bleedChance )
+							{
+								if ( hookedTarget->setEffect(
+									EFF_BLEEDING,
+									true,
+									5 * TICKS_PER_SECOND,
+									false) )
+								{
+									hookedStats->bleedInflictedBy = parent->getUID();
+								}
+							}
+						}
+					}
+					
+					bool canHarpoonPull = true;
+
+					// Match vanilla EFF_KNOCKBACK immunity.
+					if ( (hookedStats->type >= LICH && hookedStats->type < KOBOLD)
+						|| hookedStats->type == LICH_FIRE
+						|| hookedStats->type == LICH_ICE )
+					{
+						canHarpoonPull = false;
+					}
+
+					// Pull smoothly every tick AFTER the pause.
+					if ( my->ticks >= 30 && canHarpoonPull )
+					{
+						real_t dx = parent->x - hookedTarget->x;
+						real_t dy = parent->y - hookedTarget->y;
+						real_t dist = sqrt(dx * dx + dy * dy);
+
+						// Don't drag enemy directly inside player.
+						if ( dist > 12.0 )
+						{
+							real_t pullDirection = atan2(dy, dx);
+
+							// THIS is now your pull-speed balancing value.
+							real_t pullSpeed = 3.0;
+
+							real_t step = std::min<real_t>(
+								pullSpeed,
+								dist - 12.0
+							);
+
+							clipMove(
+								&hookedTarget->x,
+								&hookedTarget->y,
+								cos(pullDirection) * step,
+								sin(pullDirection) * step,
+								hookedTarget
+							);
+
+							// Force vanilla AI to regenerate the pursuit path from here.
+							if ( hookedTarget->behavior == &actMonster
+								&& hookedTarget->monsterState == MONSTER_STATE_HUNT
+								&& hookedTarget->monsterTarget != 0 )
+							{
+								hookedTarget->monsterState = MONSTER_STATE_PATH;
+							}
+						}
+					}
+				}
+			}
+		}
+		// mod add end
+		// mod add: remember Harpoon owner's last position in case they die
+		if ( my->skill[10] == HARPOON )
+		{
+			my->fskill[4] = parent->x;
+			my->fskill[5] = parent->y;
+		}
+		// mod add end
 		// if reached the caster, delete self and spawn some particles.
 		if ( my->sprite == 977 && PARTICLE_LIFE > 1 )
 		{
@@ -14190,16 +14305,31 @@ void actParticleSapCenter(Entity* my)
 					spellEffectFear(nullptr, spellElement_fear, caster, parent, 0);
 				}
 			}
-			else if ( my->sprite == 977 ) // boomerang
+			else if ( my->sprite == 977  || my->skill[10] == HARPOON ) // boomerang // mod add harpoon
 			{
+				bool isBoomerang = (my->sprite == 977); 	//mod add: differentiate between boomerang and harpoon
+				bool isHarpoon = (my->skill[10] == HARPOON); //
+
 				Item* item = newItemFromEntity(my);
 				if ( parent->behavior == &actPlayer )
 				{
 					item->ownerUid = parent->getUID();
 					Item* pickedUp = itemPickup(parent->skill[2], item);
 					Uint32 color = makeColorRGB(0, 255, 0);
-					messagePlayerColor(parent->skill[2], MESSAGE_EQUIPMENT, color, Language::get(3746), items[item->type].getUnidentifiedName());
-					achievementObserver.awardAchievementIfActive(parent->skill[2], parent, AchievementObserver::BARONY_ACH_IF_YOU_LOVE_SOMETHING);
+					
+					if ( isHarpoon ) //mod add: change message when harpoon returns
+					{
+						    messagePlayerColor(parent->skill[2], MESSAGE_EQUIPMENT, color, "You pulled the harpoon back!");
+					}
+					else
+					{
+						messagePlayerColor(parent->skill[2], MESSAGE_EQUIPMENT, color, Language::get(3746), items[item->type].getUnidentifiedName());
+					}
+					
+					if ( isBoomerang ) //mod add: prevent achievement if harpoon
+					{
+						achievementObserver.awardAchievementIfActive(parent->skill[2], parent, AchievementObserver::BARONY_ACH_IF_YOU_LOVE_SOMETHING);
+					} //mod add
 					if ( pickedUp )
 					{
 						if ( parent->skill[2] == 0 || (parent->skill[2] > 0 && splitscreen) )
@@ -14211,21 +14341,42 @@ void actParticleSapCenter(Entity* my)
 							{
 								useItem(pickedUp, parent->skill[2]);
 							}
+							//mod add: added harpoon
 							auto& hotbar_t = players[parent->skill[2]]->hotbar;
-							if ( hotbar_t.magicBoomerangHotbarSlot >= 0 )
+
+							int returnHotbarSlot = -1;
+							
+							if ( isBoomerang )
 							{
-								auto& hotbar = hotbar_t.slots();
-								hotbar[hotbar_t.magicBoomerangHotbarSlot].item = pickedUp->uid;
-								for ( int i = 0; i < NUM_HOTBAR_SLOTS; ++i )
-								{
-									if ( i != hotbar_t.magicBoomerangHotbarSlot
-										&& hotbar[i].item == pickedUp->uid )
-									{
-										hotbar[i].item = 0;
-										hotbar[i].resetLastItem();
-									}
-								}
+							    returnHotbarSlot = hotbar_t.magicBoomerangHotbarSlot;
 							}
+							else if ( isHarpoon )
+							{
+							    returnHotbarSlot = hotbar_t.harpoonHotbarSlot;
+							}
+
+							if ( returnHotbarSlot >= 0 )
+							{
+							    auto& hotbar = hotbar_t.slots();
+
+    							hotbar[returnHotbarSlot].item = pickedUp->uid;
+
+    							for ( int i = 0; i < NUM_HOTBAR_SLOTS; ++i )
+    							{
+    							    if ( i != returnHotbarSlot
+    							        && hotbar[i].item == pickedUp->uid )
+    							    {
+    							        hotbar[i].item = 0;
+							            hotbar[i].resetLastItem();
+    							    }
+    							}
+
+    							if ( isHarpoon )
+    							{
+    							    hotbar_t.harpoonHotbarSlot = -1;
+    							}
+							}
+							//mod add end
 						}
 						else
 						{
@@ -14256,7 +14407,22 @@ void actParticleSapCenter(Entity* my)
 		// calculate direction to caster and move.
 		real_t tangent = atan2(parent->y - my->y, parent->x - my->x);
 		real_t dist = sqrt(pow(my->x - parent->x, 2) + pow(my->y - parent->y, 2));
-		real_t speed = dist / std::max(PARTICLE_LIFE, 1);
+		//mod add: harpoon retraction speed
+		real_t speed;
+
+		if ( my->skill[10] == HARPOON )
+		{
+    		speed = std::min<real_t>(6.0, dist);
+
+   			my->yaw = tangent;
+			my->pitch = PI / 2;
+    		my->roll = 0.0;
+		}
+		else
+		{
+			speed = dist / std::max(PARTICLE_LIFE, 1); //usual
+		}
+		//mod add end
 		my->vel_x = speed * cos(tangent);
 		my->vel_y = speed * sin(tangent);
 		my->x += my->vel_x;
@@ -14453,13 +14619,29 @@ void actParticleSapCenter(Entity* my)
 			list_RemoveNode(my->mynode);
 			return;
 		}
-		else if ( my->sprite == 977 )
+		else if ( my->sprite == 977 || my->skill[10] == HARPOON ) //mod add harpoon
 		{
 			// calculate direction to caster and move.
 			real_t tangent = atan2(my->fskill[5] - my->y, my->fskill[4] - my->x);
 			real_t dist = sqrt(pow(my->x - my->fskill[4], 2) + pow(my->y - my->fskill[5], 2));
-			real_t speed = dist / std::max(PARTICLE_LIFE, 1);
+			//mod add harpoon
+			real_t speed;
 
+			if ( my->skill[10] == HARPOON )
+			{
+				// use normal Harpoon retract speed
+				speed = std::min<real_t>(6.0, dist);
+
+				my->yaw = tangent;
+				my->pitch = PI / 2;
+				my->roll = 0.0;
+			}
+			else
+			{
+				// vanilla Boomerang
+				speed = dist / std::max(PARTICLE_LIFE, 1);
+			}
+			//mod add add
 			if ( dist < 4 || (abs(my->fskill[5]) < 0.001 && abs(my->fskill[4]) < 0.001) )
 			{
 				// reached goal, or goal not set then spawn the item.

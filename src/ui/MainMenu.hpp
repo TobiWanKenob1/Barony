@@ -384,6 +384,12 @@ namespace MainMenu {
 			"ClassSelect_Icon_PaladinOn_00.png",
 			"ClassSelect_Icon_PaladinLocked_00.png",
 			}},
+		{"whaler", {
+			DLC::Base,
+			"ClassSelect_Icon_Whaler_00.png",
+			"ClassSelect_Icon_WhalerOn_00.png",
+			"ClassSelect_Icon_WhalerLocked_00.png",
+			}},
 	};
 
 	static const char* classes_in_order[] = {
@@ -392,7 +398,8 @@ namespace MainMenu {
 		"wizard", "arcanist", "joker", "sexton",
 		"ninja", "monk", "conjurer", "accursed",
 		"mesmer", "brewer", "mechanist", "punisher",
-		"shaman", "hunter", "bard", "sapper", "scion", "hermit", "paladin"
+		"shaman", "hunter", "bard", "sapper", "scion", "hermit", "paladin",
+		"whaler" // mod add
 	};
 
 #ifdef STEAMWORKS

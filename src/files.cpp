@@ -3950,7 +3950,190 @@ bool physfsSearchModelsToUpdate()
 	FileIO::close(fp);
 	return false;
 }
+// mod edit: safely resize model storage when a mod adds model indices.
+static bool resizeModelStorage(Uint32 newCount)
+{
+    static Uint32 baseModelCount = 0;
 
+    if ( baseModelCount == 0 )
+    {
+        // First call occurs after the vanilla model list has been loaded.
+        baseModelCount = nummodels;
+    }
+
+    // A mod may append models, but must not remove vanilla model indices.
+    if ( newCount < baseModelCount )
+    {
+        printlog(
+            "[MODELS]: ERROR: mounted models.txt contains only %u models, "
+            "but vanilla requires at least %u.",
+            newCount,
+            baseModelCount
+        );
+        return false;
+    }
+
+    if ( newCount == nummodels )
+    {
+        return true;
+    }
+
+    const Uint32 oldCount = nummodels;
+    const Uint32 copyCount = std::min(oldCount, newCount);
+
+    printlog(
+        "[MODELS]: resizing model storage from %u to %u entries.",
+        oldCount,
+        newCount
+    );
+
+    // Allocate the new arrays first. If this fails, the existing arrays
+    // remain completely untouched.
+    voxel_t** newModels =
+        (voxel_t**)calloc(newCount, sizeof(voxel_t*));
+
+    polymodel_t* newPolymodels =
+        (polymodel_t*)calloc(newCount, sizeof(polymodel_t));
+
+    if ( !newModels || !newPolymodels )
+    {
+        printlog("[MODELS]: ERROR: failed to resize model storage.");
+
+        if ( newModels )
+        {
+            free(newModels);
+        }
+
+        if ( newPolymodels )
+        {
+            free(newPolymodels);
+        }
+
+        return false;
+    }
+
+    // Preserve all model entries which still exist.
+    if ( models && copyCount > 0 )
+    {
+        memcpy(
+            newModels,
+            models,
+            sizeof(voxel_t*) * copyCount
+        );
+    }
+
+    if ( polymodels && copyCount > 0 )
+    {
+        memcpy(
+            newPolymodels,
+            polymodels,
+            sizeof(polymodel_t) * copyCount
+        );
+    }
+
+    // If we're shrinking back to vanilla after unloading a mod,
+    // destroy the model resources which are disappearing.
+    if ( newCount < oldCount )
+    {
+        for ( Uint32 c = newCount; c < oldCount; ++c )
+        {
+            if ( models && models[c] )
+            {
+                if ( models[c]->data )
+                {
+                    free(models[c]->data);
+                }
+
+                free(models[c]);
+                models[c] = nullptr;
+            }
+
+            if ( polymodels )
+            {
+                if ( polymodels[c].faces )
+                {
+                    free(polymodels[c].faces);
+                    polymodels[c].faces = nullptr;
+                }
+
+                if ( !disablevbos )
+                {
+                    if ( polymodels[c].vao )
+                    {
+                        GL_CHECK_ERR(
+                            glDeleteVertexArrays(
+                                1,
+                                &polymodels[c].vao
+                            )
+                        );
+                    }
+
+                    if ( polymodels[c].positions )
+                    {
+                        GL_CHECK_ERR(
+                            glDeleteBuffers(
+                                1,
+                                &polymodels[c].positions
+                            )
+                        );
+                    }
+
+                    if ( polymodels[c].colors )
+                    {
+                        GL_CHECK_ERR(
+                            glDeleteBuffers(
+                                1,
+                                &polymodels[c].colors
+                            )
+                        );
+                    }
+
+                    if ( polymodels[c].normals )
+                    {
+                        GL_CHECK_ERR(
+                            glDeleteBuffers(
+                                1,
+                                &polymodels[c].normals
+                            )
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Only the top-level arrays are freed here.
+    // The retained voxel/polygon data was copied above.
+    if ( models )
+    {
+        free(models);
+    }
+
+    if ( polymodels )
+    {
+        free(polymodels);
+    }
+
+    models = newModels;
+    polymodels = newPolymodels;
+    nummodels = newCount;
+
+    // Remove bookkeeping entries belonging to models which disappeared.
+    Mods::modelsListModifiedIndexes.erase(
+        std::remove_if(
+            Mods::modelsListModifiedIndexes.begin(),
+            Mods::modelsListModifiedIndexes.end(),
+            [newCount](int index)
+            {
+                return index >= static_cast<int>(newCount);
+            }
+        ),
+        Mods::modelsListModifiedIndexes.end()
+    );
+
+    return true;
+}
+// mod edit end
 bool physfsModelIndexUpdate(int &start, int &end)
 {
 	if ( !PHYSFS_getRealDir("models/models.txt") )
@@ -3961,6 +4144,36 @@ bool physfsModelIndexUpdate(int &start, int &end)
 	
 	std::string modelsDirectory = PHYSFS_getRealDir("models/models.txt");
 	modelsDirectory.append(PHYSFS_getDirSeparator()).append("models/models.txt");
+
+	// mod edit: determine how many model indices the mounted models.txt contains.
+	File* countFp = openDataFile(modelsDirectory.c_str(), "rb");
+	if ( !countFp )
+	{
+		return false;
+	}
+
+	Uint32 mountedModelCount = 0;
+
+	for ( mountedModelCount = 0;
+		!countFp->eof();
+		mountedModelCount++ )
+	{
+		while ( countFp->getc() != '\n' )
+		{
+			if ( countFp->eof() )
+			{
+				break;
+			}
+		}
+	}
+
+	FileIO::close(countFp);
+
+	if ( !resizeModelStorage(mountedModelCount) )
+	{
+		return false;
+	}
+	// mod edit end
 
 	File* fp = openDataFile(modelsDirectory.c_str(), "rb");
 	if ( !fp )
@@ -4007,22 +4220,18 @@ bool physfsModelIndexUpdate(int &start, int &end)
 					Mods::modelsListModifiedIndexes.erase(it);
 				}
 			}
-
-			if ( c < nummodels )
+			//mod edit
+			if ( models[c] != NULL )
 			{
-				if ( models[c] != NULL )
+				if ( models[c]->data )
 				{
-					if ( models[c]->data )
-					{
-						free(models[c]->data);
-					}
-					free(models[c]);
+					free(models[c]->data);
 				}
+
+				free(models[c]);
+				models[c] = nullptr;
 			}
-			else
-			{
-				printlog("[PhysFS]: WARNING: Loading a new model: %d outside normal nummodels: %d range - Need special handling case to free model after use", c, nummodels);
-			}
+			//mod edit end
 			models[c] = loadVoxel(modelName);
 
 			// this index is not found in the normal models folder.

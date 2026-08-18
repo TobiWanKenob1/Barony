@@ -126,7 +126,8 @@ const std::vector<ClassBaseGrowths::ClassHPMPValues> ClassBaseGrowths::classBase
 	{3,		2,		3,		2}, //CLASS_SAPPER,
 	{2,		4,		3,		4}, //CLASS_SCION,
 	{3,		4,		3,		3}, //CLASS_HERMIT,
-	{3,		3,		3,		3}  //CLASS_PALADIN
+	{3,		3,		3,		3},  //CLASS_PALADIN,
+	{3,		1,		4,		1} //CLASS_WHALER ------ mod add
 };
 
 Entity::~Entity()
@@ -11008,7 +11009,8 @@ void Entity::attack(int pose, int charge, Entity* target)
 				|| itemCategory(myStats->weapon) == THROWN
 				|| myStats->weapon->type == FOOD_CREAMPIE
 				|| itemIsThrowableTinkerTool(myStats->weapon)
-				|| myStats->weapon->type == TOOL_DUCK )
+				|| myStats->weapon->type == TOOL_DUCK 
+				|| (myStats->weapon->type == HARPOON && charge == 100) ) //mod addition (throwing)
 			{
 				bool drankPotion = false;
 				if ( behavior == &actMonster && myStats->type == GOATMAN && itemCategory(myStats->weapon) == POTION )
@@ -11156,6 +11158,27 @@ void Entity::attack(int pose, int charge, Entity* target)
 							entity->vel_z = -.1;
 						}
 					}
+					//mod addition: Harpoon throwing animation
+					else if ( myStats->weapon->type == HARPOON )
+					{
+    					real_t speed = 6.0;
+
+    					if ( this->behavior == &actPlayer )
+    					{
+        				entity->vel_x = speed * cos(players[player]->entity->yaw);
+        				entity->vel_y = speed * sin(players[player]->entity->yaw);
+        				entity->vel_z = 0.0;
+    					}
+    					else
+    					{
+        					entity->vel_x = speed * cos(this->yaw);
+        					entity->vel_y = speed * sin(this->yaw);
+        					entity->vel_z = 0.0;
+    					}
+
+    					entity->thrownProjectilePower = 0; //damage?
+					}
+					// mod add end
 					else
 					{
 						if ( this->behavior == &actPlayer )
@@ -20886,6 +20909,7 @@ int getWeaponSkill(const Item* weapon)
 	if ( weapon->type == QUARTERSTAFF || weapon->type == IRON_SPEAR 
 		|| weapon->type == STEEL_HALBERD || weapon->type == ARTIFACT_SPEAR 
 		|| weapon->type == CRYSTAL_SPEAR
+		|| weapon->type == HARPOON //mod addon
 		|| weapon->type == LANCE_SPEAR
 		|| weapon->type == BONE_SPEAR 
 		|| weapon->type == BLACKIRON_TRIDENT 
@@ -27762,7 +27786,11 @@ get text string for the different player chosen classes.
 
 char const * playerClassLangEntry(int classnum, int playernum)
 {
-	if ( classnum >= CLASS_BARBARIAN && classnum <= CLASS_JOKER )
+	if ( classnum == CLASS_WHALER ) //mod add 
+    {
+        return "Whaler";
+	}
+	else if ( classnum >= CLASS_BARBARIAN && classnum <= CLASS_JOKER ) //mod add end
 	{
 		return Language::get(1900 + classnum);
 	}

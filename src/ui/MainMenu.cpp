@@ -16898,7 +16898,14 @@ failed:
         } else {
 		    static auto class_name_fn = [](Field& field, int index){
 			    const int i = std::min(std::max(0, client_classes[index]), num_classes - 1);
-			    field.setText(Language::get(playerClassLangEntryCapitalized(i)));
+			    if ( i == CLASS_WHALER ) //mod add: override lang packs because I'm lazy
+				{
+					field.setText("Whaler");
+				}
+				else
+				{
+					field.setText(Language::get(playerClassLangEntryCapitalized(i)));
+				}
 			    if (i < CLASS_CONJURER) {
 			        field.setColor(color_dlc0);
 			    } else if (i < CLASS_MACHINIST) {
@@ -17969,7 +17976,14 @@ failed:
 		class_text->setSize(SDL_Rect{96, 236, 138, 32});
 		static auto class_text_fn = [](Field& field, int index){
 			int i = std::min(std::max(0, client_classes[index]), num_classes - 1);
-            field.setText(Language::get(playerClassLangEntryCapitalized(i)));
+			if ( i == CLASS_WHALER ) //mod add: override lang packs because I'm lazy
+			{
+				field.setText("Whaler");
+			}
+			else
+			{
+				field.setText(Language::get(playerClassLangEntryCapitalized(i)));
+			}
 		};
 		class_text->setFont(smallfont_outline);
 		class_text->setJustify(Field::justify_t::CENTER);

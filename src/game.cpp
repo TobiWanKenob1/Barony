@@ -918,6 +918,103 @@ static ConsoleCommand ccmd_demo_play("/demo_play", "play a recorded demo(default
     }
     });
 
+// mod add: recover an in-flight Harpoon before changing level
+static void returnHarpoonOnLevelChange(Entity* entity)
+{
+    if ( !entity )
+    {
+        return;
+    }
+
+    // Only care about a Harpoon that is either still flying
+    // or already in its return phase.
+    if ( entity->skill[10] != HARPOON
+        || (entity->behavior != &actThrown
+            && entity->behavior != &actParticleSapCenter) )
+    {
+        return;
+    }
+
+    Entity* parent = uidToEntity(entity->parent);
+    if ( !parent || parent->behavior != &actPlayer )
+    {
+        return;
+    }
+
+    int player = parent->skill[2];
+    if ( player < 0 || player >= MAXPLAYERS || !stats[player] )
+    {
+        return;
+    }
+
+    Item* item = newItemFromEntity(entity);
+    if ( !item )
+    {
+        return;
+    }
+
+    // Extra safety: don't accidentally recover something
+    // that merely has unexpected skill data.
+    if ( item->type != HARPOON )
+    {
+        free(item);
+        return;
+    }
+
+    item->ownerUid = parent->getUID();
+
+    Item* pickedUp = itemPickup(player, item);
+
+    if ( pickedUp )
+    {
+        Uint32 color = makeColorRGB(0, 255, 0);
+        messagePlayerColor(
+            player,
+            MESSAGE_EQUIPMENT,
+            color,
+            "You pulled the harpoon back!"
+        );
+
+        if ( player == 0 || (player > 0 && splitscreen) )
+        {
+            // Same ownership handling as Boomerang.
+            free(item);
+            item = nullptr;
+
+            if ( multiplayer != CLIENT && !stats[player]->weapon )
+            {
+                useItem(pickedUp, player);
+            }
+
+            // Restore the slot it occupied before being thrown.
+            auto& hotbar_t = players[player]->hotbar;
+
+            if ( hotbar_t.harpoonHotbarSlot >= 0 )
+            {
+                auto& hotbar = hotbar_t.slots();
+
+                hotbar[hotbar_t.harpoonHotbarSlot].item = pickedUp->uid;
+
+                for ( int i = 0; i < NUM_HOTBAR_SLOTS; ++i )
+                {
+                    if ( i != hotbar_t.harpoonHotbarSlot
+                        && hotbar[i].item == pickedUp->uid )
+                    {
+                        hotbar[i].item = 0;
+                        hotbar[i].resetLastItem();
+                    }
+                }
+
+                hotbar_t.harpoonHotbarSlot = -1;
+            }
+        }
+        else
+        {
+            free(pickedUp);
+        }
+    }
+}
+// mod add end	
 /*-------------------------------------------------------------------------------
 
 	gameLogic
@@ -1938,6 +2035,7 @@ void gameLogic(void)
 								}
 							}
 						}
+						returnHarpoonOnLevelChange(entity); // mod add: recover Harpoon before old level is unloaded
 					}
 
 					// hack to fix these things from breaking everything...

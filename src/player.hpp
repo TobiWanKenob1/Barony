@@ -2234,6 +2234,7 @@ public:
 		int swapHotbarOnShapeshift = 0;
 		bool hotbarHasFocus = false;
 		int magicBoomerangHotbarSlot = -1;
+		int harpoonHotbarSlot = -1; //mod add
 		int magicDuckHotbarSlot = -1;
 		Uint32 hotbarTooltipLastGameTick = 0;
 		SDL_Rect hotbarBox;

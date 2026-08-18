@@ -2556,7 +2556,9 @@ static void handleMainMenu(bool mode)
 			{
 				displayedClasses.push_back(*it);
 			}
-
+			// mod add: display all classes that passed availability checks
+			entriesToDisplay = static_cast<int>(displayedClasses.size());
+			// mod add end
 			int drawLockedTooltip = 0;
 			SDL_Rect tooltip;
 			for ( c = 0; c < entriesToDisplay; c++ )

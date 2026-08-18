@@ -459,6 +459,17 @@ void actThrown(Entity* my)
 			THROWN_VELZ += 0.04;
 			my->z += THROWN_VELZ;
 		}
+		//mod add: harpoon orientation when thrown
+		else if ( type == HARPOON )
+		{
+    		THROWN_VELZ += 0.04;
+    		my->z += THROWN_VELZ;
+
+    		my->yaw = atan2(THROWN_VELY, THROWN_VELX);
+    		my->pitch = PI / 2;
+    		my->roll = 0.0;
+		}
+		//mod add end
 		else
 		{
 			THROWN_VELZ += 0.04;
@@ -575,7 +586,7 @@ void actThrown(Entity* my)
 
 			// landing on the ground.
 			int index = (int)(my->y / 16)*MAPLAYERS + (int)(my->x / 16)*MAPLAYERS * map.height;
-			if ( map.tiles[index] )
+			if ( map.tiles[index] || my->skill[10] == HARPOON ) //mod add: prevent harpoon from falling in abyss
 			{
 				item = newItemFromEntity(my);
 				bool tinkeringItemCanBePlaced = true;
@@ -666,7 +677,7 @@ void actThrown(Entity* my)
 					list_RemoveNode(my->mynode);
 					return;
 				}
-				else if ( item->type == BOOMERANG && uidToEntity(my->parent) )
+				else if ( (item->type == BOOMERANG || item->type == HARPOON) && uidToEntity(my->parent) ) //mod add: Harpoon 
 				{
 					Entity* parent = uidToEntity(my->parent);
 					Entity* spellEntity = createParticleSapCenter(parent, my, 0, my->sprite, -1);
@@ -681,6 +692,17 @@ void actThrown(Entity* my)
 						spellEntity->skill[14] = item->appearance;
 						spellEntity->skill[15] = item->identified;
 					}
+					
+					// mod add: Harpoon: the return entity now represents the weapon,
+    				// so remove the original thrown projectile.
+    				if ( item->type == HARPOON )
+    				{
+        				free(item);
+        				my->removeLightField();
+        				list_RemoveNode(my->mynode);
+        				return;
+    				}
+					//mod add end
 				}
 				else if ( item && (item->type >= TOOL_BOMB && item->type <= TOOL_TELEPORT_BOMB)
 					&& !(swimmingtiles[map.tiles[index]] || lavatiles[map.tiles[index]]) )
@@ -1073,7 +1095,7 @@ void actThrown(Entity* my)
 			++THROWN_BOUNCES;
 		}
 
-		if ( item->type == BOOMERANG )
+		if ( item->type == BOOMERANG || item->type == HARPOON  ) //modd add: harpoon (return entity)
 		{
 			Entity* parent = uidToEntity(my->parent);
 			if ( parent )
@@ -1089,6 +1111,16 @@ void actThrown(Entity* my)
 					spellEntity->skill[13] = 1;
 					spellEntity->skill[14] = item->appearance;
 					spellEntity->skill[15] = item->identified;
+					// mod add: remember entity struck by Harpoon
+					if ( item->type == HARPOON && hit.entity )
+					{
+    					spellEntity->skill[7] = hit.entity->getUID();
+					}
+					else
+					{
+    					spellEntity->skill[7] = 0;
+					}
+					// mod add end
 				}
 			}
 		}
@@ -1915,7 +1947,7 @@ void actThrown(Entity* my)
 
 				if ( friendlyHit && !usedpotion )
 				{
-					if ( item && itemCategory(item) != POTION && item->type != BOOMERANG
+					if ( item && itemCategory(item) != POTION && item->type != BOOMERANG && item->type != HARPOON //mod add: harpoon
 						&& item->type != GREASE_BALL && item->type != DUST_BALL 
 						&& item->type != SLOP_BALL )
 					{
@@ -2488,6 +2520,16 @@ void actThrown(Entity* my)
 			list_RemoveNode(my->mynode);
 			return;
 		}
+		//mod add: prevent duplication:
+		else if ( item->type == HARPOON && uidToEntity(my->parent) )
+		{
+    		// Harpoon return entity was created above.
+    		free(item);
+    		my->removeLightField();
+    		list_RemoveNode(my->mynode);
+    		return;
+		}
+		//
 		else if ( item && itemIsThrowableTinkerTool(item) /*&& !(item->type >= TOOL_BOMB && item->type <= TOOL_TELEPORT_BOMB)*/ )
 		{
 			// non-bomb tools will fall to the ground and get placed.

@@ -631,7 +631,28 @@ void initClassStats(const int classnum, void* myStats)
 		stat->setProficiency(PRO_SHIELD, 10);
 		stat->setProficiency(PRO_LEADERSHIP, 10);
 	}
+	// mod add: whaler 
+	else if ( classnum == CLASS_WHALER )
+	{
+		// attributes
+		stat->STR += 2;
+		stat->DEX -= 2;
+		stat->CON += 1;
+		stat->INT -= 2;
+		stat->PER += 1;
 
+		stat->MAXHP += 5;
+		stat->HP += 5;
+
+		stat->MAXMP -= 10;
+		stat->MP -= 10;
+
+		// skills
+		stat->setProficiency(PRO_STEALTH, 20);
+		stat->setProficiency(PRO_POLEARM, 40);
+		stat->setProficiency(PRO_RANGED, 50);
+		stat->setProficiency(PRO_LOCKPICKING, 20);
+	} //mod add end
 	if ( gameModeManager.currentSession.challengeRun.isActive() )
 	{
 		if ( gameModeManager.currentSession.challengeRun.customBaseStats )
@@ -3351,7 +3372,121 @@ void initClass(const int player)
 			free(item);
 		}
 	}
+	// mod add: whaler
+	else if ( client_classes[player] == CLASS_WHALER )
+	{
+		initClassStats(client_classes[player], stats[player]);
 
+		if (!isLocalPlayer && multiplayer == CLIENT && intro == false) {
+			// don't do anything crazy with items on players we don't own
+			return;
+		}
+
+		// harpoon
+		item = newItem(HARPOON, SERVICABLE, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			hotbar[0].item = item2->uid;
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		// bandana
+		item = newItem(HAT_BANDANA, WORN, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		// leather boots
+		item = newItem(LEATHER_BOOTS, WORN, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		// leather gloves
+		item = newItem(GLOVES, WORN, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		// cloak
+		item = newItem(CLOAK, WORN, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+
+		item = newItem(AMULET_WATERBREATHING, SERVICABLE, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		if ( isLocalPlayer )
+		{
+			// lantern
+			item = newItem(TOOL_LANTERN, EXCELLENT, 0, 1, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			hotbar[1].item = item2->uid;
+			free(item);
+
+			// fish
+			item = newItem(FOOD_FISH, SERVICABLE, 0, 3, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			//booze
+			item = newItem(POTION_BOOZE, EXCELLENT, 0, 2, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			item = newItem(TOOL_BEARTRAP, EXCELLENT, 0, 3, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			hotbar[2].item = item2->uid;
+			free(item);
+
+		}
+	}
+	//mod add end
 	stats[player]->OLDHP = stats[player]->HP;
 
 	if ( stats[player]->stat_appearance == 0 && stats[player]->playerRace == RACE_GOATMAN )
