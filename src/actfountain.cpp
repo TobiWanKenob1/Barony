@@ -255,6 +255,13 @@ void actFountain(Entity* my)
 						}
 					}
 					Compendium_t::Events_t::eventUpdateWorld(i, Compendium_t::CPDM_FOUNTAIN_USED, "fountain", 1);
+					// mod add: Merrow reflecting scales
+					// Drinking from any active fountain counts as water.
+					if ( players[i] && players[i]->entity )
+					{
+						players[i]->entity->tryGrowMerrowReflectingScales(false);
+					}
+					// mod add end
 					switch (my->skill[1])
 					{
 						case 0:

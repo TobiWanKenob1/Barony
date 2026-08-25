@@ -1589,7 +1589,19 @@ void Entity::effectTimes()
 			}
 			else if ( c == EFF_GROWTH && behavior == &actPlayer )
 			{
-				if ( !(myStats->type == MYCONID || myStats->type == DRYAD) || myStats->helmet )
+				// mod add: Merrow reflecting scales
+				const bool baseMerrow =
+					myStats->playerRace == RACE_MERROW
+					&& myStats->stat_appearance == 0;
+
+				if ( baseMerrow )
+				{
+					// Merrow scales are stored in EFF_GROWTH.
+					// Preserve them even while polymorphed/shapeshifted.
+					// Whether they are currently usable is handled by isMerrowPlayer().
+				}
+				// mod add end
+				else if ( !(myStats->type == MYCONID || myStats->type == DRYAD) || myStats->helmet ) //mod add else
 				{
 					setEffect(EFF_GROWTH, false, 0, false);
 				}
@@ -3915,16 +3927,24 @@ void Entity::handleEffects(Stat* myStats)
 			players[player]->mechanics.defendTicks = 0;
 		}
 
-		if ( myStats->type == MYCONID || myStats->type == DRYAD )
+		// mod add: Merrow reflecting scales
+		if ( isMerrowPlayer() )
+		{
+			updateMerrowReflectingScales();
+		}
+		else if ( myStats->type == MYCONID || myStats->type == DRYAD )
 		{
 			if ( !myStats->helmet )
 			{
-				if ( !stats[player]->getEffectActive(EFF_GROWTH) || stats[player]->EFFECTS_TIMERS[EFF_GROWTH] == -1 )
+				if ( !stats[player]->getEffectActive(EFF_GROWTH)
+					|| stats[player]->EFFECTS_TIMERS[EFF_GROWTH] == -1 )
 				{
-					setEffect(EFF_GROWTH, (Uint8)1, 15 * TICKS_PER_SECOND, false);
+					setEffect(EFF_GROWTH, (Uint8)1,
+						15 * TICKS_PER_SECOND, false);
 				}
 			}
 		}
+		// mod add end
 
 		if ( myStats->type == GREMLIN || (myStats->playerRace == RACE_GREMLIN && myStats->stat_appearance == 0) )
 		{
@@ -4618,18 +4638,36 @@ void Entity::handleEffects(Stat* myStats)
 
 		if ( behavior == &actPlayer )
 		{
-			Uint8 effectStrength = myStats->getEffectActive(EFF_GROWTH);
-			if ( effectStrength >= 1 )
+			// mod add: Merrow reflecting scales
+			const bool baseMerrow =
+				myStats->playerRace == RACE_MERROW
+				&& myStats->stat_appearance == 0;
+
+			if ( baseMerrow )
 			{
-				int stages = 1;
-				setEffect(EFF_GROWTH, (Uint8)(std::min(4, effectStrength + stages)), 15 * TICKS_PER_SECOND, false);
-				if ( myStats->getEffectActive(EFF_GROWTH) - effectStrength == 2 )
+				// Only grow a scale if currently in Merrow form.
+				if ( isMerrowPlayer() )
 				{
-					messagePlayerColor(skill[2], MESSAGE_STATUS, makeColorRGB(0, 255, 0), Language::get(6924));
+					tryGrowMerrowReflectingScales(true);
 				}
-				else if ( myStats->getEffectActive(EFF_GROWTH) > effectStrength )
+			}
+			else
+			// mod add end
+			{
+				Uint8 effectStrength = myStats->getEffectActive(EFF_GROWTH);
+
+				if ( effectStrength >= 1 )
 				{
-					messagePlayerColor(skill[2], MESSAGE_STATUS, makeColorRGB(0, 255, 0), Language::get(6925));
+					int stages = 1;
+					setEffect(EFF_GROWTH, (Uint8)(std::min(4, effectStrength + stages)), 15 * TICKS_PER_SECOND, false);
+					if ( myStats->getEffectActive(EFF_GROWTH) - effectStrength == 2 )
+					{
+						messagePlayerColor(skill[2], MESSAGE_STATUS, makeColorRGB(0, 255, 0), Language::get(6924));
+					}
+					else if ( myStats->getEffectActive(EFF_GROWTH) > effectStrength )
+					{
+						messagePlayerColor(skill[2], MESSAGE_STATUS, makeColorRGB(0, 255, 0), Language::get(6925));
+					}
 				}
 			}
 		}
@@ -19818,6 +19856,18 @@ bool Entity::checkFriend(Entity* your)
 								result = false;
 							}
 							break;
+						// mod add: Merrow
+						case MERROW:
+							if ( yourStats->type == AUTOMATON)
+							{
+								result = true;
+							}
+							if ( yourStats->type == MERROW)
+							{
+								result = true;
+							}
+							break;
+						// mod add end
 						default:
 							break;
 					}
@@ -21068,6 +21118,213 @@ int Entity::isEntityPlayer() const
 	return -1;
 }
 
+// mod add: Merrow reflecting scales
+static constexpr int MERROW_SCALE_GROWTH_COOLDOWN =
+	120 * TICKS_PER_SECOND;
+
+static constexpr int MERROW_SCALE_GROWTH_CHANCE = 50;
+static constexpr int MERROW_SCALE_DOUBLE_CHANCE = 5;
+
+bool Entity::isMerrowPlayer() const
+{
+	Stat* myStats = getStats();
+	if ( !myStats || behavior != &actPlayer )
+	{
+		return false;
+	}
+	if ( effectShapeshift != NOTHING
+		|| effectPolymorph != NOTHING
+		|| myStats->getEffectActive(EFF_SHAPESHIFT)
+		|| myStats->getEffectActive(EFF_POLYMORPH) )
+	{
+		return false;
+	}
+	return myStats->type == MERROW
+		|| (myStats->playerRace == RACE_MERROW
+			&& myStats->stat_appearance == 0);
+}
+
+int Entity::getMerrowReflectingScaleCap() const
+{
+	Stat* myStats = getStats();
+	if ( !myStats || !isMerrowPlayer() )
+	{
+		return 0;
+	}
+
+	int cap = 0;
+
+	if ( !myStats->shoes )
+	{
+		++cap;
+	}
+	if ( !myStats->breastplate )
+	{
+		++cap;
+	}
+	if ( !myStats->gloves )
+	{
+		++cap;
+	}
+	if ( !myStats->helmet )
+	{
+		++cap;
+	}
+	if ( !myStats->mask )
+	{
+		++cap;
+	}
+	if ( !myStats->cloak )
+	{
+		++cap;
+	}
+
+	return cap;
+}
+
+int Entity::getMerrowReflectingScales() const
+{
+	Stat* myStats = getStats();
+	if ( !myStats || !isMerrowPlayer() )
+	{
+		return 0;
+	}
+
+	return std::min(6,
+		static_cast<int>(myStats->getEffectActive(EFF_GROWTH)));
+}
+
+void Entity::setMerrowReflectingScales(int scales)
+{
+	Stat* myStats = getStats();
+	if ( !myStats || !isMerrowPlayer() )
+	{
+		return;
+	}
+
+	const int cap = getMerrowReflectingScaleCap();
+	const int newScales = std::max(0, std::min(cap, scales));
+	const int oldScales = myStats->getEffectActive(EFF_GROWTH);
+
+	// Merrow scales do not expire with an effect timer.
+	if ( newScales > 0 )
+	{
+		myStats->EFFECTS_TIMERS[EFF_GROWTH] = -1;
+	}
+	else
+	{
+		myStats->EFFECTS_TIMERS[EFF_GROWTH] = 0;
+	}
+
+	if ( newScales == oldScales )
+	{
+		return;
+	}
+
+	myStats->setEffectValueUnsafe(
+		EFF_GROWTH,
+		static_cast<Uint8>(newScales));
+
+	if ( multiplayer == SERVER )
+	{
+		serverUpdateEffects(skill[2]);
+	}
+}
+
+void Entity::updateMerrowReflectingScales()
+{
+	if ( multiplayer == CLIENT || !isMerrowPlayer() )
+	{
+		return;
+	}
+
+	Stat* myStats = getStats();
+	if ( !myStats )
+	{
+		return;
+	}
+
+	// Shared cooldown for swimming / water / juice / poison.
+	if ( myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN] > 0 )
+	{
+		--myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN];
+	}
+
+	// This only lowers stacks if armor reduced the capacity.
+	// Removing armor never grants a free scale.
+	setMerrowReflectingScales(getMerrowReflectingScales());
+}
+
+bool Entity::tryGrowMerrowReflectingScales(bool guaranteed)
+{
+	if ( multiplayer == CLIENT || !isMerrowPlayer() )
+	{
+		return false;
+	}
+
+	Stat* myStats = getStats();
+	if ( !myStats )
+	{
+		return false;
+	}
+
+	const int currentScales = getMerrowReflectingScales();
+	const int cap = getMerrowReflectingScaleCap();
+
+	if ( currentScales >= cap )
+	{
+		return false;
+	}
+
+	int growth = 1;
+
+	if ( !guaranteed )
+	{
+		// Cooldown belongs to the CHECK, not to successful growth.
+		if ( myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN] > 0 )
+		{
+			return false;
+		}
+
+		// Start cooldown BEFORE rolling success.
+		myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN]
+			= MERROW_SCALE_GROWTH_COOLDOWN;
+
+		// 50% chance of growth.
+		if ( local_rng.rand() % 100 >= MERROW_SCALE_GROWTH_CHANCE )
+		{
+			return false;
+		}
+
+		// Conditional 5% chance to grow two scales.
+		if ( local_rng.rand() % 100 < MERROW_SCALE_DOUBLE_CHANCE )
+		{
+			growth = 2;
+		}
+	}
+
+	setMerrowReflectingScales(currentScales + growth);
+	return true;
+}
+
+bool Entity::consumeMerrowReflectingScale()
+{
+	if ( multiplayer == CLIENT || !isMerrowPlayer() )
+	{
+		return false;
+	}
+
+	const int currentScales = getMerrowReflectingScales();
+	if ( currentScales <= 0 )
+	{
+		return false;
+	}
+
+	setMerrowReflectingScales(currentScales - 1);
+	return true;
+}
+// mod add end
+
 int Entity::getReflection() const
 {
 	Stat *stats = getStats();
@@ -21089,6 +21346,12 @@ int Entity::getReflection() const
 			return 3;
 		}
 	}
+	// mod add: Merrow reflecting scales
+	if ( isMerrowPlayer() && getMerrowReflectingScales() > 0 )
+	{
+		return 4;
+	}
+	// mod add end
 	if ( stats->amulet )
 	{
 		if ( stats->amulet->type == AMULET_MAGICREFLECTION )
@@ -22364,6 +22627,22 @@ void Entity::humanoidAnimateWalk(Entity* limb, node_t* bodypartNode, int bodypar
 Uint32 Entity::getMonsterFootstepSound(int footstepType, int bootSprite)
 {
 	int sound = -1;
+
+	// mod add: Merrow custom footsteps
+	Stat* myStats = getStats();
+	if ( myStats && myStats->type == MERROW )
+	{
+		static constexpr Uint32 merrowFootsteps[] =
+		{
+			860
+		};
+
+		return merrowFootsteps[
+			local_rng.rand()
+			% (sizeof(merrowFootsteps) / sizeof(merrowFootsteps[0]))
+		];
+	}
+	// mod add end
 
 	switch ( footstepType )
 	{
@@ -29200,6 +29479,7 @@ void Entity::setHumanoidLimbOffset(Entity* limb, Monster race, int limbType)
 		case DRYAD:
 		case MYCONID:
 		case SALAMANDER:
+		case MERROW: //mod add
 		{
 			real_t sleepHeight = 2.5;
 			if ( race == DRYAD )
@@ -29330,7 +29610,7 @@ void Entity::setHumanoidLimbOffset(Entity* limb, Monster race, int limbType)
 				limb->x -= .25 * cos(this->yaw);
 				limb->y -= .25 * sin(this->yaw);
 				limb->z += 2;
-				if ( race == INSECTOID )
+				if ( race == INSECTOID || race == MERROW ) //mod add
 				{
 					if ( limb->sprite != 727 && limb->sprite != 458
 						&& limb->sprite != 761
@@ -29419,7 +29699,7 @@ void Entity::setHumanoidLimbOffset(Entity* limb, Monster race, int limbType)
 					limb->pitch = 0;
 				}
 
-				if ( race == INSECTOID )
+				if ( race == INSECTOID || race == MERROW ) //mod add
 				{
 					if ( limb->sprite == 456 || limb->sprite == 457
 						|| limb->sprite == 732 || limb->sprite == 733
@@ -29446,7 +29726,7 @@ void Entity::setHumanoidLimbOffset(Entity* limb, Monster race, int limbType)
 					limb->pitch = 0;
 				}
 
-				if ( race == INSECTOID )
+				if ( race == INSECTOID || race == MERROW ) //mod add
 				{
 					if ( limb->sprite == 456 || limb->sprite == 457
 						|| limb->sprite == 732 || limb->sprite == 733
@@ -29988,6 +30268,7 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 		case GOBLIN:
 		case GOATMAN:
 		case INSECTOID:
+		case MERROW: // mod add
 		case INCUBUS:
 		case SUCCUBUS:
 		case DRYAD:

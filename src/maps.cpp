@@ -7838,6 +7838,7 @@ void assignActions(map_t* map)
 			case 207:
 			case 246:
 			case 247:
+			case 304: // mod add: Merrow
 			{
 				entity->sizex = 4;
 				entity->sizey = 4;

@@ -223,6 +223,12 @@ int monsterGlobalAttackTimeMultiplier = 1;
 
 std::string getMonsterLocalizedName(Monster creature, Stat* optionalStats)
 {
+	// mod add: Merrow
+	if ( creature == MERROW )
+	{
+		return "merrow";
+	}
+	// mod add end
 	if ( creature == BUGBEAR )
 	{
 		return Language::get(6256);

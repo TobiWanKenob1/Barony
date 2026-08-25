@@ -3613,7 +3613,18 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 			printlog("error: item %d used, but it has no use case!\n", static_cast<int>(item->type));
 			break;
 	}
-
+	// mod add: Merrow reflecting scales
+	if ( drankPotion
+		&& multiplayer != CLIENT
+		&& players[player]
+		&& players[player]->entity
+		&& (potionType == POTION_WATER
+			|| potionType == POTION_JUICE
+			|| potionType == POTION_SICKNESS) )
+	{
+		players[player]->entity->tryGrowMerrowReflectingScales(false);
+	}
+	// mod add end
 	if ( players[player]->isLocalPlayer() )
 	{
 		if ( checkInventorySpaceForPaperDoll && equipItemResult == EquipItemResult::EQUIP_ITEM_FAIL_CANT_UNEQUIP )

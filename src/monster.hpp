@@ -74,6 +74,7 @@ enum Monster : int
 	MONSTER_UNUSED_6,
 	MONSTER_UNUSED_7,
 	MONSTER_UNUSED_8,
+	MERROW, //mod add merrow
 	MAX_MONSTER
 };
 const int NUMMONSTERS = MAX_MONSTER;
@@ -368,6 +369,13 @@ static std::vector<Sint32> monsterSprites[NUMMONSTERS] = {
 	{
 	},
 	//MONSTER_UNUSED_8
+	{
+	},
+	// MERROW TO DO: add sprites for merrow
+    {
+        2413, 2414, 2415, 2416, 2417, 2418, 2419, 2420, 2421, 2422, 2423, 2424, //male
+		2425, 2426, 2427, 2428, 2429, 2430, 2431, 2432, 2433, 2434, 2435, 2436 //female
+    }
 };
 
 static char monstertypename[][32] =
@@ -424,7 +432,8 @@ static char monstertypename[][32] =
 	"duck_small",
 	"monster_unused_6",
 	"monster_unused_7",
-	"monster_unused_8"
+	"monster_unused_8",
+	"merrow" //mod add merrow
 };
 
 // body part focal points
@@ -486,9 +495,10 @@ static char gibtype[NUMMONSTERS] =
 	2,  //MOTH_SMALL
 	0,  //EARTH_ELEMENTAL
 	0,  //DUCK_SMALL
-	1,  //MONSTER_UNUSED_6
+	1,  //MONSTER_UNUSED_6 
 	1,  //MONSTER_UNUSED_7
-	1   //MONSTER_UNUSED_8
+	1,  //MONSTER_UNUSED_8
+	1   //MERROW modd add
 };
 
 // columns go like this:
@@ -548,7 +558,8 @@ static double damagetables[NUMMONSTERS][7] =
 	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }, // duck_small
 	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }, // monster_unused_6
 	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }, // monster_unused_7
-	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }  // monster_unused_8
+	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }, // monster_unused_8
+	{ 0.5, 1.f, 0.7, 1.2, 1.1, 1.4, 1.f }  // merrow mod add
 };
 
 enum DamageTableType : int

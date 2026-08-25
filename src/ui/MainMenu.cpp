@@ -8616,7 +8616,7 @@ bind_failed:
 	}
 
 	// number of player selectable races
-	constexpr int num_races = 14;
+	constexpr int num_races = 15;
 
 /******************************************************************************/
 	int getLangEntryForMainMenuRaceName(int race)
@@ -8643,6 +8643,28 @@ bind_failed:
 		}
 		return 5369;
 	}
+
+	// mod add: custom Merrow race name without language-file dependency
+	const char* getMainMenuRaceName(int race)
+	{
+		if ( race == 14 ) // Merrow's visible menu index
+		{
+			return "Merrow";
+		}
+
+		return Language::get(getLangEntryForMainMenuRaceName(race));
+	}
+
+	const char* getPlayerRaceName(int race)
+	{
+		if ( race == RACE_MERROW )
+		{
+			return "Merrow";
+		}
+
+		return Language::get(getLangEntryForPlayerRaceName(race));
+	}
+	// mod add end
 
     static void createLeaderboards(std::string leaderboard_type) {
         assert(main_menu_frame);
@@ -9437,7 +9459,7 @@ bind_failed:
             assert(character_title);
             snprintf(buf, sizeof(buf), Language::get(5298),
                 score->stats->LVL,
-                Language::get(getLangEntryForPlayerRaceName(score->stats->playerRace)),
+                getPlayerRaceName(score->stats->playerRace), //mod add merrow
                 playerClassLangEntry(score->classnum, 0));
             character_title->setText(buf);
 
@@ -13543,7 +13565,7 @@ failed:
 	std::vector<const char*> reducedClassList(int index) {
 		std::vector<const char*> result;
 		result.reserve(num_classes);
-		for (int c = CLASS_BARBARIAN; c <= CLASS_PALADIN; ++c) {
+		for (int c = CLASS_BARBARIAN; c < num_classes; ++c) {
 			if (isCharacterValidFromDLC(*stats[index], c) == VALID_OK_CHARACTER) {
 				result.emplace_back(classes_in_order[c]);
 			}
@@ -13822,7 +13844,12 @@ failed:
 	        color_race = color_dlc0;
 	    }
 
-		auto& raceDescriptionData = RaceDescriptions::getRaceDescriptionData(race);
+		// mod add: Merrow race description
+		auto& raceDescriptionData =
+			(race == RACE_MERROW)
+				? RaceDescriptions::getMonsterDescriptionData(MERROW)
+				: RaceDescriptions::getRaceDescriptionData(race);
+		// mod add end
 
 	    auto details_title = card.findField("details_title");
 	    if (details_title) {
@@ -13868,6 +13895,30 @@ failed:
 
 	static void race_achievement_required_error(int classnum)
 	{
+		// mod add: Merrow / Whaler
+		if ( classnum == CLASS_WHALER )
+		{
+			auto prompt = errorPrompt(
+				"Win the game as a Merrow to unlock Whaler for other races.",
+				Language::get(5884),
+				[](Button& button) {
+					soundCancel();
+					closeMono();
+				});
+
+			if ( prompt )
+			{
+				if ( auto txt = prompt->findField("text") )
+				{
+					SDL_Rect pos = txt->getSize();
+					pos.y -= 8;
+					pos.h += 8;
+					txt->setSize(pos);
+				}
+			}
+			return;
+		}
+		// mod add end
 		char buf[256];
 		std::string achName = "";
 		switch ( classnum )
@@ -14006,7 +14057,7 @@ failed:
 			&& gameModeManager.currentSession.challengeRun.classnum >= 0 && gameModeManager.currentSession.challengeRun.classnum <= NUMCLASSES;
 
 		for (int c = 0; c < num_races; ++c) {
-			auto race = Language::get(getLangEntryForMainMenuRaceName(c));
+			auto race = getMainMenuRaceName(c); //mod add extra races
 			if (strcmp(button.getName(), race) == 0) {
 				if ( fixedRace && !override_dlc && gameModeManager.currentSession.challengeRun.race != c )
 				{
@@ -14115,7 +14166,7 @@ failed:
 		}
 		for (int c = 0; c < num_races; ++c) {
 			// clear other buttons
-			auto race = Language::get(getLangEntryForMainMenuRaceName(c));
+			auto race = getMainMenuRaceName(c); //mod add extra races
 			auto other_button = frame->findButton(race);
 			if (other_button != &button) {
 				other_button->setPressed(false);
@@ -15968,7 +16019,7 @@ failed:
 		gradient->ontop = true;
 
         for (int c = 0; c < num_races; ++c) {
-		    auto race = subframe->addButton(Language::get(getLangEntryForMainMenuRaceName(c)));
+		    auto race = subframe->addButton(getMainMenuRaceName(c));  //mod add extra races
 		    race->setSize(SDL_Rect{0, c * 36 + 2, 30, 30});
 
 			bool fixedRace = gameModeManager.currentSession.challengeRun.isActive()
@@ -16025,13 +16076,13 @@ failed:
 		    race->addWidgetAction("MenuPageLeftAlt", "privacy");
 		    race->setWidgetBack("back_button");
 		    if (c < num_races - 1) {
-		        race->setWidgetDown(Language::get(getLangEntryForMainMenuRaceName(c + 1)));
+		        race->setWidgetDown(getMainMenuRaceName(c + 1)); //mod add merrow
 		    }
 		    /*else {
 		        race->setWidgetDown("disable_abilities");
 		    }*/
 		    if (c > 0) {
-		        race->setWidgetUp(Language::get(getLangEntryForMainMenuRaceName(c - 1)));
+		        race->setWidgetUp(getMainMenuRaceName(c - 1)); //mod ad merrow
 		    }
 		    race->setGlyphPosition(Widget::glyph_position_t::CENTERED);
 		    race->addWidgetAction("MenuPageLeft", "male");
@@ -16082,7 +16133,7 @@ failed:
                 }
 		        });
 
-		    auto label = subframe->addField((std::string(Language::get(getLangEntryForMainMenuRaceName(c))) + "_label").c_str(), 64);
+		    auto label = subframe->addField((std::string(getMainMenuRaceName(c)) + "_label").c_str(), 64);  //mod add extra races
 		    if (c >= 1 && c <= 4) 
 			{
 		        label->setColor(color_dlc1);
@@ -16099,7 +16150,7 @@ failed:
 			{
 		        label->setColor(color_dlc0);
 		    }
-		    label->setText(Language::get(getLangEntryForMainMenuRaceName(c)));
+		    label->setText(getMainMenuRaceName(c));  //mod add extra races
 		    label->setFont(smallfont_outline);
 		    label->setSize(SDL_Rect{32, c * 36, 108, 36});
 		    label->setHJustify(Field::justify_t::LEFT);
@@ -16369,7 +16420,7 @@ failed:
 		disable_abilities->addWidgetAction("MenuPageLeftAlt", "privacy");
 		disable_abilities->setWidgetBack("back_button");
 		disable_abilities->setWidgetDown("show_race_info");
-		disable_abilities->setWidgetUp(Language::get(getLangEntryForMainMenuRaceName(num_races - 1)));
+		disable_abilities->setWidgetUp(getMainMenuRaceName(num_races - 1)); //mod add merrow
 		if (stats[index]->playerRace != RACE_HUMAN) {
 			disable_abilities->setPressed(stats[index]->stat_appearance != 0);
 		}
@@ -17779,7 +17830,7 @@ failed:
 		race_button->setColor(makeColor(255, 255, 255, 255));
 		race_button->setHighlightColor(makeColor(255, 255, 255, 255));
 		race_button->setSize(SDL_Rect{166, 166, 108, 52});
-		race_button->setText(Language::get(getLangEntryForPlayerRaceName(stats[index]->playerRace)));
+		race_button->setText(getPlayerRaceName(stats[index]->playerRace) ); //mod add extra races
 		race_button->setFont(smallfont_outline);
 		race_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/Finalize_Button_RaceBase_00.png");
 		race_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/Finalize_Button_RaceBaseHigh_00.png");
@@ -17893,7 +17944,7 @@ failed:
 			}
 
 			auto race_button = card->findButton("race");
-			race_button->setText(Language::get(getLangEntryForPlayerRaceName(stats[index]->playerRace)));
+			race_button->setText(getPlayerRaceName(stats[index]->playerRace) ); //mod add extra races
 
 			// choose a random appearance
 			const int appearance_choice = RNG.uniform(0, NUMAPPEARANCES - 1);

@@ -1050,6 +1050,15 @@ public:
 
 	void spawnBlood(int bloodsprite = 160);
 
+	// mod add: Merrow reflecting scales
+	bool isMerrowPlayer() const;
+	int getMerrowReflectingScaleCap() const;
+	int getMerrowReflectingScales() const;
+	void setMerrowReflectingScales(int scales);
+	void updateMerrowReflectingScales();
+	bool tryGrowMerrowReflectingScales(bool guaranteed = false);
+	bool consumeMerrowReflectingScale();
+	// mod add end
 	// reflection is set 1, 2 or 3 depending on the item slot. reflection of 3 does not degrade.
 	int getReflection() const;
 	// monster attack pose, return the animation to use based on weapon.

@@ -5570,6 +5570,140 @@ bool physfsSearchSoundsToUpdate()
 	return false;
 }
 
+// mod edit: safely resize sound storage when a mod adds sound indices.
+static bool resizeSoundStorage(Uint32 newCount)
+{
+	static Uint32 baseSoundCount = 0;
+
+	if ( baseSoundCount == 0 )
+	{
+		// First mod reload occurs after the vanilla sound list has loaded.
+		baseSoundCount = numsounds;
+	}
+
+	// Mods may append sounds, but must not remove vanilla sound indices.
+	if ( newCount < baseSoundCount )
+	{
+		printlog(
+			"[SOUNDS]: ERROR: mounted sounds.txt contains only %u sounds, "
+			"but vanilla requires at least %u.",
+			newCount,
+			baseSoundCount
+		);
+		return false;
+	}
+
+	if ( newCount == numsounds )
+	{
+		return true;
+	}
+
+	const Uint32 oldCount = numsounds;
+	const Uint32 copyCount = std::min(oldCount, newCount);
+
+	printlog(
+		"[SOUNDS]: resizing sound storage from %u to %u entries.",
+		oldCount,
+		newCount
+	);
+
+#ifdef USE_FMOD
+	FMOD::Sound** newSounds =
+		(FMOD::Sound**)calloc(newCount, sizeof(FMOD::Sound*));
+
+	if ( !newSounds )
+	{
+		printlog("[SOUNDS]: ERROR: failed to resize sound storage.");
+		return false;
+	}
+
+	if ( sounds && copyCount > 0 )
+	{
+		memcpy(
+			newSounds,
+			sounds,
+			sizeof(FMOD::Sound*) * copyCount
+		);
+	}
+
+	// If a mod was unloaded and the list shrinks back toward vanilla,
+	// release the sound resources which are disappearing.
+	if ( sounds && newCount < oldCount )
+	{
+		for ( Uint32 c = newCount; c < oldCount; ++c )
+		{
+			if ( sounds[c] )
+			{
+				sounds[c]->release();
+				sounds[c] = nullptr;
+			}
+		}
+	}
+
+	if ( sounds )
+	{
+		free(sounds);
+	}
+
+	sounds = newSounds;
+
+#elif defined USE_OPENAL
+	OPENAL_BUFFER** newSounds =
+		(OPENAL_BUFFER**)calloc(newCount, sizeof(OPENAL_BUFFER*));
+
+	if ( !newSounds )
+	{
+		printlog("[SOUNDS]: ERROR: failed to resize sound storage.");
+		return false;
+	}
+
+	if ( sounds && copyCount > 0 )
+	{
+		memcpy(
+			newSounds,
+			sounds,
+			sizeof(OPENAL_BUFFER*) * copyCount
+		);
+	}
+
+	if ( sounds && newCount < oldCount )
+	{
+		for ( Uint32 c = newCount; c < oldCount; ++c )
+		{
+			if ( sounds[c] )
+			{
+				OPENAL_Sound_Release(sounds[c]);
+				sounds[c] = nullptr;
+			}
+		}
+	}
+
+	if ( sounds )
+	{
+		free(sounds);
+	}
+
+	sounds = newSounds;
+#endif
+
+	numsounds = newCount;
+
+	// Remove bookkeeping entries for sound indices which disappeared.
+	Mods::soundsListModifiedIndexes.erase(
+		std::remove_if(
+			Mods::soundsListModifiedIndexes.begin(),
+			Mods::soundsListModifiedIndexes.end(),
+			[newCount](int index)
+			{
+				return index >= static_cast<int>(newCount);
+			}
+		),
+		Mods::soundsListModifiedIndexes.end()
+	);
+
+	return true;
+}
+// mod edit end
 void physfsReloadSounds(bool reloadAll)
 {
 	if ( no_sound )
@@ -5583,6 +5717,36 @@ void physfsReloadSounds(bool reloadAll)
 	}
 	std::string soundsDirectory = PHYSFS_getRealDir("sound/sounds.txt");
 	soundsDirectory.append(PHYSFS_getDirSeparator()).append("sound/sounds.txt");
+	// mod edit: resize storage to match the mounted sounds.txt.
+	File* countFp = openDataFile(soundsDirectory.c_str(), "rb");
+	if ( !countFp )
+	{
+		printlog("[SOUNDS]: ERROR: failed to open mounted sounds.txt.");
+		return;
+	}
+
+	Uint32 mountedSoundCount = 0;
+
+	for ( mountedSoundCount = 0;
+		!countFp->eof();
+		++mountedSoundCount )
+	{
+		while ( countFp->getc() != '\n' )
+		{
+			if ( countFp->eof() )
+			{
+				break;
+			}
+		}
+	}
+
+	FileIO::close(countFp);
+
+	if ( !resizeSoundStorage(mountedSoundCount) )
+	{
+		return;
+	}
+	// mod edit end
 	File* fp = openDataFile(soundsDirectory.c_str(), "rb");
 	char name[PATH_MAX];
 
@@ -5648,7 +5812,7 @@ void physfsReloadSounds(bool reloadAll)
 				}
 
 #ifdef USE_FMOD
-				if ( !reloadAll )
+				if ( !reloadAll && sounds[c] ) //mod edit
 				{
 					sounds[c]->release();
 					sounds[c] = nullptr;
@@ -5665,9 +5829,10 @@ void physfsReloadSounds(bool reloadAll)
 				}
 #endif
 #ifdef USE_OPENAL
-				if ( !reloadAll )
+				if ( !reloadAll && sounds[c] ) //mod edit
 				{
 					OPENAL_Sound_Release(sounds[c]);
+					sounds[c] = nullptr; //mod edit
 				}
 				OPENAL_CreateSound(soundFile.c_str(), true, &sounds[c]);
 #endif
@@ -5710,6 +5875,89 @@ bool physfsSearchSpritesToUpdate() //TODO: NX PORT: Any changes needed here?
 	return false;
 }
 
+// mod edit: safely resize sprite storage when a mod adds sprite indices.
+static bool resizeSpriteStorage(Uint32 newCount)
+{
+	static Uint32 baseSpriteCount = 0;
+
+	if ( baseSpriteCount == 0 )
+	{
+		// First call occurs after the vanilla sprite list has been loaded.
+		baseSpriteCount = numsprites;
+	}
+
+	// A mod may append sprites, but must not remove vanilla sprite indices.
+	if ( newCount < baseSpriteCount )
+	{
+		printlog(
+			"[SPRITES]: ERROR: mounted sprites.txt contains only %u sprites, "
+			"but vanilla requires at least %u.",
+			newCount,
+			baseSpriteCount
+		);
+		return false;
+	}
+
+	if ( newCount == numsprites )
+	{
+		return true;
+	}
+
+	const Uint32 oldCount = numsprites;
+	const Uint32 copyCount = std::min(oldCount, newCount);
+
+	printlog(
+		"[SPRITES]: resizing sprite storage from %u to %u entries.",
+		oldCount,
+		newCount
+	);
+
+	SDL_Surface** newSprites =
+		(SDL_Surface**)calloc(newCount, sizeof(SDL_Surface*));
+
+	if ( !newSprites )
+	{
+		printlog("[SPRITES]: ERROR: failed to resize sprite storage.");
+		return false;
+	}
+
+	// Preserve all sprite entries which still exist.
+	if ( sprites && copyCount > 0 )
+	{
+		memcpy(
+			newSprites,
+			sprites,
+			sizeof(SDL_Surface*) * copyCount
+		);
+	}
+
+	// If a mod was unloaded, free sprites whose indices disappear.
+	if ( newCount < oldCount )
+	{
+		for ( Uint32 c = newCount; c < oldCount; ++c )
+		{
+			if ( sprites && sprites[c] )
+			{
+				SDL_FreeSurface(sprites[c]);
+				sprites[c] = nullptr;
+			}
+		}
+	}
+
+	// Only free the old pointer array.
+	// Retained SDL_Surface objects were copied above.
+	if ( sprites )
+	{
+		free(sprites);
+	}
+
+	sprites = newSprites;
+	numsprites = newCount;
+
+	return true;
+}
+// mod edit end
+
 void physfsReloadSprites(bool reloadAll) //TODO: NX PORT: Any changes needed here?
 {
 	if ( !PHYSFS_getRealDir("images/sprites.txt") )
@@ -5720,17 +5968,45 @@ void physfsReloadSprites(bool reloadAll) //TODO: NX PORT: Any changes needed her
 	std::string spritesDirectory = PHYSFS_getRealDir("images/sprites.txt");
 	spritesDirectory.append(PHYSFS_getDirSeparator()).append("images/sprites.txt");
 	printlog("[PhysFS]: Loading sprites from directory %s...\n", spritesDirectory.c_str());
-	File* fp = openDataFile(spritesDirectory.c_str(), "rb");
-	char name[PATH_MAX];
-
-	/*int numsprites = 0;
-	for ( numsprites = 0; !fp->eof(); numsprites++ )
+	
+	// mod edit: determine how many sprite indices the mounted sprites.txt contains.
+	File* countFp = openDataFile(spritesDirectory.c_str(), "rb");
+	if ( !countFp )
 	{
-		while ( fp->getc() != '\n' ) if ( fp->eof() )
+		return;
+	}
+
+	Uint32 mountedSpriteCount = 0;
+
+	for ( mountedSpriteCount = 0;
+		!countFp->eof();
+		mountedSpriteCount++ )
+	{
+		while ( countFp->getc() != '\n' )
 		{
-			break;
+			if ( countFp->eof() )
+			{
+				break;
+			}
 		}
-	}*/
+	}
+
+	FileIO::close(countFp);
+
+	if ( !resizeSpriteStorage(mountedSpriteCount) )
+	{
+		return;
+	}
+	// mod edit end
+
+	File* fp = openDataFile(spritesDirectory.c_str(), "rb");
+	if ( !fp )
+	{
+		return;
+	}
+
+	char name[PATH_MAX];
+	//mod edit end
 
 	for ( int c = 0; !fp->eof(); ++c )
 	{

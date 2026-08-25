@@ -4846,8 +4846,14 @@ void Player::PlayerMovement_t::handlePlayerMovement(bool useRefreshRateDelta)
 			amuletwaterbreathing = true;
 		}
 	}
+	// mod add: Merrow swims at full movement speed with racial features enabled
+	bool merrowOlympicSwimmer =
+		players[PLAYER_NUM]
+		&& players[PLAYER_NUM]->entity
+		&& players[PLAYER_NUM]->entity->isMerrowPlayer();
+	// mod add end
 	bool swimming = isPlayerSwimming();
-	if ( swimming && !amuletwaterbreathing )
+	if ( swimming && !amuletwaterbreathing && !merrowOlympicSwimmer )
 	{
 		//PLAYER_VELX *= (/*((stats[PLAYER_NUM]->getModifiedProficiency(PRO_LEGACY_SWIMMING) / 100.f) * 50.f) +*/ 50) / 100.f;
 		//PLAYER_VELY *= (/*((stats[PLAYER_NUM]->getModifiedProficiency(PRO_LEGACY_SWIMMING) / 100.f) * 50.f) +*/ 50) / 100.f;
@@ -5822,6 +5828,11 @@ int playerHeadSprite(Monster race, sex_t sex, int appearance, int frame, int pla
 	{
 		return sex == FEMALE ? 2214 : 2213;
 	}
+	// mod add merrow 
+	else if (race == MERROW) {
+    	return sex == FEMALE ? 2425 : 2413;
+	}
+	// mod add end
     else {
         return 481; // shadow head due to unknown creature
     }
@@ -7219,7 +7230,24 @@ void actPlayer(Entity* my)
 	{
 		stats[PLAYER_NUM]->type = HUMAN;
 	}
+	// mod add: Merrow cannot wear boots while racial features are enabled
+	if ( players[PLAYER_NUM]->isLocalPlayer()
+		&& players[PLAYER_NUM]->entity
+		&& players[PLAYER_NUM]->entity->isMerrowPlayer()
+		&& stats[PLAYER_NUM]->shoes )
+	{
+		Item* boots = stats[PLAYER_NUM]->shoes;
 
+		if ( dropItem(boots, PLAYER_NUM, false, true) )
+		{
+			messagePlayer(
+				PLAYER_NUM,
+				MESSAGE_EQUIPMENT,
+				"These boots slip right off your fins!"
+			);
+		}
+	}
+	// mod add end
 	if ( stats[PLAYER_NUM]->type == RAT || stats[PLAYER_NUM]->type == SPIDER )
 	{
 		isHumanoid = false;
@@ -9191,6 +9219,11 @@ void actPlayer(Entity* my)
 				case SALAMANDER:
 					my->z = 3.0;
 					break;
+				//mod add merrow
+				case MERROW:
+					my->z = 2.5;
+					break;
+				//mod add end
 				default:
 					my->z = 1.5;
 					break;
@@ -9486,6 +9519,9 @@ void actPlayer(Entity* my)
 				// Check if the Player is in Water or Lava
 				if ( swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] )
 				{
+
+					my->tryGrowMerrowReflectingScales(false);	// mod add: Merrow reflecting scales
+
 					if ( my->flags[BURNING] )
 					{
 						my->flags[BURNING] = false;
@@ -11980,7 +12016,7 @@ void actPlayer(Entity* my)
 			if ( bodypart < 9 ) // don't shift helm/mask. 
 			{
 				// these monsters are shorter than humans so extend the limbs down to floor, gives longer neck.
-				if ( playerRace == GOBLIN || playerRace == INSECTOID || playerRace == GOATMAN )
+				if ( playerRace == GOBLIN || playerRace == INSECTOID || playerRace == GOATMAN || playerRace == MERROW ) //mod add merrow
 				{
 					entity->z += 0.5;
 				}
@@ -12873,6 +12909,18 @@ void actPlayer(Entity* my)
 						}
 					}
 				}
+				//mod add: make leg sprite invisible for merrow race
+				if ( playerRace == MERROW )
+				{
+					entity->flags[INVISIBLE] = true;
+					entity->flags[INVISIBLE_DITHER] = false;
+				}
+				else
+				{
+					entity->flags[INVISIBLE] = my->flags[INVISIBLE];
+					entity->flags[INVISIBLE_DITHER] = my->flags[INVISIBLE_DITHER];
+				}
+				//mod add end
 				if ( shortSprite && Entity::isBootSpriteShortArmor(entity) )
 				{
 					entity->z += 0.75;
@@ -12924,6 +12972,18 @@ void actPlayer(Entity* my)
 						}
 					}
 				}
+				//mod add: make leg sprite invisible for merrow race
+				if ( playerRace == MERROW )
+				{
+					entity->flags[INVISIBLE] = true;
+					entity->flags[INVISIBLE_DITHER] = false;
+				}
+				else
+				{
+					entity->flags[INVISIBLE] = my->flags[INVISIBLE];
+					entity->flags[INVISIBLE_DITHER] = my->flags[INVISIBLE_DITHER];
+				}
+				//mod add end
 				if ( shortSprite && Entity::isBootSpriteShortArmor(entity) )
 				{
 					entity->z += 0.75;
@@ -13523,7 +13583,7 @@ void actPlayer(Entity* my)
 						entity->focaly = limbs[playerRace][8][1] - 0.25;
 						entity->focalz = limbs[playerRace][8][2] - 0.5;
 					}
-					else if ( playerRace == GOATMAN || playerRace == INSECTOID || playerRace == GOBLIN )
+					else if ( playerRace == GOATMAN || playerRace == INSECTOID || playerRace == GOBLIN || playerRace == MERROW ) //mod add merrow
 					{
 						entity->focaly = limbs[playerRace][8][1] - 0.25;
 						entity->focalz = limbs[playerRace][8][2] - 0.5;
@@ -13531,6 +13591,14 @@ void actPlayer(Entity* my)
 
 					entity->scalex = 0.99;
 					entity->scaley = 0.99;
+					//mod add: merrow resize for backpack
+					if ( playerRace == MERROW )
+					{
+						entity->scalex = 1.2;
+						entity->scaley = 0.9;
+						entity->scalez = 1.2;
+					}
+					//mod add end
 				}
 				entity->x -= cos(my->yaw);
 				entity->y -= sin(my->yaw);
@@ -14331,6 +14399,160 @@ void actPlayer(Entity* my)
 						entity->pitch = 0.0;
 						entity->roll = 0.0;
 					}
+					// mod add: Merrow lower body
+					if ( playerRace == MERROW )
+					{
+						entity->focalx = limbs[MERROW][11][0];
+						entity->focaly = limbs[MERROW][11][1];
+						entity->focalz = limbs[MERROW][11][2];
+
+						entity->flags[INVISIBLE] = my->flags[INVISIBLE];
+						entity->flags[INVISIBLE_DITHER] = entity->flags[INVISIBLE];
+
+						// sex-specific Merrow tail frames
+						static constexpr Sint32 merrowTailFramesMale[4] =
+						{
+							2419,
+							2420,
+							2421,
+							2422
+						};
+
+						static constexpr Sint32 merrowTailFramesFemale[4] =
+						{
+							2431, 
+							2432,
+							2433,
+							2434
+						};
+
+						const Sint32* merrowTailFrames =
+							(stats[PLAYER_NUM]->sex == FEMALE)
+								? merrowTailFramesFemale
+								: merrowTailFramesMale;
+						
+						constexpr real_t frameStep = 0.48;
+
+						int currentFrame = 0; // model 1 is our idle/default frame
+
+						if ( dist >= 0.01 )
+						{
+							entity->fskill[0] += std::min(
+								dist * PLAYERWALKSPEED,
+								2.f * PLAYERWALKSPEED
+							);
+
+							const real_t cycleLength = frameStep * 4;
+
+							while ( entity->fskill[0] >= cycleLength )
+							{
+								entity->fskill[0] -= cycleLength;
+							}
+
+							currentFrame = static_cast<int>(
+								entity->fskill[0] / frameStep
+							);
+
+							currentFrame = std::min(currentFrame, 3);
+						}
+						else
+						{
+							// Idle on model 2.
+							currentFrame = 0;
+
+							// Keep animation phase aligned with model 2 so moving
+							// doesn't instantly jump back to model 1.
+							entity->fskill[0] = 0.0;
+						}
+
+						 const Sint32 previousSprite = entity->sprite;
+
+						int previousFrame = -1;
+						for ( int i = 0; i < 4; ++i )
+						{
+							if ( previousSprite == merrowTailFrames[i] )
+							{
+								previousFrame = i;
+								break;
+							}
+						}
+
+						auto getMerrowTailOffset =
+							[&](int frame, real_t& xOffset, real_t& yOffset, real_t& zOffset)
+						{
+							const int offsetRow = (frame % 2 == 0) ? 12 : 13;
+
+							real_t lateralOffset = limbs[MERROW][offsetRow][0];
+							const real_t forwardOffset = limbs[MERROW][offsetRow][1];
+							zOffset = limbs[MERROW][offsetRow][2];
+
+							if ( frame >= 2 )
+							{
+								lateralOffset = -lateralOffset;
+							}
+
+							xOffset =
+								lateralOffset * cos(my->yaw + PI / 2)
+								+ forwardOffset * cos(my->yaw);
+
+							yOffset =
+								lateralOffset * sin(my->yaw + PI / 2)
+								+ forwardOffset * sin(my->yaw);
+						};
+
+						real_t newOffsetX = 0.0;
+						real_t newOffsetY = 0.0;
+						real_t newOffsetZ = 0.0;
+
+						getMerrowTailOffset(
+							currentFrame,
+							newOffsetX,
+							newOffsetY,
+							newOffsetZ
+						);
+
+						if ( previousFrame >= 0
+							&& previousFrame != currentFrame
+							&& !entity->bNeedsRenderPositionInit )
+						{
+							real_t oldOffsetX = 0.0;
+							real_t oldOffsetY = 0.0;
+							real_t oldOffsetZ = 0.0;
+
+							getMerrowTailOffset(
+								previousFrame,
+								oldOffsetX,
+								oldOffsetY,
+								oldOffsetZ
+							);
+
+							const real_t deltaX = newOffsetX - oldOffsetX;
+							const real_t deltaY = newOffsetY - oldOffsetY;
+							const real_t deltaZ = newOffsetZ - oldOffsetZ;
+
+							entity->lerpPreviousState.x.position += deltaX / 16.0;
+							entity->lerpCurrentState.x.position += deltaX / 16.0;
+							entity->lerpRenderState.x.position += deltaX / 16.0;
+
+							entity->lerpPreviousState.y.position += deltaY / 16.0;
+							entity->lerpCurrentState.y.position += deltaY / 16.0;
+							entity->lerpRenderState.y.position += deltaY / 16.0;
+
+							entity->lerpPreviousState.z.position += deltaZ;
+							entity->lerpCurrentState.z.position += deltaZ;
+							entity->lerpRenderState.z.position += deltaZ;
+						}
+
+						entity->sprite = merrowTailFrames[currentFrame];
+
+						entity->x += newOffsetX;
+						entity->y += newOffsetY;
+						entity->z += newOffsetZ;
+
+						entity->pitch = 0.0;
+						entity->roll = 0.0;
+					}
+					// mod add end
 					break;
 				case 12:
 					entity->focalx = limbs[playerRace][12][0];
@@ -15264,6 +15486,11 @@ Monster getMonsterFromPlayerRace(int playerRace)
 		case RACE_GNOME:
 			return GNOME;
 			break;
+		// mod add: Merrow race
+		case RACE_MERROW:
+			return MERROW;
+			break;
+		// mod add end
 		default:
 			return HUMAN;
 			break;
@@ -15395,6 +15622,18 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 				case GNOME:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2216 : 2215;
 					break;
+				//mod add: Merrow TODO: torso
+				case MERROW:
+					if ( stats[playernum]->sex == FEMALE )
+					{
+						this->sprite = 2426;
+					}
+					else
+					{
+						this->sprite = 2414;
+					}
+					break;
+				// mod add end
 				default:
 					break;
 			}
@@ -15693,6 +15932,18 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 				case GNOME:
 					this->sprite = 2221;
 					break;
+				//mod add: Merrow right arm
+				case MERROW:
+					if ( stats[playernum]->sex == FEMALE )
+					{
+						this->sprite = 2427;
+					}
+					else
+					{
+						this->sprite = 2415;
+					}
+					break;
+				//mod add end
 				default:
 					break;
 			}
@@ -15783,6 +16034,18 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 				case GNOME:
 					this->sprite = 2222;
 					break;
+				//mod add: Merrow left arm
+				case MERROW:
+					if ( stats[playernum]->sex == FEMALE )
+					{
+						this->sprite = 2428;
+					}
+					else
+					{
+						this->sprite = 2416;
+					}
+					break;
+				//mod add end
 				default:
 					break;
 			}

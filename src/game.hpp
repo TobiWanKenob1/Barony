@@ -215,6 +215,7 @@ enum PlayerRaces : int
 	RACE_DRYAD,
 	RACE_MYCONID,
 	RACE_SALAMANDER,
+	RACE_MERROW, //mod add merrow
 	RACE_ENUM_END
 };
 

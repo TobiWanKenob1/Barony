@@ -2412,6 +2412,17 @@ void actMagicMissile(Entity* my)   //TODO: Verify this function.
 					{
 						reflection = 0;
 					}
+					// mod add: Merrow reflecting scales
+					if ( reflection == 4 && multiplayer != CLIENT )
+					{
+						if ( !hit.entity->consumeMerrowReflectingScale() )
+						{
+							// Safety check: if the scale disappeared before the hit
+							// was resolved, do not reflect the spell.
+							reflection = 0;
+						}
+					}
+					// mod add end
 					if ( reflection == 3 && hitstats->shield 
 						&& (hitstats->shield->type == MIRROR_SHIELD || hitstats->getEffectActive(EFF_REFLECTOR_SHIELD) > 0) && hitstats->defending )
 					{

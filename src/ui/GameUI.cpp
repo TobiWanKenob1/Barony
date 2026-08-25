@@ -6375,12 +6375,82 @@ void draw_status_effect_numbers_fn(const Widget& widget, SDL_Rect pos) {
 				|| (players[player]->mechanics.gremlinBreakableCounter > 0 && stats[player]->type == GREMLIN)
 				|| players[player]->mechanics.getWealthTier() > 0 )
 			{
+				// mod add: Merrow reflecting scales
+				auto& effectQueue = StatusEffectQueue[player].effectQueue;
+				auto queueIt = effectQueue.rbegin();
+				// mod add end
 				for ( auto img : frame->getImages() )
 				{
+					// mod add: Merrow reflecting scales
+					StatusEffectQueueEntry_t* queueEntry = nullptr;
+					if ( queueIt != effectQueue.rend() )
+					{
+						queueEntry = &(*queueIt);
+						++queueIt;
+					}
+					// mod add end
 					bool alignRight = *cvar_statusfx_align_text_right;
 					if ( !img->disabled )
 					{
-						if ( img->path.find("assistance.png") != std::string::npos )
+						// mod add: Merrow reflecting scales
+						if ( queueEntry
+							&& queueEntry->effect == EFF_GROWTH
+							&& players[player]
+							&& players[player]->entity
+							&& players[player]->entity->isMerrowPlayer() )
+						{
+							alignRight = true;
+
+							int effectStrength = std::max(1,
+								std::min(6, (int)queueEntry->customVariable));
+
+							std::string val = "I";
+							switch ( effectStrength )
+							{
+								case 6:
+									val = "VI";
+									break;
+								case 5:
+									val = "V";
+									break;
+								case 4:
+									val = "IV";
+									break;
+								case 3:
+									val = "III";
+									break;
+								case 2:
+									val = "II";
+									break;
+								default:
+									val = "I";
+									break;
+							}
+
+							if ( auto text = Text::get(val.c_str(),
+								"fonts/pixel_maz_multiline.ttf#16#2",
+								0xFFFFFFFF, 0) )
+							{
+								text->drawColor(SDL_Rect{ 0,0,0,0 },
+									SDL_Rect{
+										pos.x + img->pos.x
+											+ (alignRight
+												? (img->pos.w - (int)text->getWidth())
+												: (img->pos.w / 2
+													- (int)text->getWidth() / 2
+													+ *cvar_assist_icon_txt_x)),
+										pos.y + img->pos.y + img->pos.h / 2
+											- (int)text->getHeight() / 2
+											- 3 + *cvar_assist_icon_txt_y,
+										0, 0 },
+									SDL_Rect{ 0, 0,
+										Frame::virtualScreenX,
+										Frame::virtualScreenY },
+									makeColor(255, 255, 255, 255));
+							}
+						}
+						// mod add end
+						else if ( img->path.find("assistance.png") != std::string::npos ) //mod add else
 						{
 							if ( auto text = Text::get(std::to_string(stats[player]->MISC_FLAGS[STAT_FLAG_ASSISTANCE_PLAYER_PTS]).c_str(), 
 								"fonts/pixel_maz_multiline.ttf#16#2", 0xFFFFFFFF, 0) )
@@ -7845,70 +7915,88 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 				}
 				else if ( effectID == EFF_GROWTH )
 				{
-					variation = std::min(2, std::max(0, (int)entry.customVariable - 2));
-
-					int tier = variation + 1;
-
-					std::string newHeader = definition.getName(variation).c_str();
-					uppercaseString(newHeader);
-					tooltipHeader->setText(newHeader.c_str());
-
-					std::string newDesc = "";
-					if ( stats[player]->type == DRYAD )
+					// mod add: Merrow reflecting scales
+					if ( players[player]
+						&& players[player]->entity
+						&& players[player]->entity->isMerrowPlayer() )
 					{
-						newDesc = definition.getDesc(1).c_str();
+						auto& reflectDefinition =
+							StatusEffectQueue_t::StatusEffectDefinitions_t::getEffect(EFF_MAGICREFLECT);
 
-						char buf[128] = "";
-						snprintf(buf, sizeof(buf), definition.getDesc(6).c_str(), 10 * tier); // +PWR
-						newDesc += '\n';
-						newDesc += buf;
+						std::string newHeader = reflectDefinition.getName(-1).c_str();
+						uppercaseString(newHeader);
+						tooltipHeader->setText(newHeader.c_str());
 
-						snprintf(buf, sizeof(buf), definition.getDesc(7).c_str(), 10 * tier); // +MP RGN
-						newDesc += '\n';
-						newDesc += buf;
-
-						snprintf(buf, sizeof(buf), definition.getDesc(8).c_str(), -5 * tier); // +Movespeed
-						newDesc += '\n';
-						newDesc += buf;
-
-						snprintf(buf, sizeof(buf), definition.getDesc(11).c_str(), 5 * tier); // +Fire dmg
-						newDesc += '\n';
-						newDesc += buf;
+						tooltipDesc->setText(reflectDefinition.getDesc(-1).c_str());
+						tooltipInnerWidth = reflectDefinition.tooltipWidth;
 					}
-					else if ( stats[player]->type == MYCONID )
-					{
-						newDesc = definition.getDesc(0).c_str();
-						newDesc += '\n';
-						newDesc += definition.getDesc(2).c_str();
-						if ( variation == 2 )
+					else
+					{// mod add end
+						variation = std::min(2, std::max(0, (int)entry.customVariable - 2));
+
+						int tier = variation + 1;
+
+						std::string newHeader = definition.getName(variation).c_str();
+						uppercaseString(newHeader);
+						tooltipHeader->setText(newHeader.c_str());
+
+						std::string newDesc = "";
+						if ( stats[player]->type == DRYAD )
 						{
+							newDesc = definition.getDesc(1).c_str();
+
+							char buf[128] = "";
+							snprintf(buf, sizeof(buf), definition.getDesc(6).c_str(), 10 * tier); // +PWR
 							newDesc += '\n';
-							newDesc += definition.getDesc(3).c_str();
+							newDesc += buf;
+
+							snprintf(buf, sizeof(buf), definition.getDesc(7).c_str(), 10 * tier); // +MP RGN
+							newDesc += '\n';
+							newDesc += buf;
+
+							snprintf(buf, sizeof(buf), definition.getDesc(8).c_str(), -5 * tier); // +Movespeed
+							newDesc += '\n';
+							newDesc += buf;
+
+							snprintf(buf, sizeof(buf), definition.getDesc(11).c_str(), 5 * tier); // +Fire dmg
+							newDesc += '\n';
+							newDesc += buf;
 						}
-						char buf[128] = "";
-						snprintf(buf, sizeof(buf), definition.getDesc(4).c_str(), tier); // +AC
-						newDesc += '\n';
-						newDesc += buf;
+						else if ( stats[player]->type == MYCONID )
+						{
+							newDesc = definition.getDesc(0).c_str();
+							newDesc += '\n';
+							newDesc += definition.getDesc(2).c_str();
+							if ( variation == 2 )
+							{
+								newDesc += '\n';
+								newDesc += definition.getDesc(3).c_str();
+							}
+							char buf[128] = "";
+							snprintf(buf, sizeof(buf), definition.getDesc(4).c_str(), tier); // +AC
+							newDesc += '\n';
+							newDesc += buf;
 
-						snprintf(buf, sizeof(buf), definition.getDesc(5).c_str(), tier * 5); // +RES
-						newDesc += '\n';
-						newDesc += buf;
+							snprintf(buf, sizeof(buf), definition.getDesc(5).c_str(), tier * 5); // +RES
+							newDesc += '\n';
+							newDesc += buf;
 
-						snprintf(buf, sizeof(buf), definition.getDesc(9).c_str(), 20 + 15 * (tier - 1)); // +Poison dmg
-						newDesc += '\n';
-						newDesc += buf;
+							snprintf(buf, sizeof(buf), definition.getDesc(9).c_str(), 20 + 15 * (tier - 1)); // +Poison dmg
+							newDesc += '\n';
+							newDesc += buf;
 
-						snprintf(buf, sizeof(buf), definition.getDesc(10).c_str(), 100 * tier); // +Germinate dmg
-						newDesc += '\n';
-						newDesc += buf;
+							snprintf(buf, sizeof(buf), definition.getDesc(10).c_str(), 100 * tier); // +Germinate dmg
+							newDesc += '\n';
+							newDesc += buf;
 
-						snprintf(buf, sizeof(buf), definition.getDesc(8).c_str(), -10 * tier); // +Movespeed
-						newDesc += '\n';
-						newDesc += buf;
-					}
+							snprintf(buf, sizeof(buf), definition.getDesc(8).c_str(), -10 * tier); // +Movespeed
+							newDesc += '\n';
+							newDesc += buf;
+						}
 
-					tooltipDesc->setText(newDesc.c_str());
-					tooltipInnerWidth = definition.tooltipWidth;
+						tooltipDesc->setText(newDesc.c_str());
+						tooltipInnerWidth = definition.tooltipWidth;
+					} //mod add close else (look above)
 				}
 				else if ( effectID == EFF_ENSEMBLE_DRUM
 					|| effectID == EFF_ENSEMBLE_FLUTE
@@ -8709,19 +8797,18 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 			}
 			else if ( i == EFF_GROWTH )
 			{
-				if ( !(stats[player]->type == MYCONID || stats[player]->type == DRYAD)
-					|| stats[player]->helmet )
+				// mod add: Merrow reflecting scales
+				if ( players[player]
+					&& players[player]->entity
+					&& players[player]->entity->isMerrowPlayer() )
 				{
-					effectActive = false;
-				}
-				else
-				{
-					if ( stats[player]->getEffectActive(i) <= 1 )
+					if ( stats[player]->getEffectActive(i) < 1 )
 					{
 						effectActive = false;
 					}
 					else
 					{
+						// Re-create the queue entry whenever the scale count changes.
 						for ( auto it = effectQueue.rbegin(); it != effectQueue.rend(); ++it )
 						{
 							if ( (*it).effect == EFF_GROWTH )
@@ -8730,6 +8817,37 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 								{
 									deleteEffect(EFF_GROWTH);
 									break;
+								}
+							}
+						}
+					}
+				}
+				else
+				// mod add end
+				{
+					// Native Dryad/Myconid behaviour.
+					if ( !(stats[player]->type == MYCONID || stats[player]->type == DRYAD)
+						|| stats[player]->helmet )
+					{
+						effectActive = false;
+					}
+					else
+					{
+						if ( stats[player]->getEffectActive(i) <= 1 )
+						{
+							effectActive = false;
+						}
+						else
+						{
+							for ( auto it = effectQueue.rbegin(); it != effectQueue.rend(); ++it )
+							{
+								if ( (*it).effect == EFF_GROWTH )
+								{
+									if ( (*it).customVariable != stats[player]->getEffectActive(i) )
+									{
+										deleteEffect(EFF_GROWTH);
+										break;
+									}
 								}
 							}
 						}
@@ -8976,7 +9094,8 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 			{
 				miscEffects[kEffectStrangulation] = true;
 			}
-			if ( stats[player]->amulet && stats[player]->amulet->type == AMULET_WATERBREATHING )
+			if ((stats[player]->amulet && stats[player]->amulet->type == AMULET_WATERBREATHING) || (players[player] //mod add
+					&& players[player]->entity && players[player]->entity->isMerrowPlayer())) //mod add
 			{
 				miscEffects[kEffectWaterBreathing] = true;
 			}
@@ -9335,7 +9454,21 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 						}
 						else if ( effectID == EFF_GROWTH )
 						{
-							variation = std::min(2, std::max(0, (int)notif.customVariable - 2));
+								// mod add: Merrow reflecting scales
+							if ( players[player]
+								&& players[player]->entity
+								&& players[player]->entity->isMerrowPlayer() )
+							{
+								auto& reflectDefinition =
+									StatusEffectQueue_t::StatusEffectDefinitions_t::getEffect(EFF_MAGICREFLECT);
+
+								notificationTxt->setText(reflectDefinition.getName(-1).c_str());
+							}
+							else
+							// mod add end
+							{
+								variation = std::min(2, std::max(0, (int)notif.customVariable - 2));
+							}
 						}
 						else if ( effectID == StatusEffectQueue_t::kEffectWealth )
 						{
@@ -9366,7 +9499,22 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 								variation = 0;
 							}
 						}
-						notificationTxt->setText(definition.getName(variation).c_str());
+						// mod add: Merrow reflecting scales
+						if ( effectID == EFF_GROWTH
+							&& players[player]
+							&& players[player]->entity
+							&& players[player]->entity->isMerrowPlayer() )
+						{
+							auto& reflectDefinition =
+								StatusEffectQueue_t::StatusEffectDefinitions_t::getEffect(EFF_MAGICREFLECT);
+
+							notificationTxt->setText(reflectDefinition.getName(-1).c_str());
+						}
+						else
+						// mod add end
+						{
+							notificationTxt->setText(definition.getName(variation).c_str());
+						}
 					}
 					if ( notificationImg->path != "" )
 					{
@@ -9810,6 +9958,16 @@ void StatusEffectQueue_t::updateEntryImage(StatusEffectQueueEntry_t& entry, Fram
 			int variation = std::max(0, std::min(3, (int)entry.customVariable - 1));
 			img->path = StatusEffectDefinitions_t::getEffectImgPath(StatusEffectDefinitions_t::getEffect(entry.effect), variation);
 		}
+		// mod add: Merrow reflecting scales
+		else if ( entry.effect == EFF_GROWTH
+			&& players[player]
+			&& players[player]->entity
+			&& players[player]->entity->isMerrowPlayer() )
+		{
+			img->path = StatusEffectDefinitions_t::getEffectImgPath(
+				StatusEffectDefinitions_t::getEffect(EFF_MAGICREFLECT), -1);
+		}
+		// mod add end
 		else
 		{
 			if ( entry.effect >= kSpellEffectOffset )

@@ -565,6 +565,7 @@ Monster editorSpriteTypeToMonster(Sint32 sprite)
 	case 207: monsterType = GREMLIN; break;
 	case 246: monsterType = REVENANT_SKULL; break;
 	case 247: monsterType = MONSTER_ADORCISED_WEAPON; break;
+	case 304: monsterType = MERROW; break; // mod add
 	default:
 		break;
 	}
@@ -624,6 +625,7 @@ int checkSpriteType(Sint32 sprite)
 	case 207:
 	case 246:
 	case 247:
+	case 304: //mod add merrow
 		//monsters
 		return 1;
 		break;

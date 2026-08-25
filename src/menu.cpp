@@ -358,8 +358,55 @@ void changeSettingsTab(int option)
 	}
 }
 
+// mod add: Merrow / Whaler unlock
+static bool isMerrowWhalerUnlocked()
+{
+	char path[PATH_MAX] = "";
+	completePath(path, "merrow_whaler.unlock", outputdir);
+
+	File* fp = FileIO::open(path, "rb");
+	if ( !fp )
+	{
+		return false;
+	}
+
+	FileIO::close(fp);
+	return true;
+}
+
+static void unlockMerrowWhaler()
+{
+	if ( isMerrowWhalerUnlocked() )
+	{
+		return;
+	}
+
+	char path[PATH_MAX] = "";
+	completePath(path, "merrow_whaler.unlock", outputdir);
+
+	File* fp = FileIO::open(path, "wb");
+	if ( !fp )
+	{
+		printlog("[MERROW]: Failed to save Whaler unlock.");
+		return;
+	}
+
+	const char unlocked = '1';
+	fp->write(&unlocked, sizeof(char), 1);
+	FileIO::close(fp);
+
+	printlog("[MERROW]: Whaler class unlocked.");
+}
+// mod add end
+
 bool isAchievementUnlockedForClassUnlock(int race)
 {
+	// mod add: Merrow / Whaler unlock
+	if ( race == RACE_MERROW )
+	{
+		return isMerrowWhalerUnlocked();
+	}
+	// mod add end
 #ifdef STEAMWORKS
 	bool unlocked = false;
 	if ( enabledDLCPack1 && race == RACE_SKELETON && SteamUserStats()->GetAchievement("BARONY_ACH_BONY_BARON", &unlocked) )
@@ -710,6 +757,17 @@ int isCharacterValidFromDLC(Stat& myStats, int characterClass)
 			}
 			return isAchievementUnlockedForClassUnlock(RACE_SALAMANDER) ? VALID_OK_CHARACTER : INVALID_REQUIRE_ACHIEVEMENT;
 			break;
+			// mod add: Merrow / Whaler
+		case CLASS_WHALER:
+			if ( myStats.playerRace == RACE_MERROW )
+			{
+				return VALID_OK_CHARACTER;
+			}
+			return isAchievementUnlockedForClassUnlock(RACE_MERROW)
+				? VALID_OK_CHARACTER
+				: INVALID_REQUIRE_ACHIEVEMENT;
+			break;
+		// mod add end
 		default:
 			break;
 	}
@@ -10161,6 +10219,17 @@ void doEndgame(bool saveHighscore, bool onServerDisconnect) {
 							case RACE_GNOME:
 								steamAchievement("BARONY_ACH_BITTY_BARON");
 								break;
+							// mod add: Merrow / Whaler
+							case RACE_MERROW:
+								if ( !conductGameChallenges[CONDUCT_CHEATS_ENABLED]
+									&& !conductGameChallenges[CONDUCT_LIFESAVING]
+									&& conductGameChallenges[CONDUCT_ASSISTANCE_CLAIMED]
+										< GenericGUIMenu::AssistShrineGUI_t::achievementDisabledLimit )
+								{
+									unlockMerrowWhaler();
+								}
+								break;
+							// mod add end
 							default:
 								break;
 							}

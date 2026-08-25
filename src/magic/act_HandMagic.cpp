@@ -1473,6 +1473,18 @@ void actLeftHandMagic(Entity* my)
 			case GNOME:
 				my->sprite = 2321;
 				break;
+			// mod add
+			case MERROW:
+				if ( stats[HANDMAGIC_PLAYERNUM]->sex == FEMALE )
+				{
+					my->sprite = 2436;
+				}
+				else
+				{
+					my->sprite = 2424;
+				}
+				break;
+			//mod add end
 			default:
 				my->sprite = 656;
 				break;
@@ -2287,6 +2299,18 @@ void actRightHandMagic(Entity* my)
 			case GNOME:
 				my->sprite = 2322;
 				break;
+							// mod add
+			case MERROW:
+				if ( stats[HANDMAGIC_PLAYERNUM]->sex == FEMALE )
+				{
+					my->sprite = 2435; //TO DO: female model! 
+				}
+				else
+				{
+					my->sprite = 2423;
+				}
+				break;
+			//mod add end
 			default:
 				my->sprite = 634;
 				break;

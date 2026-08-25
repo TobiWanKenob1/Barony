@@ -7189,6 +7189,17 @@ int SaveGameInfo::Player::isCharacterValidFromDLC()
 		}
 		return isAchievementUnlockedForClassUnlock(RACE_SALAMANDER) ? VALID_OK_CHARACTER : INVALID_REQUIRE_ACHIEVEMENT;
 		break;
+		// mod add: Merrow / Whaler
+	case CLASS_WHALER:
+		if ( this->race == RACE_MERROW )
+		{
+			return VALID_OK_CHARACTER;
+		}
+		return isAchievementUnlockedForClassUnlock(RACE_MERROW)
+			? VALID_OK_CHARACTER
+			: INVALID_REQUIRE_ACHIEVEMENT;
+		break;
+	// mod add end
 	default:
 		break;
 	}
