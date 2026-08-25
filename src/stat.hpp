@@ -270,6 +270,7 @@ static const int STAT_FLAG_HP_BONUS = 27;
 static const int STAT_FLAG_MP_BONUS = 28;
 static const int STAT_FLAG_ASSISTANCE_PLAYER_PTS = 29;
 static const int STAT_FLAG_MERROW_SCALE_COOLDOWN = 30; // mod add: Merrow reflecting scales
+static const int STAT_FLAG_MERROW_SCALE_DECAY_INTERVAL = 31; // mod add: Merrow scale grime decay
 
 typedef enum
 {

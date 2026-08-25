@@ -3489,6 +3489,17 @@ void initClass(const int player)
 	//mod add end
 	stats[player]->OLDHP = stats[player]->HP;
 
+	// mod add: Merrow starting towel
+	if ( isLocalPlayer
+		&& stats[player]->stat_appearance == 0
+		&& stats[player]->playerRace == RACE_MERROW )
+	{
+		item = newItem(TOOL_TOWEL, DECREPIT, 0, 1, 0, true, nullptr);
+		item2 = itemPickup(player, item);
+		free(item);
+	}
+	// mod add end
+
 	if ( stats[player]->stat_appearance == 0 && stats[player]->playerRace == RACE_GOATMAN )
 	{
 		stats[player]->setEffectActive(EFF_ASLEEP, 1);

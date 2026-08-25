@@ -1597,8 +1597,8 @@ void Entity::effectTimes()
 				if ( baseMerrow )
 				{
 					// Merrow scales are stored in EFF_GROWTH.
-					// Preserve them even while polymorphed/shapeshifted.
-					// Whether they are currently usable is handled by isMerrowPlayer().
+					// Their grime decay is handled by updateMerrowReflectingScales().
+					// Do not run the normal Myconid/Dryad Growth handling here.
 				}
 				// mod add end
 				else if ( !(myStats->type == MYCONID || myStats->type == DRYAD) || myStats->helmet ) //mod add else
@@ -4643,15 +4643,7 @@ void Entity::handleEffects(Stat* myStats)
 				myStats->playerRace == RACE_MERROW
 				&& myStats->stat_appearance == 0;
 
-			if ( baseMerrow )
-			{
-				// Only grow a scale if currently in Merrow form.
-				if ( isMerrowPlayer() )
-				{
-					tryGrowMerrowReflectingScales(true);
-				}
-			}
-			else
+			if ( !baseMerrow )
 			// mod add end
 			{
 				Uint8 effectStrength = myStats->getEffectActive(EFF_GROWTH);
@@ -21119,11 +21111,14 @@ int Entity::isEntityPlayer() const
 }
 
 // mod add: Merrow reflecting scales
-static constexpr int MERROW_SCALE_GROWTH_COOLDOWN =
-	120 * TICKS_PER_SECOND;
+static constexpr int MERROW_SCALE_SWIM_COOLDOWN =
+	10 * TICKS_PER_SECOND;
 
-static constexpr int MERROW_SCALE_GROWTH_CHANCE = 50;
-static constexpr int MERROW_SCALE_DOUBLE_CHANCE = 5;
+static constexpr int MERROW_SCALE_BASE_DURATION =
+	30 * TICKS_PER_SECOND;
+
+static constexpr int MERROW_SCALE_CLEAN_CHANCE = 50;
+static constexpr int MERROW_SCALE_DOUBLE_CLEAN_CHANCE = 5;
 
 bool Entity::isMerrowPlayer() const
 {
@@ -21206,14 +21201,11 @@ void Entity::setMerrowReflectingScales(int scales)
 	const int newScales = std::max(0, std::min(cap, scales));
 	const int oldScales = myStats->getEffectActive(EFF_GROWTH);
 
-	// Merrow scales do not expire with an effect timer.
-	if ( newScales > 0 )
-	{
-		myStats->EFFECTS_TIMERS[EFF_GROWTH] = -1;
-	}
-	else
+	// Reaching zero also stops the grime-decay sequence.
+	if ( newScales <= 0 )
 	{
 		myStats->EFFECTS_TIMERS[EFF_GROWTH] = 0;
+		myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_DECAY_INTERVAL] = 0;
 	}
 
 	if ( newScales == oldScales )
@@ -21225,6 +21217,44 @@ void Entity::setMerrowReflectingScales(int scales)
 		EFF_GROWTH,
 		static_cast<Uint8>(newScales));
 
+	if ( multiplayer == SERVER )
+	{
+		serverUpdateEffects(skill[2]);
+	}
+}
+
+void Entity::polishMerrowReflectingScales(int durationTicks)
+{
+	if ( multiplayer == CLIENT || !isMerrowPlayer() )
+	{
+		return;
+	}
+
+	Stat* myStats = getStats();
+	if ( !myStats )
+	{
+		return;
+	}
+
+	const int cap = getMerrowReflectingScaleCap();
+
+	// A fully cursed (-3 or worse) towel has zero polish duration.
+	if ( cap <= 0 || durationTicks <= 0 )
+	{
+		setMerrowReflectingScales(0);
+		return;
+	}
+
+	myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_DECAY_INTERVAL]
+		= durationTicks;
+	myStats->EFFECTS_TIMERS[EFF_GROWTH]
+		= durationTicks;
+
+	// Towels polish every currently exposed scale at once.
+	setMerrowReflectingScales(cap);
+
+	// setMerrowReflectingScales() does not send anything if already at cap,
+	// but polishing still refreshed the timer.
 	if ( multiplayer == SERVER )
 	{
 		serverUpdateEffects(skill[2]);
@@ -21244,18 +21274,70 @@ void Entity::updateMerrowReflectingScales()
 		return;
 	}
 
-	// Shared cooldown for swimming / water / juice / poison.
+	// Swimming may attempt another cleaning roll once this reaches zero.
 	if ( myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN] > 0 )
 	{
 		--myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN];
 	}
 
-	// This only lowers stacks if armor reduced the capacity.
-	// Removing armor never grants a free scale.
+	// Equipping armor can lower the scale cap.
+	// Removing armor still never grants free polished scales.
 	setMerrowReflectingScales(getMerrowReflectingScales());
+
+	const int currentScales = getMerrowReflectingScales();
+	if ( currentScales <= 0 )
+	{
+		return;
+	}
+
+	// Migration/failsafe for old saves where Merrow scales were permanent.
+	if ( myStats->EFFECTS_TIMERS[EFF_GROWTH] < 0 )
+	{
+		myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_DECAY_INTERVAL]
+			= MERROW_SCALE_BASE_DURATION;
+		myStats->EFFECTS_TIMERS[EFF_GROWTH]
+			= MERROW_SCALE_BASE_DURATION;
+
+		if ( multiplayer == SERVER )
+		{
+			serverUpdateEffects(skill[2]);
+		}
+		return;
+	}
+
+	// The normal effect system counts this timer down for us.
+	if ( myStats->EFFECTS_TIMERS[EFF_GROWTH] == 0 )
+	{
+		int currentInterval =
+			myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_DECAY_INTERVAL];
+
+		if ( currentInterval <= 0 )
+		{
+			currentInterval = MERROW_SCALE_BASE_DURATION;
+		}
+
+		const int newScales = currentScales - 1;
+
+		if ( newScales > 0 )
+		{
+			const int nextInterval = std::max(1, currentInterval / 2);
+
+			myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_DECAY_INTERVAL]
+				= nextInterval;
+			myStats->EFFECTS_TIMERS[EFF_GROWTH]
+				= nextInterval;
+		}
+		else
+		{
+			myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_DECAY_INTERVAL] = 0;
+			myStats->EFFECTS_TIMERS[EFF_GROWTH] = 0;
+		}
+
+		setMerrowReflectingScales(newScales);
+	}
 }
 
-bool Entity::tryGrowMerrowReflectingScales(bool guaranteed)
+bool Entity::tryCleanMerrowReflectingScales()
 {
 	if ( multiplayer == CLIENT || !isMerrowPlayer() )
 	{
@@ -21276,34 +21358,39 @@ bool Entity::tryGrowMerrowReflectingScales(bool guaranteed)
 		return false;
 	}
 
-	int growth = 1;
-
-	if ( !guaranteed )
+	// Ten seconds between swimming CHECKS.
+	if ( myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN] > 0 )
 	{
-		// Cooldown belongs to the CHECK, not to successful growth.
-		if ( myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN] > 0 )
-		{
-			return false;
-		}
-
-		// Start cooldown BEFORE rolling success.
-		myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN]
-			= MERROW_SCALE_GROWTH_COOLDOWN;
-
-		// 50% chance of growth.
-		if ( local_rng.rand() % 100 >= MERROW_SCALE_GROWTH_CHANCE )
-		{
-			return false;
-		}
-
-		// Conditional 5% chance to grow two scales.
-		if ( local_rng.rand() % 100 < MERROW_SCALE_DOUBLE_CHANCE )
-		{
-			growth = 2;
-		}
+		return false;
 	}
 
-	setMerrowReflectingScales(currentScales + growth);
+	// As before, a failed roll still consumes the cooldown.
+	myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN]
+		= MERROW_SCALE_SWIM_COOLDOWN;
+
+	// Original 50% success chance.
+	if ( local_rng.rand() % 100 >= MERROW_SCALE_CLEAN_CHANCE )
+	{
+		return false;
+	}
+
+	int cleanedScales = 1;
+
+	// Original conditional 5% chance to clean two.
+	if ( local_rng.rand() % 100 < MERROW_SCALE_DOUBLE_CLEAN_CHANCE )
+	{
+		cleanedScales = 2;
+	}
+
+	// A successful cleaning gives the newly polished state a fresh
+	// normal 30-second first decay interval.
+	myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_DECAY_INTERVAL]
+		= MERROW_SCALE_BASE_DURATION;
+	myStats->EFFECTS_TIMERS[EFF_GROWTH]
+		= MERROW_SCALE_BASE_DURATION;
+
+	setMerrowReflectingScales(currentScales + cleanedScales);
+
 	return true;
 }
 

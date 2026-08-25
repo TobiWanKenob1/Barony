@@ -9520,7 +9520,7 @@ void actPlayer(Entity* my)
 				if ( swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] )
 				{
 
-					my->tryGrowMerrowReflectingScales(false);	// mod add: Merrow reflecting scales
+					my->tryCleanMerrowReflectingScales();	// mod add: Merrow reflecting scales
 
 					if ( my->flags[BURNING] )
 					{

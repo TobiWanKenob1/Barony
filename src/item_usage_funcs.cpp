@@ -4572,12 +4572,50 @@ void item_ScrollSummon(Item*& item, int player)
 	item->identified = true;
 }
 
+static int merrowTowelPolishDurationTicks(Sint16 beatitude)
+{
+	int seconds = 30;
+
+	if ( beatitude >= 3 )
+	{
+		seconds += 30;
+	}
+	else if ( beatitude == 2 )
+	{
+		seconds += 25;
+	}
+	else if ( beatitude == 1 )
+	{
+		seconds += 15;
+	}
+	else if ( beatitude <= -3 )
+	{
+		seconds -= 30;
+	}
+	else if ( beatitude == -2 )
+	{
+		seconds -= 25;
+	}
+	else if ( beatitude == -1 )
+	{
+		seconds -= 15;
+	}
+
+	return std::max(0, seconds) * TICKS_PER_SECOND;
+}
+
 void item_ToolTowel(Item*& item, int player)
 {
 	if ( !item )
 	{
 		return;
 	}
+	//mod add
+	const bool merrowPolish =
+		players[player]
+		&& players[player]->entity
+		&& players[player]->entity->isMerrowPlayer();
+	//mod add end
 	if ( players[player]->isLocalPlayer() )
 	{
 		messagePlayer(player, MESSAGE_STATUS, Language::get(883));
@@ -4587,7 +4625,8 @@ void item_ToolTowel(Item*& item, int player)
 		if ( stats[player]->getEffectActive(EFF_GREASY)
 			|| stats[player]->getEffectActive(EFF_MAGIC_GREASE)
 			|| stats[player]->getEffectActive(EFF_MESSY)
-			|| stats[player]->getEffectActive(EFF_BLEEDING) )
+			|| stats[player]->getEffectActive(EFF_BLEEDING) 
+			|| merrowPolish ) //mod add merrow scale polish
 		{
 			steamAchievementClient(player, "BARONY_ACH_BRING_A_TOWEL");
 			if ( stats[player]->getEffectActive(EFF_GREASY) || stats[player]->getEffectActive(EFF_MAGIC_GREASE) )
@@ -4604,12 +4643,22 @@ void item_ToolTowel(Item*& item, int player)
 			}
 			Compendium_t::Events_t::eventUpdate(player, Compendium_t::CPDM_TOWEL_USES, item->type, 1);
 		}
+		//mod add
+		if ( merrowPolish )
+		{
+			players[player]->entity->polishMerrowReflectingScales(
+				merrowTowelPolishDurationTicks(item->beatitude));
+		}
+		//mod add end
 		stats[player]->clearEffect(EFF_MAGIC_GREASE);
 		stats[player]->clearEffect(EFF_GREASY);
 		stats[player]->clearEffect(EFF_MESSY);
 	}
 
 	// stop bleeding
+	//mod add: towel also consumes for merrow polishing, so don't consume twice if it was already used to stop bleeding.
+	bool towelConsumed = false;
+
 	if ( stats[player]->getEffectActive(EFF_BLEEDING) )
 	{
 		if ( players[player]->isLocalPlayer() )
@@ -4623,8 +4672,18 @@ void item_ToolTowel(Item*& item, int player)
 			stats[player]->EFFECTS_TIMERS[EFF_BLEEDING] = 0;
 		}
 		consumeItem(item, player);
+		towelConsumed = true;
 	}
 
+	// Merrow polishing consumes the towel as well.
+	// Don't consume twice if it was already used to stop bleeding.
+	if ( multiplayer != CLIENT
+		&& merrowPolish
+		&& !towelConsumed )
+	{
+		consumeItem(item, player);
+	}
+	//mod add end
 	if ( multiplayer != CLIENT )
 	{
 		serverUpdateEffects(player);
