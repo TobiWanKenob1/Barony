@@ -27,6 +27,7 @@
 #include "../book.hpp"
 #include "../scrolls.hpp"
 
+#include <fstream> // mod add: exe version check
 #include <cassert>
 #include <functional>
 #ifdef STEAMWORKS
@@ -28522,6 +28523,72 @@ failed:
 		setHostname(buf);
 	}
 
+	// mod add: executable version check
+	static constexpr const char* KNIGHTLY_EXE_VERSION = "1.02";
+
+	static int knightlyVersionNumber(const std::string& version)
+	{
+		int major = -1;
+		int minor = -1;
+
+		if ( sscanf(version.c_str(), "%d.%d", &major, &minor) != 2 )
+		{
+			return -1;
+		}
+
+		if ( major < 0 || minor < 0 || minor > 999 )
+		{
+			return -1;
+		}
+
+		return major * 1000 + minor;
+	}
+
+	static bool knightlyNewExeAvailable(std::string& latestVersion)
+	{
+		const int currentVersion = knightlyVersionNumber(KNIGHTLY_EXE_VERSION);
+		if ( currentVersion < 0 )
+		{
+			return false;
+		}
+
+		for ( const auto& mod : Mods::mountedFilepaths )
+		{
+			std::string versionPath = mod.first;
+			versionPath += PHYSFS_getDirSeparator();
+			versionPath += "knightly_exe_version.txt";
+
+			std::ifstream versionFile(versionPath);
+			if ( !versionFile.is_open() )
+			{
+				continue;
+			}
+
+			std::string modVersion;
+			std::getline(versionFile, modVersion);
+
+			const int availableVersion = knightlyVersionNumber(modVersion);
+			if ( availableVersion < 0 )
+			{
+				printlog("[Knightly] Invalid executable version file: %s\n",
+					versionPath.c_str());
+				continue;
+			}
+
+			printlog("[Knightly] Running EXE v%s, new version available: v%s.\n",
+				KNIGHTLY_EXE_VERSION, modVersion.c_str());
+
+			if ( availableVersion > currentVersion )
+			{
+				latestVersion = modVersion;
+				return true;
+			}
+		}
+
+		return false;
+	}
+	// mod add end
+
 	static std::string mods_active_tab = "";
 	static Uint32 mods_loading_tick = 0;
 #ifdef STEAMWORKS
@@ -28570,10 +28637,44 @@ failed:
 
 		gui->deselect();
 
+		//mod add
+		std::string latestKnightlyExeVersion;
+		const bool newKnightlyExeAvailable =
+			knightlyNewExeAvailable(latestKnightlyExeVersion);
+		//mod add end
 		Mods::loadMods();
 
 		destroyMainMenu();
 		createMainMenu(false);
+
+		// mod add: executable version warning
+		if ( newKnightlyExeAvailable )
+		{
+			char warning[256];
+			snprintf(warning, sizeof(warning),
+				"NEW KNIGHTLY .EXE AVAILABLE! v%s\n"
+				"Copy the new executable from the Workshop folder.",
+				latestKnightlyExeVersion.c_str());
+
+			auto exeWarning = main_menu_frame->addField(
+				"knightly_exe_warning", 256);
+
+			exeWarning->setFont(smallfont_outline);
+			exeWarning->setText(warning);
+
+			exeWarning->setHJustify(Field::justify_t::RIGHT);
+			exeWarning->setVJustify(Field::justify_t::BOTTOM);
+
+			exeWarning->setSize(SDL_Rect{
+				Frame::virtualScreenX - 520,
+				Frame::virtualScreenY - 115,
+				500,
+				60
+			});
+
+			exeWarning->setColor(makeColorRGB(255, 200, 64));
+		}
+		// mod add end
 
 		return true;
 	}

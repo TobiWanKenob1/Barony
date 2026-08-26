@@ -3561,8 +3561,9 @@ void initClass(const int player)
 		}
 	}
 	if ( stats[player]->stat_appearance == 0 
-		&& (client_classes[player] >= CLASS_CONJURER 
+		&& ((client_classes[player] >= CLASS_CONJURER 
 			&& client_classes[player] <= CLASS_PALADIN)
+			|| client_classes[player] == CLASS_WHALER) // mod add: Whaler
 		&& stats[player]->playerRace != RACE_HUMAN )
 	{
 		if ( isLocalPlayer )

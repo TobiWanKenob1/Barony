@@ -11839,6 +11839,7 @@ bool GenericGUIMenu::tinkeringGetItemValue(const Item* item, int* metal, int* ma
 		case IRON_SWORD:
 		case IRON_MACE:
 		case IRON_AXE:
+		case HARPOON: // mod add: Harpoon
 		case IRON_SHIELD:
 		case SHORTBOW:
 		case BRACERS:
