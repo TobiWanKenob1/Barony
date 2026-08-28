@@ -10174,7 +10174,10 @@ Entity* createParticleSapCenter(Entity* parent, Entity* target, int spell, int s
 	entity->parent = (parent->getUID());
 	entity->yaw = parent->yaw + PI; // face towards the caster.
 	entity->skill[0] = 45;
-	entity->skill[2] = -13; // so clients know my behavior.
+	// -13 is the vanilla sap-center behavior. Harpoon returns use -17 so
+	// multiplayer clients can identify them from the ENTU packet itself;
+	// skill[10] is not carried by ENTU.
+	entity->skill[2] = (target->skill[10] == HARPOON) ? -17 : -13;
 	entity->skill[3] = 0; // init
 	entity->skill[4] = sprite; // visible sprites.
 	entity->skill[5] = endSprite; // sprite to spawn on return to caster.
@@ -14099,13 +14102,18 @@ void actParticleSap(Entity* my)
 
 void actParticleSapCenter(Entity* my)
 {
+	// skill[10] is not included in the normal ENTU spawn packet. Clients can
+	// still identify the Harpoon return entity from its unique item sprite.
+	const bool isHarpoonReturn =
+		(my->skill[10] == HARPOON || my->sprite == items[HARPOON].index);
+
 	// init
 	if ( my->skill[3] == 0 )
 	{
 		// for clients and server spawn the visible arcing particles.
 		my->skill[3] = 1;
-		if ( my->skill[10] != HARPOON ) //mod add: exclude harpoon here
-    	{
+		if ( !isHarpoonReturn )
+		{
 			createParticleSap(my);
 		}
 	}

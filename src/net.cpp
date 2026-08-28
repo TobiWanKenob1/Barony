@@ -2163,6 +2163,12 @@ void clientActions(Entity* entity)
 				case -13:
 					entity->behavior = &actParticleSapCenter;
 					break;
+				case -17:
+					// Mod: explicit network identity for a returning Harpoon.
+					// ENTU does not otherwise transmit skill[10].
+					entity->behavior = &actParticleSapCenter;
+					entity->skill[10] = HARPOON;
+					break;
 				case -14:
 					entity->behavior = &actDecoyBox;
 					break;
@@ -4664,23 +4670,42 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		free(item);
 		if ( players[clientnum] && players[clientnum]->entity )
 		{
-			if ( pickedUp && pickedUp->type == BOOMERANG && !stats[clientnum]->weapon && pickedUp->ownerUid == players[clientnum]->entity->getUID() )
+			if ( pickedUp && (pickedUp->type == BOOMERANG || pickedUp->type == HARPOON)
+				&& !stats[clientnum]->weapon
+				&& pickedUp->ownerUid == players[clientnum]->entity->getUID() )
 			{
+				// Returning weapons are server-authoritative, but the owning client must
+				// re-equip its received ITEM so useItem() sends the equip state back.
 				useItem(pickedUp, clientnum);
 
 				auto& hotbar_t = players[clientnum]->hotbar;
 				auto& hotbar = hotbar_t.slots();
-				if ( hotbar_t.magicBoomerangHotbarSlot >= 0 )
+				int returnHotbarSlot = -1;
+				if ( pickedUp->type == BOOMERANG )
 				{
-					hotbar[hotbar_t.magicBoomerangHotbarSlot].item = pickedUp->uid;
+					returnHotbarSlot = hotbar_t.magicBoomerangHotbarSlot;
+				}
+				else if ( pickedUp->type == HARPOON )
+				{
+					returnHotbarSlot = hotbar_t.harpoonHotbarSlot;
+				}
+
+				if ( returnHotbarSlot >= 0 )
+				{
+					hotbar[returnHotbarSlot].item = pickedUp->uid;
 					for ( int i = 0; i < NUM_HOTBAR_SLOTS; ++i )
 					{
-						if ( i != hotbar_t.magicBoomerangHotbarSlot && hotbar[i].item == pickedUp->uid )
+						if ( i != returnHotbarSlot && hotbar[i].item == pickedUp->uid )
 						{
 							hotbar[i].item = 0;
 							hotbar[i].resetLastItem();
 						}
 					}
+				}
+
+				if ( pickedUp->type == HARPOON )
+				{
+					hotbar_t.harpoonHotbarSlot = -1;
 				}
 			}
 			else if ( pickedUp && pickedUp->type == TOOL_DUCK && !stats[clientnum]->shield )

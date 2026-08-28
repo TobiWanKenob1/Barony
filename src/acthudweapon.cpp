@@ -2708,6 +2708,32 @@ void actHudWeapon(Entity* my)
     							}
 							}
     						players[HUDWEAPON_PLAYERNUM]->entity->attack(3, 100, nullptr);
+
+							// mod add: mirror vanilla thrown-weapon client prediction.
+							// The server removes the authoritative Harpoon when processing ATAK,
+							// so a remote client must remove its local copy as well or it
+							// survives until the returned Harpoon is added, causing duplication.
+							if ( multiplayer == CLIENT )
+							{
+								Item* harpoon = stats[HUDWEAPON_PLAYERNUM]->weapon;
+								if ( harpoon )
+								{
+									harpoon->count--;
+									if ( harpoon->count <= 0 )
+									{
+										if ( harpoon->node )
+										{
+											list_RemoveNode(harpoon->node);
+										}
+										else
+										{
+											free(harpoon);
+										}
+										stats[HUDWEAPON_PLAYERNUM]->weapon = nullptr;
+									}
+								}
+							}
+							// mod add end
 						}
 						// mod add end
 						else if ( !hideWeapon && stats[HUDWEAPON_PLAYERNUM]->weapon && stats[HUDWEAPON_PLAYERNUM]->weapon->type == MAGICSTAFF_SCEPTER )

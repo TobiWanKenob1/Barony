@@ -7230,6 +7230,16 @@ void actPlayer(Entity* my)
 	{
 		stats[PLAYER_NUM]->type = HUMAN;
 	}
+
+	// Multiplayer fallback: the remote player's head model is authoritative
+	// enough for rendering even if lobby/stat race data is stale for a frame.
+	// Resolve Merrow here so every bodypart branch (legs, tail, offsets, etc.)
+	// uses the same race for the entire render/update pass.
+	if ( my->sprite == 2413 || my->sprite == 2425 )
+	{
+		playerRace = MERROW;
+	}
+
 	// mod add: Merrow cannot wear boots while racial features are enabled
 	if ( players[PLAYER_NUM]->isLocalPlayer()
 		&& players[PLAYER_NUM]->entity
@@ -9052,6 +9062,15 @@ void actPlayer(Entity* my)
 							else if ( stats[PLAYER_NUM]->type == SPIDER )
 							{
 								// do nothing, these limbs are invisible for the spider so don't unhide.
+								entity->flags[INVISIBLE_DITHER] = false;
+							}
+							else if ( playerRace == MERROW && (i == 2 || i == 3) )
+							{
+								// Merrow replaces both humanoid legs with its lower-body/tail limb.
+								// Keep the real leg entities permanently hidden; otherwise this
+								// generic invisibility cleanup briefly unhides them and broadcasts
+								// that visible state to multiplayer clients via ENTB.
+								entity->flags[INVISIBLE] = true;
 								entity->flags[INVISIBLE_DITHER] = false;
 							}
 							else
@@ -12877,6 +12896,20 @@ void actPlayer(Entity* my)
 					|| torso->sprite == items[ROBE_CULTIST].index
 					|| torso->sprite == items[ROBE_MONK].index)
 					&& !(entity->flags[INVISIBLE] && !entity->flags[INVISIBLE_DITHER]);
+
+				// Merrow legs must be hidden before ENTB is sent, otherwise remote
+				// clients can receive a bodypart update that explicitly makes them visible.
+				if ( playerRace == MERROW )
+				{
+					entity->flags[INVISIBLE] = true;
+					entity->flags[INVISIBLE_DITHER] = false;
+				}
+				else
+				{
+					entity->flags[INVISIBLE] = my->flags[INVISIBLE];
+					entity->flags[INVISIBLE_DITHER] = my->flags[INVISIBLE_DITHER];
+				}
+
 				if ( multiplayer != CLIENT )
 				{
 					if ( stats[PLAYER_NUM]->shoes == NULL || !showEquipment )
@@ -12909,18 +12942,6 @@ void actPlayer(Entity* my)
 						}
 					}
 				}
-				//mod add: make leg sprite invisible for merrow race
-				if ( playerRace == MERROW )
-				{
-					entity->flags[INVISIBLE] = true;
-					entity->flags[INVISIBLE_DITHER] = false;
-				}
-				else
-				{
-					entity->flags[INVISIBLE] = my->flags[INVISIBLE];
-					entity->flags[INVISIBLE_DITHER] = my->flags[INVISIBLE_DITHER];
-				}
-				//mod add end
 				if ( shortSprite && Entity::isBootSpriteShortArmor(entity) )
 				{
 					entity->z += 0.75;
@@ -12940,6 +12961,20 @@ void actPlayer(Entity* my)
 					|| torso->sprite == items[ROBE_CULTIST].index
 					|| torso->sprite == items[ROBE_MONK].index)
 					&& !(entity->flags[INVISIBLE] && !entity->flags[INVISIBLE_DITHER]);
+
+				// Merrow legs must be hidden before ENTB is sent, otherwise remote
+				// clients can receive a bodypart update that explicitly makes them visible.
+				if ( playerRace == MERROW )
+				{
+					entity->flags[INVISIBLE] = true;
+					entity->flags[INVISIBLE_DITHER] = false;
+				}
+				else
+				{
+					entity->flags[INVISIBLE] = my->flags[INVISIBLE];
+					entity->flags[INVISIBLE_DITHER] = my->flags[INVISIBLE_DITHER];
+				}
+
 				if ( multiplayer != CLIENT )
 				{
 					if ( stats[PLAYER_NUM]->shoes == NULL || !showEquipment )
@@ -12972,18 +13007,6 @@ void actPlayer(Entity* my)
 						}
 					}
 				}
-				//mod add: make leg sprite invisible for merrow race
-				if ( playerRace == MERROW )
-				{
-					entity->flags[INVISIBLE] = true;
-					entity->flags[INVISIBLE_DITHER] = false;
-				}
-				else
-				{
-					entity->flags[INVISIBLE] = my->flags[INVISIBLE];
-					entity->flags[INVISIBLE_DITHER] = my->flags[INVISIBLE_DITHER];
-				}
-				//mod add end
 				if ( shortSprite && Entity::isBootSpriteShortArmor(entity) )
 				{
 					entity->z += 0.75;
@@ -15415,6 +15438,9 @@ bool Entity::isPlayerHeadSprite(const int sprite)
 		case 2048:
 		case 2213:
 		case 2214:
+		// mod add: Merrow player heads must be recognized by multiplayer clientActions()
+		case 2413:
+		case 2425:
 			return true;
 			break;
 		default:
