@@ -28524,7 +28524,7 @@ failed:
 	}
 
 	// mod add: executable version check
-	static constexpr const char* KNIGHTLY_EXE_VERSION = "1.03";
+	static constexpr const char* KNIGHTLY_EXE_VERSION = "1.04";
 
 	static int knightlyVersionNumber(const std::string& version)
 	{

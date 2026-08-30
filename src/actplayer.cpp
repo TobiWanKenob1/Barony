@@ -7231,14 +7231,6 @@ void actPlayer(Entity* my)
 		stats[PLAYER_NUM]->type = HUMAN;
 	}
 
-	// Multiplayer fallback: the remote player's head model is authoritative
-	// enough for rendering even if lobby/stat race data is stale for a frame.
-	// Resolve Merrow here so every bodypart branch (legs, tail, offsets, etc.)
-	// uses the same race for the entire render/update pass.
-	if ( my->sprite == 2413 || my->sprite == 2425 )
-	{
-		playerRace = MERROW;
-	}
 
 	// mod add: Merrow cannot wear boots while racial features are enabled
 	if ( players[PLAYER_NUM]->isLocalPlayer()
