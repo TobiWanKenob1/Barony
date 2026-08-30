@@ -710,7 +710,7 @@ bool Entity::collisionProjectileMiss(Entity* parent, Entity* projectile)
 					{
 						if ( projectile->behavior == &actArrow )
 						{
-							if ( projectile->sprite == 167 )
+							if ( projectile->arrowUsesBoltSemantics() )
 							{
 								// bolt
 								messagePlayerColor(skill[2], MESSAGE_COMBAT, makeColorRGB(0, 255, 0), Language::get(6472), Language::get(6292));
@@ -903,7 +903,7 @@ bool Entity::collisionProjectileMiss(Entity* parent, Entity* projectile)
 							}
 							else if ( projectile->behavior == &actArrow )
 							{
-								if ( projectile->sprite == 167 )
+								if ( projectile->arrowUsesBoltSemantics() )
 								{
 									// bolt
 									messagePlayerColor(skill[2], MESSAGE_COMBAT, makeColorRGB(0, 255, 0), Language::get(6287), Language::get(6292));
@@ -1120,7 +1120,7 @@ int barony_clear(real_t tx, real_t ty, Entity* my)
 					if ( !levitating && (!map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height] 
 						|| (((swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] && !waterWalking) 
 							|| (lavatiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] && !lavaWalking))
-							&& isMonster)) )
+							&& isMonster && !entrenchBridgeSupportsTile(x, y))) )
 					{
 						// no floor
 						hit.x = x * 16 + 8;
@@ -1158,6 +1158,15 @@ int barony_clear(real_t tx, real_t ty, Entity* my)
 		{
 			entity = (Entity*)node->element;
 			if ( entity == my || my->parent == entity->getUID() )
+			{
+				continue;
+			}
+			if ( isEntrenchCarriedObject(entity) )
+			{
+				continue;
+			}
+			// mod add: laid Entrench barricades stop bodies, not projectiles/magic.
+			if ( projectileAttack && isEntrenchDoorBarricade(entity) )
 			{
 				continue;
 			}
@@ -1942,6 +1951,10 @@ Entity* findEntityInLine( Entity* my, real_t x1, real_t y1, real_t angle, int en
 		{
 			Entity* entity = (Entity*)node->element;
 			if ( (entity != target && target != nullptr) || entity->flags[PASSABLE] || entity == my
+				|| isEntrenchCarriedObject(entity)
+				|| ((entities & LINETRACE_ATK_IGNORE_ENTRENCH_BARRICADE) && isEntrenchDoorBarricade(entity))
+				|| ((entities & LINETRACE_ATK_CHECK_FRIENDLYFIRE) && my->behavior == &actMonster
+					&& isEntrenchDoorBarricade(entity)) // mod edit: monsters target through player-priority barricades too
 				|| ((entities & LINETRACE_IGNORE_ENTITIES) && 
 						( (!entity->flags[BLOCKSIGHT] && entity->behavior != &actMonster) 
 							|| (entity->behavior == &actMonster && (entity->flags[INVISIBLE] 
@@ -2701,7 +2714,7 @@ int checkObstacle(long x, long y, Entity* my, Entity* target, bool useTileEntity
 			if ( !levitating
 					&& ((!map.tiles[index] && checkFloor)
 								   || ( ((swimmingtiles[map.tiles[index]] && !waterWalking) || (lavatiles[map.tiles[index]] && !lavaWalking))
-										 && isMonster) ) )   // no floor
+										 && isMonster && !entrenchBridgeSupportsTile(x >> 4, y >> 4)) ) )   // no floor
 			{
 				return 1; // if there's no floor, or either water/lava then a non-levitating monster sees obstacle.
 			}

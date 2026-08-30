@@ -1474,6 +1474,9 @@ int getSpellbookFromSpellID(int spellID)
 
 	switch (spellID)
 	{
+		case SPELL_ENTRENCH: // mod add: Entrench fallback mapping
+			itemType = SPELLBOOK_ENTRENCH;
+			break;
 		case SPELL_FORCEBOLT:
 			itemType = SPELLBOOK_FORCEBOLT;
 			break;
@@ -1678,6 +1681,8 @@ int getSpellIDFromSpellbook(int spellbookType)
 
 	switch (spellbookType )
 	{
+		case SPELLBOOK_ENTRENCH: // mod add: Entrench fallback mapping
+			return SPELL_ENTRENCH;
 		case SPELLBOOK_FORCEBOLT:
 			return spell_forcebolt.ID;
 		case SPELLBOOK_MAGICMISSILE:

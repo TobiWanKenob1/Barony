@@ -21,6 +21,7 @@
 #include "items.hpp"
 #include "prng.hpp"
 #include "mod_tools.hpp"
+#include "paths.hpp"
 
 /*-------------------------------------------------------------------------------
 
@@ -36,6 +37,31 @@ void actDoor(Entity* my)
 	if (!my)
 	{
 		return;
+	}
+	// mod add: carried Entrench doors are presentation-only until placed.
+	if ( isEntrenchCarriedObject(my) )
+	{
+		return;
+	}
+	// mod add: an Entrench bridge is laid scenery, never a hinged door. Clients
+	// only need presentation; the authority continues through native mortality.
+	const bool entrenchBridge = isEntrenchDoorBridge(my);
+	if ( entrenchBridge )
+	{
+		my->flags[PASSABLE] = true;
+		my->flags[BLOCKSIGHT] = false;
+		if ( multiplayer == CLIENT )
+		{
+			return;
+		}
+	}
+	if ( isEntrenchDoorBarricade(my) )
+	{
+		my->doorLocked = 1;
+		my->doorStatus = 0;
+		my->doorStartAng = my->yaw;
+		my->flags[PASSABLE] = false;
+		my->flags[BLOCKSIGHT] = false;
 	}
 
 	Entity* entity;
@@ -132,6 +158,14 @@ void actDoor(Entity* my)
 				}
 				playSoundEntity(my, 177, 64);
 				list_RemoveNode(my->mynode);
+				if ( entrenchBridge )
+				{
+					generatePathMaps();
+				}
+				return;
+			}
+			if ( entrenchBridge )
+			{
 				return;
 			}
 

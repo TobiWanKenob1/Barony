@@ -2410,6 +2410,38 @@ public:
 		int baseSpellMPUsedMysticism = 0;
 		int baseSpellMPUsedThaumaturgy = 0;
 		Uint32 defendTicks = 0;
+		// mod add: Timed firearm reload state. Client and server retain their
+		// own UID for the same equipped firearm and advance it independently.
+		Sint32 firearmReloadTicks = 0;
+		Uint32 firearmReloadItemUid = 0;
+		ItemType firearmReloadItemType = WOODEN_SHIELD;
+		// mod add: Firearm jams are a transient, per-player action. Keeping the
+		// equipped UID prevents completion after swapping or crossing a lifecycle.
+		Sint32 firearmUnjamTicks = 0;
+		Uint32 firearmUnjamItemUid = 0;
+		ItemType firearmUnjamItemType = WOODEN_SHIELD;
+		bool firearmUnjamRetainsLoadedShot = true;
+		// mod add: Suppresses proficiency when the transient feedback action came
+		// from the Musket's persistent quest jam.
+		bool firearmUnjamWasQuestJammed = false;
+		// mod add: Separate normal-water transition state; PLAYER_INWATER also
+		// represents lava and cannot distinguish a direct lava-to-water move.
+		bool firearmInNormalWater = false;
+		// mod add end
+		// mod add: Entrench carries an original world entity, never an Item.
+		Uint32 entrenchCarriedUid = 0;
+		real_t entrenchOriginX = 0.0;
+		real_t entrenchOriginY = 0.0;
+		real_t entrenchOriginZ = 0.0;
+		real_t entrenchOriginYaw = 0.0;
+		real_t entrenchOriginPitch = 0.0;
+		real_t entrenchOriginRoll = 0.0;
+		bool entrenchOriginPassable = false;
+		bool entrenchOriginInvisible = false;
+		bool entrenchOriginUnclickable = false;
+		Sint32 entrenchOriginDoorMode = 0;
+		Sint32 entrenchOriginDoorLocked = 0;
+		Sint32 entrenchOriginDoorStatus = 0;
 		int fociHolyChargeTime = 0;
 		int fociDarkChargeTime = 0;
 		int lastFociHeldType = 0;

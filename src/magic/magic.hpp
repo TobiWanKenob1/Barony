@@ -244,7 +244,9 @@ static const int SPELL_HOLY_FIRE = 221;
 static const int SPELL_SIGIL = 222;
 static const int SPELL_SANCTUARY = 223;
 static const int SPELL_HOLY_BEAM = 224;
-static const int NUM_SPELLS = 225;
+// mod add: Entrench environmental utility spell.
+static const int SPELL_ENTRENCH = 225;
+static const int NUM_SPELLS = 226;
 
 #define SPELLELEMENT_CONFUSE_BASE_DURATION 2//In seconds.
 #define SPELLELEMENT_BLEED_BASE_DURATION 10//In seconds.
@@ -962,6 +964,10 @@ struct CastSpellProps_t
 void setupSpells();
 void equipSpell(spell_t* spell, int playernum, Item* spellItem);
 Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool trap, bool usingSpellbook = false, CastSpellProps_t* castSpellProps = nullptr, bool usingFoci = false);
+// mod add: restore an Entrench-carried world entity on player cleanup.
+void restoreEntrenchCarriedObject(int player);
+void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity); // mod add: native death destruction
+void updateEntrenchCarriedObject(int player); // mod add: collisionless hover presentation
 void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool usingTome); //Initiates the spell animation, then hands off the torch to it, which, when finished, calls castSpell.
 int spellGetCastSound(spell_t* spell);
 #ifndef EDITOR // editor doesn't know about stat*

@@ -44,6 +44,38 @@ static const int NUMENTITYSKILLS = 60;
 static const int NUMENTITYFSKILLS = 30;
 extern ConsoleVariable<int> cvar_entity_bodypart_sync_tick;
 struct spell_t;
+class Entity;
+
+// mod add: Entrench reserves skill[57] on carried scenery for its owner marker.
+// skill[58] is intentionally overloaded: on a player it replicates the carried
+// entity UID/stage, while on a door it stores the deployed Entrench door mode.
+static constexpr int ENTRENCH_CARRIED_OWNER_SKILL = 57;
+static constexpr int ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL = 58;
+static constexpr Sint32 ENTRENCH_DOOR_MODE_NONE = 0;
+static constexpr Sint32 ENTRENCH_DOOR_MODE_BARRICADE = 1;
+static constexpr Sint32 ENTRENCH_DOOR_MODE_BRIDGE = 2;
+
+// mod add: centralized Entrench predicates used by collision/pathfinding.
+bool isEntrenchDoorBarricade(const Entity* entity);
+bool isEntrenchDoorBridge(const Entity* entity);
+bool entrenchBridgeSupportsTile(int tilex, int tiley);
+bool isEntrenchCarriedObject(const Entity* entity);
+bool isEntrenchMovableObject(const Entity* entity);
+
+// mod add: firearm gunshots alert eligible monsters to a snapshot location.
+void alertMonstersToFirearmGunshot(const Entity& shooter);
+// mod add: derived entirely from synchronized equipment + defend state.
+bool playerIsUsingSpyglass(const Entity* playerEntity);
+
+// mod add: transient server-authoritative firearm disturbance lifecycle.
+enum class MonsterGunshotPhase : Uint8
+{
+	NONE,
+	INVESTIGATE,
+	SEARCH,
+	RETURN,
+	RETURN_SEARCH
+};
 
 // entity class
 class Entity
@@ -284,6 +316,18 @@ public:
 	Sint32& monsterIllusionTauntingThisUid; //skill[55]
 	Sint32& monsterLastDistractedByNoisemaker;//skill[55] shared with above as above only is for inner demons.
 	Sint32& monsterExtraReflexTick; //skill[56]
+	// mod add: server-only firearm gunshot investigation state. The destination
+	// is deliberately a position, not an entity UID, so this never tracks the shooter.
+	bool monsterInvestigatingGunshot = false;
+	bool monsterGunshotPending = false; // mod add: heard before the monster's first initialization tick
+	MonsterGunshotPhase monsterGunshotPhase = MonsterGunshotPhase::NONE;
+	real_t monsterGunshotX = 0.0;
+	real_t monsterGunshotY = 0.0;
+	real_t monsterGunshotOriginX = 0.0;
+	real_t monsterGunshotOriginY = 0.0;
+	Sint32 monsterGunshotSearchTicks = 0;
+	Sint32 monsterGunshotReturnPathTries = 0;
+	bool monsterGunshotHadPath = false;
 	real_t& monsterSentrybotLookDir; //fskill[10]
 	real_t& monsterKnockbackTangentDir; //fskill[11]
 	real_t& playerStrafeVelocity; //fskill[12]
@@ -1120,6 +1164,8 @@ public:
 	// calc damage/effects for ranged weapons.
 	void setRangedProjectileAttack(Entity& marksman, Stat& myStats, int optionalOverrideForArrowType = 0);
 	bool setArrowProjectileProperties(int weaponType);
+	bool arrowShotByFirearm() const; // mod add: projectile identity follows the firing weapon, not its sprite
+	bool arrowUsesBoltSemantics() const; // mod add: firearms retain native bolt-like presentation behavior
 	real_t yawDifferenceFromEntity(Entity* entity); // calc targets yaw compared to an entity, returns 0 - 2 * PI, where > PI is facing towards player.
 	spell_t* getActiveMagicEffect(int spellID);
 
@@ -1144,6 +1190,14 @@ public:
 	 * @param monsterWasHit: monster is retaliating to an attack as opposed to finding an enemy. to set reaction time accordingly in hardcore
 	 */
 	void monsterAcquireAttackTarget(const Entity& target, Sint32 state, bool monsterWasHit = false);
+	bool monsterGunshotAllowsTarget(const Entity& target) const;
+	bool monsterGunshotShouldIgnoreMonsterCollision(const Entity& target) const;
+	void monsterClearGunshotInvestigation();
+	bool monsterRebuildGunshotPath();
+	bool monsterRebuildGunshotReturnPath();
+	void monsterBeginGunshotInvestigation(real_t shotX, real_t shotY);
+	void monsterBeginGunshotReturn();
+	void monsterUpdateGunshotInvestigation();
 	bool monsterAlertBeforeHit(Entity* attacker);
 
 	/*
@@ -1275,6 +1329,10 @@ public:
 	void addToWorldUIList(list_t *list);
 	std::vector<Entity*> bodyparts;
 	std::set<Uint32> collisionIgnoreTargets;
+	// mod add: A firearm projectile owns one deterministic first-hostile crit.
+	// This is separate from collisionIgnoreTargets because pierceable world
+	// colliders may be recorded there without consuming the creature crit.
+	bool arrowFirearmCritConsumed = false;
 
 	bool collisionProjectileMiss(Entity* parent, Entity* projectile);
 
@@ -1320,7 +1378,9 @@ public:
 	Sint32 playerInsectoidExpectedManaFromHunger(Stat& myStats);
 	Sint32 playerInsectoidHungerValueOfManaPoint(Stat& myStats);
 	void playerInsectoidIncrementHungerToMP(int mpAmount);
-	static real_t getDamageTableMultiplier(Entity* my, Stat& myStats, DamageTableType damageType, int* magicResistance = nullptr, int* outNumSources = nullptr);
+	static real_t getDamageTableMultiplier(Entity* my, Stat& myStats, DamageTableType damageType,
+		int* magicResistance = nullptr, int* outNumSources = nullptr,
+		real_t innateDamageMultiplierOverride = -1.0);
 	static real_t getDamageTableEquipmentMod(Stat& myStats, Item& item, real_t base, real_t mod);
 	bool isBoulderSprite();
 	void createWorldUITooltip();

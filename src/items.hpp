@@ -548,6 +548,14 @@ typedef enum ItemType
 		
 	//mod addition:
 	HARPOON,
+	// mod add: firearms
+	FLINTLOCK_PISTOL,
+	MUSKET,
+	// mod add end
+	// mod add: Entrench spellbook. TODO: replace placeholder mod artwork.
+	SPELLBOOK_ENTRENCH,
+	// mod add: offhand scouting utility. TODO: dedicated model/icon in mod assets.
+	SPYGLASS = 528,
 
 	ITEM_ENUM_MAX
 } ItemType;
@@ -721,6 +729,27 @@ public:
 
 	Sint32 getWeight() const;
 	Sint32 getGoldValue() const;
+
+	// mod add: Firearm loaded state uses a reserved
+	// appearance bit so normal item serialization/networking preserves it.
+	bool isFirearm() const;
+	bool isUnbreakableFromUse() const;
+	static bool firearmAppearanceIsLoaded(ItemType type, Uint32 appearance);
+	static Uint32 setFirearmAppearanceLoaded(ItemType type, Uint32 appearance, bool loaded);
+	bool firearmIsLoaded() const;
+	void setFirearmLoaded(bool loaded);
+	// mod add: The Library Musket's persistent lock is separate from an ordinary jam.
+	static bool musketAppearanceIsQuestJammed(ItemType type, Uint32 appearance);
+	static Uint32 setMusketAppearanceQuestJammed(ItemType type, Uint32 appearance, bool jammed);
+	bool musketQuestJammed() const;
+	void setMusketQuestJammed(bool jammed);
+	ItemType firearmReloadMaterialType() const;
+	Sint32 firearmReloadMaterialCost() const;
+	Sint32 firearmReloadDuration() const;
+	Sint32 firearmJamChancePercent(Sint32 rawTinkering) const;
+	Sint32 firearmJamRecoveryScrapCost(Sint32 rawTinkering) const;
+	Sint32 firearmReloadTrainingCap() const;
+	// mod add end
 
 	void foodTinGetDescriptionIndices(int* a, int* b, int* c) const;
 	void foodTinGetDescription(std::string& cookingMethod, std::string& protein, std::string& sides) const;
@@ -1001,6 +1030,18 @@ bool itemTypeIsInstrument(ItemType type);
 bool itemTypeIsThrownBall(ItemType type);
 real_t rangedAttackGetSpeedModifier(const Stat* myStats);
 bool rangedWeaponUseQuiverOnAttack(const Stat* myStats);
+bool tryReloadFirearm(Item& firearm, int player); // mod add: firearm scrap reload
+void updateFirearmReload(int player); // mod add: timed firearm reload completion
+bool tryJamFirearm(Item& firearm, int player); // mod add: authoritative firearm jam roll
+bool tryQuestJamMusket(Item& firearm, int player); // mod add: persistent quest-jam feedback
+bool firearmUnjamIsActive(int player); // mod add: block firearm actions during clearing
+void playFirearmJamSound(Entity* wielder); // mod add: native Tinkering disassembly feedback
+void receiveFirearmJam(int player, ItemType type, Sint32 duration,
+	bool retainsLoadedShot, Sint32 magicScrapConsumed); // mod add: server correction/presentation
+void updateFirearmUnjam(int player); // mod add: timed firearm jam clearing
+bool unlockLibraryMusketFromGnomeDeath(); // mod add: authoritative one-time quest unlock
+void receiveLibraryMusketUnlock(); // mod add: mirror the unlock in local client inventory
+Sint32 spoilLoadedFirearmsInInventory(int player, bool giveFeedback); // mod add: water spoils loaded shots
 real_t getArtifactWeaponEffectChance(ItemType type, Stat& wielder, real_t* effectAmount);
 void updateHungerMessages(Entity* my, Stat* myStats, Item* eaten);
 bool playerCanSpawnMoreTinkeringBots(const Stat* myStats);

@@ -2621,10 +2621,19 @@ void drawEntities2D(long camx, long camy)
 				// if item sprite and the item index is not 0 (NULL), or 1 (RANDOM)
 				if ( entity->sprite == 8 && entity->skill[10] > 1 )
 				{
-					// draw the item sprite in the editor layout
-					Item* tmpItem = newItem(static_cast<ItemType>(entity->skill[10] - 2), static_cast<Status>(0), 0, 0, 0, 0, nullptr);
-					drawImageScaled(itemSprite(tmpItem), nullptr, &pos);
-					free(tmpItem);
+					// Draw the item icon when the editor loaded its ItemGeneric image data.
+					// A valid compiled-in item may still be absent from the editor's mounted
+					// items.json; retain sprite 8 rather than constructing/indexing blindly.
+					SDL_Surface* surface = nullptr;
+					const Sint32 runtimeItemID = entity->skill[10] - 2;
+					if ( runtimeItemID >= 0 && runtimeItemID < NUMITEMS )
+					{
+						Item* tmpItem = newItem(static_cast<ItemType>(runtimeItemID),
+							static_cast<Status>(0), 0, 0, 0, 0, nullptr);
+						surface = itemSprite(tmpItem);
+						free(tmpItem);
+					}
+					drawImageScaled(surface ? surface : sprites[entity->sprite], nullptr, &pos);
 				}
 				else if ( entity->sprite == 21 )
 				{
@@ -2912,7 +2921,17 @@ void drawEntities2D(long camx, long camy)
 						}
 						case 3: //Items
 							pady += 5;
-							strcpy(tmpStr, itemNameStrings[selectedEntity[0]->skill[10]]);
+							if ( selectedEntity[0]->skill[10] >= 0
+								&& selectedEntity[0]->skill[10] < NUM_ITEM_STRINGS
+								&& itemNameStrings[selectedEntity[0]->skill[10]][0] != '\0' )
+							{
+								strcpy(tmpStr, itemNameStrings[selectedEntity[0]->skill[10]]);
+							}
+							else
+							{
+								snprintf(tmpStr, sizeof(tmpStr), "invalid item ID %d",
+									static_cast<int>(selectedEntity[0]->skill[10]));
+							}
 							ttfPrintText(ttf8, padx, pady - 20, tmpStr);
 							color = makeColorRGB(255, 255, 255);
 							pady += 2;
@@ -3280,7 +3299,14 @@ void drawEntities2D(long camx, long camy)
 					}
 					else if ( spriteType == 3 )
 					{
-						ttfPrintText(ttf8, padx, pady - offsety, itemNameStrings[entity->skill[10]]);
+						const Sint32 editorItemID = entity->skill[10];
+						const char* itemName = "invalid item";
+						if ( editorItemID >= 0 && editorItemID < NUM_ITEM_STRINGS
+							&& itemNameStrings[editorItemID][0] != '\0' )
+						{
+							itemName = itemNameStrings[editorItemID];
+						}
+						ttfPrintText(ttf8, padx, pady - offsety, itemName);
 						offsety += 10;
 					}
 					else

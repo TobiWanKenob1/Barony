@@ -3150,6 +3150,16 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		spawnExplosionFromSprite(sprite, x, y, z);
 	}},
 
+	// mod add: visual-only firearm muzzle flash.
+	{'FMUZ', [](){
+		Sint16 x = (Sint16)SDLNet_Read16(&net_packet->data[4]);
+		Sint16 y = (Sint16)SDLNet_Read16(&net_packet->data[6]);
+		Sint16 z = (Sint16)SDLNet_Read16(&net_packet->data[8]);
+		const real_t scale = SDLNet_Read16(&net_packet->data[10]) / 100.0;
+		const bool spawnMusketSmoke = net_packet->data[12] != 0;
+		spawnFirearmMuzzleFlash(x, y, z, scale, spawnMusketSmoke);
+	}},
+
 	// spawn a bang sprite
 	{'BANG', [](){
 		Sint16 x = (Sint16)SDLNet_Read16(&net_packet->data[4]);
@@ -5277,6 +5287,30 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 				skillUpAnimation[clientnum].addSkillUp(pro, oldSkill, stats[clientnum]->getProficiency(pro) - oldSkill);
 			}
 		}
+	}},
+
+	// mod add: authoritative firearm jam correction for the owning client.
+	// Mirror the server-decided loaded state and paid recovery cost, then begin
+	// the matching transient clearing action.
+	{'FJAM', [](){
+		const ItemType type = static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4]));
+		const Sint32 duration = static_cast<Sint32>(SDLNet_Read16(&net_packet->data[8]));
+		const bool retainsLoadedShot = net_packet->data[10] != 0;
+		const Sint32 magicScrapConsumed = static_cast<Sint32>(net_packet->data[11]);
+		receiveFirearmJam(clientnum, type, duration,
+			retainsLoadedShot, magicScrapConsumed);
+	}},
+
+	// mod add: Mirror the server-authoritative permanent Musket unlock in the
+	// owning client's inventory. Sound, smoke, and chat use their normal packets.
+	{'MUQU', [](){
+		receiveLibraryMusketUnlock();
+	}},
+
+	// mod add: Server-authoritative water spoilage for the owning client's
+	// mirrored inventory and local feedback.
+	{'FWET', [](){
+		spoilLoadedFirearmsInInventory(clientnum, true);
 	}},
 
 	//Add spell.

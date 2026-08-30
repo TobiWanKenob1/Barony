@@ -27,6 +27,431 @@
 #include "../mod_tools.hpp"
 #include "../paths.hpp"
 
+bool isEntrenchDoorBarricade(const Entity* entity)
+{
+	return entity && entity->behavior == &actDoor
+		&& entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] == ENTRENCH_DOOR_MODE_BARRICADE;
+}
+
+bool isEntrenchDoorBridge(const Entity* entity)
+{
+	return entity && entity->behavior == &actDoor
+		&& entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] == ENTRENCH_DOOR_MODE_BRIDGE;
+}
+
+bool entrenchBridgeSupportsTile(int tilex, int tiley)
+{
+	if ( tilex < 0 || tilex >= map.width || tiley < 0 || tiley >= map.height )
+	{
+		return false;
+	}
+	list_t* entities = TileEntityList.getTileList(tilex, tiley);
+	if ( !entities )
+	{
+		return false;
+	}
+	for ( node_t* node = entities->first; node; node = node->next )
+	{
+		Entity* entity = static_cast<Entity*>(node->element);
+		if ( isEntrenchDoorBridge(entity)
+			&& static_cast<int>(entity->x) / 16 == tilex
+			&& static_cast<int>(entity->y) / 16 == tiley )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool isEntrenchCarriedObject(const Entity* entity)
+{
+	return entity && entity->skill[ENTRENCH_CARRIED_OWNER_SKILL] > 0;
+}
+
+bool isEntrenchMovableObject(const Entity* entity)
+{
+	if ( !entity || entity->flags[INVISIBLE] || isEntrenchCarriedObject(entity) )
+	{
+		return false;
+	}
+	if ( entity->behavior == &actFurniture )
+	{
+		return true;
+	}
+	if ( entity->behavior == &actDoor )
+	{
+		// Entrenched doors can always be lifted again. Their locked flag only
+		// prevents the native open-door interaction while they are deployed.
+		return isEntrenchDoorBarricade(entity) || isEntrenchDoorBridge(entity)
+			|| entity->doorLocked == 0;
+	}
+	// Breakable containers are ordinary destructible scenery. Diggable/wall
+	// colliders remain excluded so Entrench cannot bypass map progression.
+	return entity->isColliderBreakableContainer()
+		&& entity->colliderDiggable == 0 && !entity->isColliderWall();
+}
+
+static void clearEntrenchCarrySnapshot(Player::PlayerMechanics_t& state)
+{
+	state.entrenchCarriedUid = 0;
+	state.entrenchOriginX = 0.0;
+	state.entrenchOriginY = 0.0;
+	state.entrenchOriginZ = 0.0;
+	state.entrenchOriginYaw = 0.0;
+	state.entrenchOriginPitch = 0.0;
+	state.entrenchOriginRoll = 0.0;
+	state.entrenchOriginPassable = false;
+	state.entrenchOriginInvisible = false;
+	state.entrenchOriginUnclickable = false;
+	state.entrenchOriginDoorMode = ENTRENCH_DOOR_MODE_NONE;
+	state.entrenchOriginDoorLocked = 0;
+	state.entrenchOriginDoorStatus = 0;
+}
+
+void restoreEntrenchCarriedObject(int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] )
+	{
+		return;
+	}
+	auto& state = players[player]->mechanics;
+	if ( Entity* entity = uidToEntity(state.entrenchCarriedUid) )
+	{
+		const bool restoresBridge = entity->behavior == &actDoor
+			&& state.entrenchOriginDoorMode == ENTRENCH_DOOR_MODE_BRIDGE;
+		entity->skill[ENTRENCH_CARRIED_OWNER_SKILL] = 0;
+		entity->x = state.entrenchOriginX;
+		entity->y = state.entrenchOriginY;
+		entity->z = state.entrenchOriginZ;
+		entity->yaw = state.entrenchOriginYaw;
+		entity->pitch = state.entrenchOriginPitch;
+		entity->roll = state.entrenchOriginRoll;
+		entity->flags[PASSABLE] = state.entrenchOriginPassable;
+		entity->flags[INVISIBLE] = state.entrenchOriginInvisible;
+		entity->flags[UNCLICKABLE] = state.entrenchOriginUnclickable;
+		if ( entity->behavior == &actDoor )
+		{
+			entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = state.entrenchOriginDoorMode;
+			entity->doorLocked = state.entrenchOriginDoorLocked;
+			entity->doorStatus = state.entrenchOriginDoorStatus;
+		}
+		TileEntityList.updateEntity(*entity);
+		if ( restoresBridge )
+		{
+			generatePathMaps();
+		}
+		if ( multiplayer == SERVER )
+		{
+			serverUpdateEntityFlag(entity, PASSABLE);
+			serverUpdateEntityFlag(entity, INVISIBLE);
+			serverUpdateEntityFlag(entity, UNCLICKABLE);
+			serverUpdateEntitySkill(entity, ENTRENCH_CARRIED_OWNER_SKILL);
+			if ( entity->behavior == &actDoor )
+			{
+				serverUpdateEntitySkill(entity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+				serverUpdateEntitySkill(entity, 3);
+				serverUpdateEntitySkill(entity, 5);
+			}
+		}
+	}
+	clearEntrenchCarrySnapshot(state);
+	if ( players[player]->entity )
+	{
+		players[player]->entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
+		if ( multiplayer == SERVER )
+		{
+			serverUpdateEntitySkill(players[player]->entity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+		}
+	}
+}
+
+void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity)
+{
+	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS
+		|| !players[player] || !playerEntity )
+	{
+		return;
+	}
+	auto& state = players[player]->mechanics;
+	Entity* entity = uidToEntity(state.entrenchCarriedUid);
+	if ( entity )
+	{
+		entity->skill[ENTRENCH_CARRIED_OWNER_SKILL] = 0;
+		entity->x = playerEntity->x;
+		entity->y = playerEntity->y;
+		entity->z = playerEntity->z;
+		entity->flags[PASSABLE] = true;
+		entity->flags[INVISIBLE] = false;
+		entity->flags[UNCLICKABLE] = false;
+		entity->flags[UPDATENEEDED] = true;
+		if ( entity->behavior == &actDoor )
+		{
+			entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = ENTRENCH_DOOR_MODE_NONE;
+			entity->doorLocked = 0;
+			entity->doorStatus = 0;
+			entity->doorHealth = 0;
+		}
+		else if ( entity->behavior == &actFurniture )
+		{
+			entity->furnitureHealth = 0;
+		}
+		else if ( entity->behavior == &actColliderDecoration && entity->isDamageableCollider() )
+		{
+			entity->colliderCurrentHP = 0;
+			entity->colliderKillerUid = 0;
+		}
+		TileEntityList.updateEntity(*entity);
+		if ( multiplayer == SERVER )
+		{
+			serverUpdateEntityFlag(entity, PASSABLE);
+			serverUpdateEntityFlag(entity, INVISIBLE);
+			serverUpdateEntityFlag(entity, UNCLICKABLE);
+			serverUpdateEntitySkill(entity, ENTRENCH_CARRIED_OWNER_SKILL);
+			if ( entity->behavior == &actDoor )
+			{
+				serverUpdateEntitySkill(entity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+				serverUpdateEntitySkill(entity, 4);
+			}
+		}
+	}
+	clearEntrenchCarrySnapshot(state);
+	playerEntity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
+	if ( multiplayer == SERVER )
+	{
+		serverUpdateEntitySkill(playerEntity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+	}
+}
+
+void updateEntrenchCarriedObject(int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !players[player]->entity )
+	{
+		return;
+	}
+	Entity* caster = players[player]->entity;
+	Uint32 carriedUid = players[player]->mechanics.entrenchCarriedUid;
+	if ( carriedUid == 0 )
+	{
+		carriedUid = static_cast<Uint32>(caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL]);
+	}
+	Entity* carried = uidToEntity(carriedUid);
+	if ( !carried || !isEntrenchCarriedObject(carried) )
+	{
+		return;
+	}
+	carried->x = caster->x;
+	carried->y = caster->y;
+	carried->z = caster->z - 12.0 + sin(ticks * 0.08) * 1.25;
+	carried->yaw += 0.015;
+	while ( carried->yaw >= 2 * PI ) { carried->yaw -= 2 * PI; }
+	TileEntityList.updateEntity(*carried);
+}
+
+static bool entrenchDestinationOccupied(Entity* carried, int tilex, int tiley)
+{
+	const real_t x = tilex * 16 + 8;
+	const real_t y = tiley * 16 + 8;
+	for ( node_t* node = map.entities->first; node; node = node->next )
+	{
+		Entity* entity = static_cast<Entity*>(node->element);
+		if ( !entity || entity == carried || entity->flags[PASSABLE] || entity->flags[INVISIBLE] )
+		{
+			continue;
+		}
+		if ( fabs(entity->x - x) < entity->sizex + carried->sizex
+			&& fabs(entity->y - y) < entity->sizey + carried->sizey )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
+{
+	if ( !caster || player < 0 || player >= MAXPLAYERS || !players[player] || multiplayer == CLIENT )
+	{
+		return;
+	}
+	auto& state = players[player]->mechanics;
+	if ( state.entrenchCarriedUid == 0 )
+	{
+		Entity* target = props ? uidToEntity(props->targetUID) : nullptr;
+		if ( !target )
+		{
+			messagePlayer(player, MESSAGE_HINT, Language::get(7008));
+			return;
+		}
+		if ( target->behavior == &actDoor && target->doorLocked
+			&& !isEntrenchDoorBarricade(target) && !isEntrenchDoorBridge(target) )
+		{
+			messagePlayer(player, MESSAGE_HINT, Language::get(7009));
+			return;
+		}
+		if ( !isEntrenchMovableObject(target) )
+		{
+			messagePlayer(player, MESSAGE_HINT, Language::get(7008));
+			return;
+		}
+		const bool wasEntrenchedDoor = isEntrenchDoorBarricade(target) || isEntrenchDoorBridge(target);
+		const bool wasEntrenchBridge = isEntrenchDoorBridge(target);
+		state.entrenchCarriedUid = target->getUID();
+		caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = static_cast<Sint32>(target->getUID());
+		target->skill[ENTRENCH_CARRIED_OWNER_SKILL] = player + 1;
+		state.entrenchOriginX = target->x;
+		state.entrenchOriginY = target->y;
+		state.entrenchOriginZ = target->z;
+		state.entrenchOriginYaw = target->yaw;
+		state.entrenchOriginPitch = target->pitch;
+		state.entrenchOriginRoll = target->roll;
+		state.entrenchOriginPassable = target->flags[PASSABLE];
+		state.entrenchOriginInvisible = target->flags[INVISIBLE];
+		state.entrenchOriginUnclickable = target->flags[UNCLICKABLE];
+		state.entrenchOriginDoorMode = target->behavior == &actDoor
+			? target->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL]
+			: ENTRENCH_DOOR_MODE_NONE;
+		state.entrenchOriginDoorLocked = target->behavior == &actDoor ? target->doorLocked : 0;
+		state.entrenchOriginDoorStatus = target->behavior == &actDoor ? target->doorStatus : 0;
+		target->flags[PASSABLE] = true;
+		target->flags[INVISIBLE] = false;
+		target->flags[UNCLICKABLE] = true;
+		if ( wasEntrenchedDoor )
+		{
+			target->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = ENTRENCH_DOOR_MODE_NONE;
+			target->doorLocked = 0;
+			target->doorStatus = 0;
+			target->pitch = 0.0;
+			target->roll = 0.0;
+		}
+		target->x = caster->x;
+		target->y = caster->y;
+		target->z = caster->z - 12.0;
+		TileEntityList.updateEntity(*target);
+		if ( wasEntrenchBridge )
+		{
+			generatePathMaps();
+		}
+		if ( multiplayer == SERVER )
+		{
+			serverUpdateEntitySkill(caster, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+			serverUpdateEntityFlag(target, PASSABLE);
+			serverUpdateEntityFlag(target, INVISIBLE);
+			serverUpdateEntityFlag(target, UNCLICKABLE);
+			serverUpdateEntitySkill(target, ENTRENCH_CARRIED_OWNER_SKILL);
+			serverUpdateEntitySkill(target, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+			serverUpdateEntitySkill(target, 5);
+		}
+		messagePlayer(player, MESSAGE_HINT, Language::get(7010));
+		return;
+	}
+
+	Entity* carried = uidToEntity(state.entrenchCarriedUid);
+	if ( !carried )
+	{
+		clearEntrenchCarrySnapshot(state);
+		caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
+		if ( multiplayer == SERVER )
+		{
+			serverUpdateEntitySkill(caster, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+		}
+		messagePlayer(player, MESSAGE_HINT, Language::get(7011));
+		return;
+	}
+	const int tilex = props ? static_cast<int>(floor(props->target_x / 16.0)) : -1;
+	const int tiley = props ? static_cast<int>(floor(props->target_y / 16.0)) : -1;
+	if ( tilex < 0 || tilex >= map.width || tiley < 0 || tiley >= map.height )
+	{
+		messagePlayer(player, MESSAGE_HINT, Language::get(7012));
+		return;
+	}
+	const int index = tiley * MAPLAYERS + tilex * MAPLAYERS * map.height;
+	if ( !map.tiles[index] || map.tiles[OBSTACLELAYER + index]
+		|| entrenchDestinationOccupied(carried, tilex, tiley) )
+	{
+		messagePlayer(player, MESSAGE_HINT, Language::get(7013));
+		return;
+	}
+
+	const real_t dx = (tilex * 16 + 8) - caster->x;
+	const real_t dy = (tiley * 16 + 8) - caster->y;
+	bool alongX = fabs(dx) >= fabs(dy);
+	bool bridge = false;
+	if ( carried->behavior == &actDoor && swimmingtiles[map.tiles[index]] )
+	{
+		// mod edit: water placement is always valid for a carried door. Its
+		// orientation follows the caster-facing placement axis; surrounding bank
+		// tiles are intentionally irrelevant.
+		bridge = true;
+	}
+	else if ( swimmingtiles[map.tiles[index]] || lavatiles[map.tiles[index]] )
+	{
+		messagePlayer(player, MESSAGE_HINT, Language::get(7014));
+		return;
+	}
+
+	carried->x = tilex * 16 + 8;
+	carried->y = tiley * 16 + 8;
+	carried->flags[INVISIBLE] = false;
+	carried->flags[UNCLICKABLE] = false;
+	carried->flags[PASSABLE] = bridge ? true : state.entrenchOriginPassable;
+	carried->skill[ENTRENCH_CARRIED_OWNER_SKILL] = 0;
+	carried->z = state.entrenchOriginZ;
+	if ( carried->behavior == &actDoor )
+	{
+		carried->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = bridge
+			? ENTRENCH_DOOR_MODE_BRIDGE : ENTRENCH_DOOR_MODE_BARRICADE;
+		carried->doorLocked = 1;
+		carried->doorStatus = 0;
+		// A bridge spans its banks; a barricade blocks across the caster's line.
+		carried->yaw = bridge ? (alongX ? PI / 2 : 0.0) : (alongX ? 0.0 : PI / 2);
+		carried->doorStartAng = carried->yaw;
+		carried->pitch = bridge ? PI / 2 : 0.0;
+		carried->roll = bridge ? 0.0 : PI / 2; // stand the barricade on its hinge edge
+		// Native open doors retain a -5 hinge focal offset. Clear it so open and
+		// closed source doors deploy at the same height and centered on the tile.
+		carried->focalx = 0.0;
+		carried->focaly = 0.0;
+		carried->focalz = 0.0;
+		// Positive Z lowers voxel models. Bridges sit roughly half a wall tile
+		// lower (minus two voxels); hinge-edge barricades need a quarter tile.
+		carried->z = bridge ? 8.0 : 4.0;
+		carried->doorDir = carried->yaw == 0.0 ? 0 : 1;
+		carried->sizex = carried->doorDir ? 8 : 1;
+		carried->sizey = carried->doorDir ? 1 : 8;
+		carried->flags[BLOCKSIGHT] = false;
+	}
+	TileEntityList.updateEntity(*carried);
+	if ( bridge )
+	{
+		// mod add: bridges are rare player actions; rebuild native grounded zones once.
+		generatePathMaps();
+	}
+	if ( multiplayer == SERVER )
+	{
+		serverUpdateEntityFlag(carried, PASSABLE);
+		serverUpdateEntityFlag(carried, INVISIBLE);
+		serverUpdateEntityFlag(carried, UNCLICKABLE);
+		serverUpdateEntityFlag(carried, BLOCKSIGHT);
+		serverUpdateEntitySkill(carried, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+		serverUpdateEntitySkill(carried, ENTRENCH_CARRIED_OWNER_SKILL);
+		serverUpdateEntitySkill(carried, 3);
+		serverUpdateEntitySkill(carried, 5);
+	}
+	if ( !bridge )
+	{
+		updateEnemyBar(caster, carried, Language::get(674), carried->doorHealth,
+			carried->doorMaxHealth, false, DamageGib::DMG_DEFAULT);
+	}
+	clearEntrenchCarrySnapshot(state);
+	caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
+	if ( multiplayer == SERVER )
+	{
+		serverUpdateEntitySkill(caster, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+	}
+	messagePlayer(player, MESSAGE_HINT, Language::get(bridge ? 7015 : 7016));
+}
+// mod add end
+
 void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool usingTome)
 {
 	Entity* caster = uidToEntity(caster_uid);
@@ -590,6 +1015,14 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 		return NULL;
 	}
 
+	// mod edit: Entrench placement is the second click of the original cast.
+	// Reuse the staff bypass internally so multiplayer does not charge mana or
+	// roll spell failure a second time; optionalData is sent by the targeter.
+	if ( spell->ID == SPELL_ENTRENCH && castSpellProps && castSpellProps->optionalData == 1 )
+	{
+		using_magicstaff = true;
+	}
+
 	if (!spell->elements.first)
 	{
 		return NULL;
@@ -809,6 +1242,14 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 		}
 	}
 
+	// mod edit: Entrench remains a normal mana-costing cast, but its two-stage
+	// client prediction cannot safely enter placement mode after a server fizzle.
+	// Keep the utility interaction deterministic until it has an acknowledgement path.
+	if ( spell->ID == SPELL_ENTRENCH )
+	{
+		newbie = false;
+	}
+
 	if ( newbie && stat )
 	{
 		//So This wizard is a newbie.
@@ -982,6 +1423,14 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 	//spellElement_t *element = (spellElement_t *)spell->elements->first->element;
 	spellElement_t* const element = (spellElement_t*)node->element;
 	spellElement_t* const innerElement = element->elements.first ? (spellElement_t*)(element->elements.first->element) : nullptr;
+	// mod add: Entrench is an immediate targeted utility effect. Keeping it
+	// outside the legacy element else-if chain also avoids MSVC's nesting limit.
+	if ( spell->ID == SPELL_ENTRENCH )
+	{
+		castEntrench(caster, player, castSpellProps);
+		return nullptr;
+	}
+
 	if (element)
 	{
 		if (!strcmp(element->element_internal_name, spellElement_missile.element_internal_name))

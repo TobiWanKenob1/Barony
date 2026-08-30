@@ -3240,6 +3240,32 @@ void Player::init() // for use on new/restart game, UI related
 	levelUpAnimation[playernum].lvlUps.clear();
 	skillUpAnimation[playernum].skillUps.clear();
 	mechanics.itemDegradeRng.clear();
+	// mod add: Clear any firearm action left over from the previous run.
+	mechanics.firearmReloadTicks = 0;
+	mechanics.firearmReloadItemUid = 0;
+	mechanics.firearmReloadItemType = WOODEN_SHIELD;
+	mechanics.firearmUnjamTicks = 0;
+	mechanics.firearmUnjamItemUid = 0;
+	mechanics.firearmUnjamItemType = WOODEN_SHIELD;
+	mechanics.firearmUnjamRetainsLoadedShot = true;
+	mechanics.firearmUnjamWasQuestJammed = false;
+	mechanics.firearmInNormalWater = false;
+	// mod add end
+	// mod add: A new map/run discards stale Entrench bookkeeping without touching
+	// an entity from the previous map; removal cleanup performs restoration first.
+	mechanics.entrenchCarriedUid = 0;
+	mechanics.entrenchOriginX = 0.0;
+	mechanics.entrenchOriginY = 0.0;
+	mechanics.entrenchOriginZ = 0.0;
+	mechanics.entrenchOriginYaw = 0.0;
+	mechanics.entrenchOriginPitch = 0.0;
+	mechanics.entrenchOriginRoll = 0.0;
+	mechanics.entrenchOriginPassable = false;
+	mechanics.entrenchOriginInvisible = false;
+	mechanics.entrenchOriginUnclickable = false;
+	mechanics.entrenchOriginDoorMode = 0;
+	mechanics.entrenchOriginDoorLocked = 0;
+	mechanics.entrenchOriginDoorStatus = 0;
 	mechanics.sustainedSpellIDCounter.clear();
 	hamletShopkeeperSkillLimit[playernum].clear();
 	mechanics.baseSpellLevelUpProcs.clear();
@@ -3275,6 +3301,19 @@ void Player::init() // for use on new/restart game, UI related
 
 void Player::cleanUpOnEntityRemoval()
 {
+	// mod add: carried scenery cannot cross death/disconnect/map boundaries.
+	restoreEntrenchCarriedObject(playernum);
+	// mod add: A removed player cannot finish a pending firearm action.
+	mechanics.firearmReloadTicks = 0;
+	mechanics.firearmReloadItemUid = 0;
+	mechanics.firearmReloadItemType = WOODEN_SHIELD;
+	mechanics.firearmUnjamTicks = 0;
+	mechanics.firearmUnjamItemUid = 0;
+	mechanics.firearmUnjamItemType = WOODEN_SHIELD;
+	mechanics.firearmUnjamRetainsLoadedShot = true;
+	mechanics.firearmUnjamWasQuestJammed = false;
+	mechanics.firearmInNormalWater = false;
+	// mod add end
 	if ( isLocalPlayer() )
 	{
 		hud.reset();
@@ -7360,6 +7399,11 @@ bool Player::PlayerMechanics_t::itemDegradeRoll(Item* item, int skillID, int* ch
 	if ( item->type < 0 || item->type >= NUMITEMS )
 	{
 		return true;
+	}
+	// mod add: Central durability opt-out for use/combat degradation.
+	if ( item->isUnbreakableFromUse() )
+	{
+		return false;
 	}
 
 	auto& counter = itemDegradeRng[item->type];

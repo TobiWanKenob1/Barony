@@ -2758,6 +2758,10 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 			equipItemResult = equipItem(item, &stats[player]->shield, player, checkInventorySpaceForPaperDoll);
 			break;
 		case SHORTBOW:
+		// mod add: firearms equip in the main hand.
+		case FLINTLOCK_PISTOL:
+		case MUSKET:
+		// mod add end
 		case STEEL_HALBERD:
 		case STEEL_SWORD:
 		case STEEL_MACE:
@@ -3313,6 +3317,7 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 		case SPELLBOOK_SANCTUARY:
 		case SPELLBOOK_HOLY_BEAM:
 		case SPELLBOOK_DOMINATE:
+		case SPELLBOOK_ENTRENCH: // mod add: Entrench spellbook
 			item_Spellbook(item, player);
 			break;
 		case TOME_SORCERY:
@@ -3367,6 +3372,7 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 		case TOOL_TORCH:
 		case TOOL_LANTERN:
 		case TOOL_CRYSTALSHARD:
+		case SPYGLASS: // mod add: normal offhand equip/use dispatch
 		case TOOL_TINKERING_KIT:
 		case QUIVER_SILVER:
 		case QUIVER_PIERCE:
@@ -4818,6 +4824,16 @@ Sint32 Item::weaponGetAttack(const Stat* const wielder) const
 	{
 		attack += 14;
 	}
+	// mod add: firearm base attack
+	else if ( type == FLINTLOCK_PISTOL)
+	{
+		attack += 24;
+	}
+	else if ( type == MUSKET )
+	{
+		attack += 30;
+	}
+	// mod add end
 	else if ( type == COMPOUND_BOW )
 	{
 		attack += 9;
@@ -6560,6 +6576,10 @@ bool isRangedWeapon(const ItemType type)
 	case BRANCH_BOW_INFECTED:
 	case BLACKIRON_CROSSBOW:
 	case BONE_SHORTBOW:
+	// mod add: firearms use normal ranged proficiency/attack paths.
+	case FLINTLOCK_PISTOL:
+	case MUSKET:
+	// mod add end
 		return true;
 	default:
 		return false;
@@ -6603,6 +6623,12 @@ bool swapMonsterWeaponWithInventoryItem(Entity* const my, Stat* const myStats, n
 	}
 
 	item = static_cast<Item*>(inventoryNode->element);
+	// mod add: Non-player holders may carry a Musket but can never move one
+	// into the firing slot through native AI weapon-selection helpers.
+	if ( my && my->behavior != &actPlayer && item && item->type == MUSKET )
+	{
+		return false;
+	}
 	
 	if ( item->count == 1 || moveStack )
 	{
@@ -7298,6 +7324,12 @@ bool rangedWeaponUseQuiverOnAttack(const Stat* const myStats)
 	{
 		return false;
 	}
+	// mod add: Firearms reload from scrap and never use quivers.
+	if ( myStats->weapon->isFirearm() )
+	{
+		return false;
+	}
+	// mod add end
 
 	if ( myStats->shield && itemTypeIsQuiver(myStats->shield->type) && !(myStats->weapon && myStats->weapon->type == SLING) )
 	{
@@ -7305,6 +7337,780 @@ bool rangedWeaponUseQuiverOnAttack(const Stat* const myStats)
 	}
 	return false;
 }
+
+// mod add: firearm state and reload behavior.
+static const Uint32 FIREARM_LOADED_APPEARANCE_BIT = 0x80000000u;
+static const Uint32 MUSKET_QUEST_JAMMED_APPEARANCE_BIT = 0x40000000u;
+
+bool Item::isFirearm() const
+{
+	return type == FLINTLOCK_PISTOL || type == MUSKET;
+}
+
+bool Item::isUnbreakableFromUse() const
+{
+	// mod edit: Mythical firearms may still be dropped, traded, or deliberately
+	// salvaged, and repaired when acquired damaged; only ordinary use/combat
+	// durability loss is suppressed.
+	return type == FLINTLOCK_PISTOL || type == MUSKET;
+}
+
+bool Item::firearmAppearanceIsLoaded(ItemType type, Uint32 appearance)
+{
+	return (type == FLINTLOCK_PISTOL || type == MUSKET)
+		&& (appearance & FIREARM_LOADED_APPEARANCE_BIT) != 0;
+}
+
+Uint32 Item::setFirearmAppearanceLoaded(ItemType type, Uint32 appearance, bool loaded)
+{
+	if ( type != FLINTLOCK_PISTOL && type != MUSKET )
+	{
+		return appearance;
+	}
+	if ( loaded )
+	{
+		return appearance | FIREARM_LOADED_APPEARANCE_BIT;
+	}
+	return appearance & ~FIREARM_LOADED_APPEARANCE_BIT;
+}
+
+bool Item::firearmIsLoaded() const
+{
+	return firearmAppearanceIsLoaded(type, appearance);
+}
+
+void Item::setFirearmLoaded(bool loaded)
+{
+	appearance = setFirearmAppearanceLoaded(type, appearance, loaded);
+}
+
+bool Item::musketAppearanceIsQuestJammed(ItemType type, Uint32 appearance)
+{
+	return type == MUSKET
+		&& (appearance & MUSKET_QUEST_JAMMED_APPEARANCE_BIT) != 0;
+}
+
+Uint32 Item::setMusketAppearanceQuestJammed(ItemType type, Uint32 appearance, bool jammed)
+{
+	if ( type != MUSKET )
+	{
+		return appearance;
+	}
+	if ( jammed )
+	{
+		return appearance | MUSKET_QUEST_JAMMED_APPEARANCE_BIT;
+	}
+	return appearance & ~MUSKET_QUEST_JAMMED_APPEARANCE_BIT;
+}
+
+bool Item::musketQuestJammed() const
+{
+	return musketAppearanceIsQuestJammed(type, appearance);
+}
+
+void Item::setMusketQuestJammed(bool jammed)
+{
+	appearance = setMusketAppearanceQuestJammed(type, appearance, jammed);
+}
+
+static bool clearQuestJamFromItem(Item* item)
+{
+	if ( !item || !item->musketQuestJammed() )
+	{
+		return false;
+	}
+	item->setMusketQuestJammed(false);
+	return true;
+}
+
+static bool clearQuestJamFromInventory(Stat* carrierStats)
+{
+	if ( !carrierStats )
+	{
+		return false;
+	}
+
+	bool found = false;
+	for ( node_t* node = carrierStats->inventory.first; node; node = node->next )
+	{
+		found |= clearQuestJamFromItem(static_cast<Item*>(node->element));
+	}
+
+	// Equipment normally points into inventory, but checking the slots explicitly
+	// also covers inventory-owning entities whose equipped item is stored separately.
+	Item* equipment[] = {
+		carrierStats->helmet, carrierStats->breastplate, carrierStats->gloves,
+		carrierStats->shoes, carrierStats->shield, carrierStats->weapon,
+		carrierStats->cloak, carrierStats->amulet, carrierStats->ring,
+		carrierStats->mask
+	};
+	for ( Item* item : equipment )
+	{
+		found |= clearQuestJamFromItem(item);
+	}
+	return found;
+}
+
+void receiveLibraryMusketUnlock()
+{
+	// mod add: Only the local inventory needs mirroring. Remote inventories are
+	// authoritative on the server and their equipment presentation has no jam state.
+	gameStatistics[STATISTICS_MUSKET_QUEST_UNLOCKED] = 1;
+	if ( clientnum >= 0 && clientnum < MAXPLAYERS )
+	{
+		clearQuestJamFromInventory(stats[clientnum]);
+	}
+}
+
+bool unlockLibraryMusketFromGnomeDeath()
+{
+	if ( multiplayer == CLIENT
+		|| gameStatistics[STATISTICS_MUSKET_QUEST_UNLOCKED] != 0 )
+	{
+		return false;
+	}
+
+	bool found = false;
+	real_t originX = 0.0;
+	real_t originY = 0.0;
+	real_t originZ = 0.0;
+	auto rememberOrigin = [&](Entity* carrier)
+	{
+		if ( !found && carrier )
+		{
+			originX = carrier->x;
+			originY = carrier->y;
+			originZ = carrier->z - 1.0;
+		}
+		found = true;
+	};
+
+	// Prefer player ownership when resolving the audiovisual origin.
+	for ( int c = 0; c < MAXPLAYERS; ++c )
+	{
+		if ( !players[c] || !players[c]->entity || !stats[c] )
+		{
+			continue;
+		}
+		if ( clearQuestJamFromInventory(stats[c]) )
+		{
+			rememberOrigin(players[c]->entity);
+		}
+	}
+
+	// Then inspect every creature inventory, including equipped-only items.
+	if ( map.creatures )
+	{
+		for ( node_t* node = map.creatures->first; node; node = node->next )
+		{
+			Entity* carrier = static_cast<Entity*>(node->element);
+			if ( carrier && clearQuestJamFromInventory(carrier->getStats()) )
+			{
+				rememberOrigin(carrier);
+			}
+		}
+	}
+
+	// Finally find the ordinary dropped/map Item entity at its exact world position.
+	if ( map.entities )
+	{
+		for ( node_t* node = map.entities->first; node; node = node->next )
+		{
+			Entity* entity = static_cast<Entity*>(node->element);
+			if ( !entity || entity->behavior != &actItem
+				|| entity->skill[10] != MUSKET
+				|| !Item::musketAppearanceIsQuestJammed(MUSKET,
+					static_cast<Uint32>(entity->skill[14])) )
+			{
+				continue;
+			}
+			entity->skill[14] = static_cast<Sint32>(Item::setMusketAppearanceQuestJammed(
+				MUSKET, static_cast<Uint32>(entity->skill[14]), false));
+			serverUpdateEntitySkill(entity, 14);
+			if ( !found )
+			{
+				originX = entity->x;
+				originY = entity->y;
+				originZ = entity->z;
+			}
+			found = true;
+		}
+	}
+
+	// A valid quest placement always supplies the marked Musket. Do not fabricate
+	// an awakening at the Gnome if a malformed map omitted it.
+	if ( !found )
+	{
+		return false;
+	}
+
+	gameStatistics[STATISTICS_MUSKET_QUEST_UNLOCKED] = 1;
+	if ( multiplayer == SERVER )
+	{
+		for ( int c = 1; c < MAXPLAYERS; ++c )
+		{
+			if ( client_disconnected[c] || !players[c] || players[c]->isLocalPlayer() )
+			{
+				continue;
+			}
+			strcpy((char*)net_packet->data, "MUQU");
+			net_packet->address.host = net_clients[c - 1].host;
+			net_packet->address.port = net_clients[c - 1].port;
+			net_packet->len = 4;
+			sendPacketSafe(net_sock, -1, net_packet, c - 1);
+		}
+	}
+
+	playSoundPos(originX, originY, 863, 128);
+	spawnFirearmMuzzleFlash(static_cast<Sint16>(originX),
+		static_cast<Sint16>(originY), static_cast<Sint16>(originZ), 0.0, true);
+	for ( int c = 0; c < MAXPLAYERS; ++c )
+	{
+		if ( players[c] && (c == 0 || !client_disconnected[c]) )
+		{
+			messagePlayer(c, MESSAGE_WORLD, "Ak-kelte finally speaks again");
+		}
+	}
+	return true;
+}
+
+Sint32 spoilLoadedFirearmsInInventory(int player, bool giveFeedback)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !stats[player] )
+	{
+		return 0;
+	}
+
+	Sint32 spoiled = 0;
+	Item* singleFirearm = nullptr;
+	for ( node_t* node = stats[player]->inventory.first; node; node = node->next )
+	{
+		Item* item = static_cast<Item*>(node->element);
+		if ( item && item->firearmIsLoaded() )
+		{
+			item->setFirearmLoaded(false);
+			singleFirearm = item;
+			++spoiled;
+		}
+	}
+
+	if ( giveFeedback && spoiled > 0 && players[player] && players[player]->isLocalPlayer() )
+	{
+		if ( spoiled == 1 )
+		{
+			messagePlayer(player, MESSAGE_EQUIPMENT, Language::get(6999), singleFirearm->getName());
+		}
+		else
+		{
+			messagePlayer(player, MESSAGE_EQUIPMENT, Language::get(7000), spoiled);
+		}
+	}
+	return spoiled;
+}
+
+ItemType Item::firearmReloadMaterialType() const
+{
+	// mod add: centralized weapon-specific scrap material mapping.
+	switch ( type )
+	{
+		case FLINTLOCK_PISTOL:
+			return TOOL_METAL_SCRAP;
+		case MUSKET:
+			return TOOL_MAGIC_SCRAP;
+		default:
+			return WOODEN_SHIELD;
+	}
+}
+
+Sint32 Item::firearmReloadMaterialCost() const
+{
+	// mod add: Both scrap costs currently match, but this remains
+	// weapon-specific so later balance changes stay centralized.
+	switch ( type )
+	{
+		case FLINTLOCK_PISTOL:
+		case MUSKET:
+			return 10;
+		default:
+			return 0;
+	}
+}
+
+Sint32 Item::firearmReloadDuration() const
+{
+	// mod add: Firearm reload durations (50 ticks per second).
+	switch ( type )
+	{
+		case FLINTLOCK_PISTOL:
+			return 2 * TICKS_PER_SECOND;
+		case MUSKET:
+			return 3 * TICKS_PER_SECOND;
+		default:
+			return 0;
+	}
+}
+
+Sint32 Item::firearmJamChancePercent(Sint32 rawTinkering) const
+{
+	// mod add: Jams deliberately use raw Tinkering (PRO_LOCKPICKING), without
+	// equipment, race, or other modified-proficiency bonuses.
+	switch ( type )
+	{
+		case FLINTLOCK_PISTOL:
+			return std::max<Sint32>(0, 25 - rawTinkering / 4);
+		case MUSKET:
+			return std::max<Sint32>(0, 50 - rawTinkering / 2);
+		default:
+			return 0;
+	}
+}
+
+Sint32 Item::firearmJamRecoveryScrapCost(Sint32 rawTinkering) const
+{
+	// mod add: Only Musket jams have a recovery cost. Clamp the lower end so
+	// raw proficiency 0-5 is the first five-point band and 51+ is always free.
+	if ( type != MUSKET || rawTinkering >= 51 )
+	{
+		return 0;
+	}
+	return 10 - ((std::max<Sint32>(rawTinkering, 1) - 1) / 5);
+}
+
+Sint32 Item::firearmReloadTrainingCap() const
+{
+	switch ( type )
+	{
+		case FLINTLOCK_PISTOL:
+			return 60;
+		case MUSKET:
+			return 100;
+		default:
+			return 0;
+	}
+}
+
+static Sint32 playerCountInventoryItemType(int player, ItemType type)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !stats[player] )
+	{
+		return 0;
+	}
+	Sint32 total = 0;
+	for ( node_t* node = stats[player]->inventory.first; node; node = node->next )
+	{
+		Item* item = static_cast<Item*>(node->element);
+		if ( item && item->type == type )
+		{
+			total += item->count;
+		}
+	}
+	return total;
+}
+
+static bool playerConsumeInventoryItemType(int player, ItemType type, Sint32 amount)
+{
+	if ( amount <= 0 )
+	{
+		return true;
+	}
+	// Preflight the complete cost. Never partially consume a recovery/reload fee.
+	if ( playerCountInventoryItemType(player, type) < amount )
+	{
+		return false;
+	}
+
+	Sint32 remaining = amount;
+	for ( node_t* node = stats[player]->inventory.first; node && remaining > 0; )
+	{
+		node_t* next = node->next;
+		Item* item = static_cast<Item*>(node->element);
+		if ( item && item->type == type )
+		{
+			while ( item && remaining > 0 )
+			{
+				consumeItem(item, player);
+				--remaining;
+			}
+		}
+		node = next;
+	}
+	return remaining == 0;
+}
+
+bool firearmUnjamIsActive(int player)
+{
+	return player >= 0 && player < MAXPLAYERS && players[player]
+		&& players[player]->mechanics.firearmUnjamTicks > 0;
+}
+
+void playFirearmJamSound(Entity* wielder)
+{
+	if ( !wielder )
+	{
+		return;
+	}
+	// mod add: Native common Tinkering salvage/disassembly sounds.
+	playSoundEntity(wielder, 462 + local_rng.rand() % 2, 64);
+}
+
+static void beginFirearmUnjam(Item& firearm, int player, Sint32 duration,
+	bool retainsLoadedShot, bool questJammed = false)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player]
+		|| !firearm.isFirearm() || duration <= 0 )
+	{
+		return;
+	}
+
+	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
+	if ( mechanics.firearmUnjamTicks > 0 )
+	{
+		return;
+	}
+	mechanics.firearmUnjamTicks = duration;
+	mechanics.firearmUnjamItemUid = firearm.uid;
+	mechanics.firearmUnjamItemType = firearm.type;
+	mechanics.firearmUnjamRetainsLoadedShot = retainsLoadedShot;
+	mechanics.firearmUnjamWasQuestJammed = questJammed;
+	if ( multiplayer != CLIENT )
+	{
+		playFirearmJamSound(players[player]->entity);
+		// The authoritative message path also delivers this to remote owners.
+		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+			Language::get(7001), firearm.getName());
+		if ( !retainsLoadedShot && !questJammed )
+		{
+			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+				Language::get(7017));
+		}
+	}
+}
+
+bool tryQuestJamMusket(Item& firearm, int player)
+{
+	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS
+		|| !players[player] || !stats[player] || !players[player]->entity
+		|| !firearm.musketQuestJammed() )
+	{
+		return false;
+	}
+
+	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
+	if ( mechanics.firearmReloadTicks > 0 || mechanics.firearmUnjamTicks > 0 )
+	{
+		return true;
+	}
+
+	const Sint32 duration = TICKS_PER_SECOND / 2;
+	const bool retainsLoadedShot = firearm.firearmIsLoaded();
+	beginFirearmUnjam(firearm, player, duration, retainsLoadedShot, true);
+	if ( multiplayer == SERVER && player > 0 && !players[player]->isLocalPlayer() )
+	{
+		// Mirror presentation only. The item appearance bit remains the persistent,
+		// authoritative lock and is never cleared by this transient action.
+		strcpy((char*)net_packet->data, "FJAM");
+		SDLNet_Write32(static_cast<Uint32>(firearm.type), &net_packet->data[4]);
+		SDLNet_Write16(static_cast<Uint16>(duration), &net_packet->data[8]);
+		net_packet->data[10] = retainsLoadedShot ? 1 : 0;
+		net_packet->data[11] = 0;
+		net_packet->address.host = net_clients[player - 1].host;
+		net_packet->address.port = net_clients[player - 1].port;
+		net_packet->len = 12;
+		sendPacketSafe(net_sock, -1, net_packet, player - 1);
+	}
+	return true;
+}
+
+bool tryJamFirearm(Item& firearm, int player)
+{
+	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS
+		|| !players[player] || !stats[player] || !players[player]->entity
+		|| !firearm.isFirearm() || firearm.musketQuestJammed()
+		|| !firearm.firearmIsLoaded() )
+	{
+		return false;
+	}
+
+	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
+	if ( mechanics.firearmReloadTicks > 0 || mechanics.firearmUnjamTicks > 0 )
+	{
+		return false;
+	}
+
+	const Sint32 rawTinkering = stats[player]->getProficiency(PRO_LOCKPICKING);
+	const Sint32 jamChance = firearm.firearmJamChancePercent(rawTinkering);
+	if ( jamChance <= 0 || local_rng.rand() % 100 >= jamChance )
+	{
+		return false;
+	}
+
+	bool retainsLoadedShot = true;
+	Sint32 magicScrapConsumed = 0;
+	const Sint32 recoveryCost = firearm.firearmJamRecoveryScrapCost(rawTinkering);
+	if ( recoveryCost > 0 )
+	{
+		if ( playerConsumeInventoryItemType(player, TOOL_MAGIC_SCRAP, recoveryCost) )
+		{
+			magicScrapConsumed = recoveryCost;
+		}
+		else
+		{
+			// The full recovery price cannot be paid: consume nothing and spoil
+			// the chambered shot while retaining the short jam-clear action.
+			retainsLoadedShot = false;
+			firearm.setFirearmLoaded(false);
+		}
+	}
+
+	const Sint32 duration = TICKS_PER_SECOND / 2;
+	beginFirearmUnjam(firearm, player, duration, retainsLoadedShot);
+	if ( multiplayer == SERVER && player > 0 && !players[player]->isLocalPlayer() )
+	{
+		// mod add: Correct client shot prediction from the authoritative result.
+		// The packet also mirrors the already-decided scrap mutation; the client
+		// never rolls the jam or independently chooses its recovery cost.
+		strcpy((char*)net_packet->data, "FJAM");
+		SDLNet_Write32(static_cast<Uint32>(firearm.type), &net_packet->data[4]);
+		SDLNet_Write16(static_cast<Uint16>(duration), &net_packet->data[8]);
+		net_packet->data[10] = retainsLoadedShot ? 1 : 0;
+		net_packet->data[11] = static_cast<Uint8>(magicScrapConsumed);
+		net_packet->address.host = net_clients[player - 1].host;
+		net_packet->address.port = net_clients[player - 1].port;
+		net_packet->len = 12;
+		sendPacketSafe(net_sock, -1, net_packet, player - 1);
+	}
+	return true;
+}
+
+void receiveFirearmJam(int player, ItemType type, Sint32 duration,
+	bool retainsLoadedShot, Sint32 magicScrapConsumed)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !stats[player] || !players[player] )
+	{
+		return;
+	}
+	Item* firearm = stats[player]->weapon;
+	if ( !firearm || !firearm->isFirearm() || firearm->type != type )
+	{
+		return;
+	}
+
+	// Apply only the server-provided result: paid jams restore the locally
+	// predicted loaded bit, while an unrecoverable charge remains empty.
+	if ( magicScrapConsumed > 0 )
+	{
+		playerConsumeInventoryItemType(player, TOOL_MAGIC_SCRAP, magicScrapConsumed);
+	}
+	firearm->setFirearmLoaded(retainsLoadedShot);
+	beginFirearmUnjam(*firearm, player, duration, retainsLoadedShot,
+		firearm->musketQuestJammed());
+}
+
+void updateFirearmUnjam(int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] )
+	{
+		return;
+	}
+
+	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
+	if ( mechanics.firearmUnjamTicks <= 0 )
+	{
+		return;
+	}
+
+	Item* firearm = stats[player] ? stats[player]->weapon : nullptr;
+	const bool actionStillValid = players[player]->entity && stats[player] && stats[player]->HP > 0
+		&& firearm && firearm->uid == mechanics.firearmUnjamItemUid
+		&& firearm->type == mechanics.firearmUnjamItemType
+		&& firearm->isFirearm()
+		&& firearm->firearmIsLoaded() == mechanics.firearmUnjamRetainsLoadedShot;
+	if ( !actionStillValid )
+	{
+		mechanics.firearmUnjamTicks = 0;
+		mechanics.firearmUnjamItemUid = 0;
+		mechanics.firearmUnjamItemType = WOODEN_SHIELD;
+		mechanics.firearmUnjamRetainsLoadedShot = true;
+		mechanics.firearmUnjamWasQuestJammed = false;
+		return;
+	}
+
+	--mechanics.firearmUnjamTicks;
+	if ( mechanics.firearmUnjamTicks > 0 )
+	{
+		return;
+	}
+
+	// Clear first so completion cannot be observed twice, including during the
+	// callbacks and network updates performed by increaseSkill().
+	const ItemType completedFirearmType = mechanics.firearmUnjamItemType;
+	const bool completedQuestJam = mechanics.firearmUnjamWasQuestJammed;
+	mechanics.firearmUnjamItemUid = 0;
+	mechanics.firearmUnjamItemType = WOODEN_SHIELD;
+	mechanics.firearmUnjamRetainsLoadedShot = true;
+	mechanics.firearmUnjamWasQuestJammed = false;
+	if ( !completedQuestJam && players[player]->isLocalPlayer() )
+	{
+		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+			Language::get(7002), firearm->getName());
+	}
+	if ( multiplayer != CLIENT )
+	{
+		const Sint32 rawTinkering = stats[player]->getProficiency(PRO_LOCKPICKING);
+		// Flintlock retains its existing guaranteed call. Musket progression is
+		// reserved for established tinkerers and stops at raw proficiency 100.
+		if ( !completedQuestJam && (completedFirearmType == FLINTLOCK_PISTOL
+			|| (completedFirearmType == MUSKET
+				&& rawTinkering >= 60 && rawTinkering < 100)) )
+		{
+			players[player]->entity->increaseSkill(PRO_LOCKPICKING);
+		}
+	}
+}
+
+static Sint32 playerCountFirearmReloadMaterials(const Item& firearm, int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !stats[player] || !firearm.isFirearm() )
+	{
+		return 0;
+	}
+	return playerCountInventoryItemType(player, firearm.firearmReloadMaterialType());
+}
+
+static bool playerConsumeFirearmReloadMaterials(const Item& firearm, int player)
+{
+	const Sint32 materialCost = firearm.firearmReloadMaterialCost();
+	return playerConsumeInventoryItemType(player,
+		firearm.firearmReloadMaterialType(), materialCost);
+}
+
+bool tryReloadFirearm(Item& firearm, int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !stats[player]
+		|| !firearm.isFirearm() || firearm.musketQuestJammed()
+		|| firearm.firearmIsLoaded() )
+	{
+		return false;
+	}
+	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
+	if ( mechanics.firearmReloadTicks > 0 || mechanics.firearmUnjamTicks > 0 )
+	{
+		// mod edit: attack input may be evaluated repeatedly while held and once
+		// again through client/server prediction. An active reload silently owns
+		// the action until completion; do not emit a misleading duplicate warning.
+		return false;
+	}
+
+	const ItemType materialType = firearm.firearmReloadMaterialType();
+	const Sint32 materialCost = firearm.firearmReloadMaterialCost();
+	if ( playerCountFirearmReloadMaterials(firearm, player) < materialCost )
+	{
+		if ( players[player]->isLocalPlayer() )
+		{
+			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+				Language::get(7003), materialCost,
+				items[materialType].getIdentifiedName(), firearm.getName());
+			playSoundPlayer(player, 90, 64);
+		}
+		return false;
+	}
+
+	mechanics.firearmReloadTicks = firearm.firearmReloadDuration();
+	mechanics.firearmReloadItemUid = firearm.uid;
+	mechanics.firearmReloadItemType = firearm.type;
+	if ( multiplayer != CLIENT )
+	{
+		// mod add: A real reload start reuses the native Tinkering disassembly SFX.
+		playFirearmJamSound(players[player]->entity);
+	}
+	if ( players[player]->isLocalPlayer() )
+	{
+		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+			Language::get(7004), firearm.getName());
+	}
+	return true;
+}
+
+void updateFirearmReload(int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] )
+	{
+		return;
+	}
+
+	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
+	if ( mechanics.firearmReloadTicks <= 0 )
+	{
+		return;
+	}
+
+	Item* firearm = stats[player] ? stats[player]->weapon : nullptr;
+	const bool actionStillValid = players[player]->entity && stats[player] && stats[player]->HP > 0
+		&& firearm && firearm->uid == mechanics.firearmReloadItemUid
+		&& firearm->type == mechanics.firearmReloadItemType
+		&& firearm->isFirearm() && !firearm->firearmIsLoaded();
+	if ( !actionStillValid )
+	{
+		mechanics.firearmReloadTicks = 0;
+		mechanics.firearmReloadItemUid = 0;
+		mechanics.firearmReloadItemType = WOODEN_SHIELD;
+		return;
+	}
+
+	--mechanics.firearmReloadTicks;
+	if ( mechanics.firearmReloadTicks > 0 )
+	{
+		return;
+	}
+
+	if ( firearm && firearm->uid == mechanics.firearmReloadItemUid
+		&& firearm->type == mechanics.firearmReloadItemType
+		&& firearm->isFirearm() && !firearm->firearmIsLoaded() )
+	{
+		// mod add: Scrap is committed only when the timed reload completes.
+		// Revalidate in case the player spent or moved it during the timer.
+		if ( playerConsumeFirearmReloadMaterials(*firearm, player) )
+		{
+			firearm->setFirearmLoaded(true);
+			if ( multiplayer != CLIENT )
+			{
+				// mod add: Dedicated loaded/ready report at the successful transition.
+				playSoundEntity(players[player]->entity, 861, 255);
+			}
+			// mod add: Only a completed, paid reload may train raw Tinkering.
+			// The authoritative side owns both the 20% roll and skill award.
+			const Sint32 rawTinkering = stats[player]->getProficiency(PRO_LOCKPICKING);
+			if ( multiplayer != CLIENT && rawTinkering < firearm->firearmReloadTrainingCap()
+				&& local_rng.rand() % 100 < 20 && players[player]->entity )
+			{
+				players[player]->entity->increaseSkill(PRO_LOCKPICKING);
+			}
+			if ( players[player]->isLocalPlayer() )
+			{
+				messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+					Language::get(7005), firearm->getName());
+			}
+		}
+		else if ( players[player]->isLocalPlayer() )
+		{
+			const ItemType materialType = firearm->firearmReloadMaterialType();
+			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+				Language::get(7006),
+				items[materialType].getIdentifiedName(), firearm->getName());
+			playSoundPlayer(player, 90, 64);
+		}
+		// mod add end
+	}
+	else if ( players[player]->isLocalPlayer() )
+	{
+		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+			Language::get(7007));
+	}
+
+	mechanics.firearmReloadItemUid = 0;
+	mechanics.firearmReloadItemType = WOODEN_SHIELD;
+}
+// mod add end
 
 real_t getArtifactWeaponEffectChance(const ItemType type, Stat& wielder, real_t* const effectAmount)
 {

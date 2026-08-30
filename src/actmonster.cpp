@@ -3696,6 +3696,24 @@ void actMonster(Entity* my)
 		}
 
 		//TODO: Refactor die function.
+		// mod add: Only the authoritative death path can awaken the Library Musket.
+		// The persistent statistic inside the helper makes repeated death ticks safe.
+		if ( myStats->type == GNOME
+			&& !strcmp(myStats->name, "Imbiamba Jombes")
+			&& !strcmp(map.name, "The Mystic Library") )
+		{
+			// mod add: His hat and whip are encounter equipment, not loot. Let the
+			// generic death-drop path consume them so slot/list ownership stays intact.
+			if ( myStats->helmet )
+			{
+				myStats->helmet->isDroppable = false;
+			}
+			if ( myStats->weapon )
+			{
+				myStats->weapon->isDroppable = false;
+			}
+			unlockLibraryMusketFromGnomeDeath();
+		}
 		// drop all equipment
 		entity = dropItemMonster(myStats->helmet, my, myStats);
 		if ( entity )
@@ -4879,6 +4897,12 @@ void actMonster(Entity* my)
 	}
 
 	bool wasInsideEntity = false;
+	// mod add: resolve gunshots heard before this monster's initialization prior
+	// to isMobile(), since an initialized sleeper must be woken before that gate.
+	if ( my->monsterGunshotPending )
+	{
+		my->monsterUpdateGunshotInvestigation();
+	}
 	if ( my->isMobile() )
 	{
 		// ghouls rise out of the dirt :O
@@ -5237,6 +5261,9 @@ void actMonster(Entity* my)
 
 		int linetraceTargetEnemyFlags = LINETRACE_ATK_CHECK_FRIENDLYFIRE;
 
+		// mod add: advance server-authoritative firearm gunshot investigation.
+		my->monsterUpdateGunshotInvestigation();
+
 		//Begin state machine
 		if ( my->monsterState == MONSTER_STATE_WAIT ) //Begin wait state
 		{
@@ -5325,7 +5352,8 @@ void actMonster(Entity* my)
 					hitstats = entity->getStats();
 					if ( hitstats != nullptr )
 					{
-						if ( (my->checkEnemy(entity) || my->monsterTarget == entity->getUID() || ringconflict) )
+						if ( (my->checkEnemy(entity) || my->monsterTarget == entity->getUID() || ringconflict)
+							&& (!my->monsterInvestigatingGunshot || my->monsterGunshotAllowsTarget(*entity)) )
 						{
 							tangent = atan2( entity->y - my->y, entity->x - my->x );
 							dir = my->yaw - tangent;
@@ -5599,7 +5627,8 @@ void actMonster(Entity* my)
 			}
 
 			// follow the leader :)
-			if ( myStats->leader_uid != 0
+			if ( !my->monsterInvestigatingGunshot // mod add: fixed-coordinate investigation outranks leader follow
+				&& myStats->leader_uid != 0
 				&& my->monsterAllyState == ALLY_STATE_DEFAULT 
 				&& !myStats->getEffectActive(EFF_FEAR)
 				&& !myStats->getEffectActive(EFF_DISORIENTED)
@@ -7012,6 +7041,18 @@ timeToGoAgain:
 		} //End charge state
 		else if ( my->monsterState == MONSTER_STATE_PATH )     //Begin path state
 		{
+			if ( my->monsterInvestigatingGunshot )
+			{
+				// mod add: native HUNT collision/stall recovery enters PATH. Keep
+				// rebuilding toward the fixed report with the gunshot path rules.
+				if ( !my->monsterRebuildGunshotPath() )
+				{
+					my->monsterClearGunshotInvestigation();
+					my->monsterState = MONSTER_STATE_WAIT;
+				}
+				serverUpdateEntitySkill(my, 0);
+				return;
+			}
 			if ( myStats->type == DEVIL )
 			{
 				my->monsterState = MONSTER_STATE_ATTACK;
@@ -7162,7 +7203,8 @@ timeToGoAgain:
 					hitstats = entity->getStats();
 					if ( hitstats != nullptr )
 					{
-						if ( (my->checkEnemy(entity) || my->monsterTarget == entity->getUID() || ringconflict) )
+						if ( (my->checkEnemy(entity) || my->monsterTarget == entity->getUID() || ringconflict)
+							&& (!my->monsterInvestigatingGunshot || my->monsterGunshotAllowsTarget(*entity)) )
 						{
 							tangent = atan2( entity->y - my->y, entity->x - my->x );
 							dir = my->yaw - tangent;
@@ -7480,7 +7522,8 @@ timeToGoAgain:
 			}
 
 			// follow the leader :)
-			if ( uidToEntity(my->monsterTarget) == nullptr
+			if ( !my->monsterInvestigatingGunshot // mod add: do not replace the fixed report with a leader route
+				&& uidToEntity(my->monsterTarget) == nullptr
 				&& myStats->leader_uid != 0 
 				&& my->monsterAllyState == ALLY_STATE_DEFAULT 
 				&& !monsterIsImmobileTurret(my, myStats)
@@ -7947,9 +7990,11 @@ timeToGoAgain:
 									}
 									else if ( yourStats )
 									{
-										if ( !my->checkEnemy(hit.entity) )
+										const bool ignoredGunshotTraffic =
+											my->monsterGunshotShouldIgnoreMonsterCollision(*hit.entity);
+										if ( ignoredGunshotTraffic || !my->checkEnemy(hit.entity) )
 										{
-											// would you kindly move out of the way, sir?
+											// Friends and temporarily ignored investigators are movable traffic.
 											if ( !monsterMoveAside(hit.entity, my) )
 											{
 												my->monsterState = MONSTER_STATE_PATH;    // try something else and remake path
@@ -7962,7 +8007,7 @@ timeToGoAgain:
 												my->monsterMoveBackwardsAndPath();
 											}
 										}
-										else if ( my->checkEnemy(hit.entity) )
+										else
 										{
 											// charge state
 											Entity& attackTarget = *hit.entity;
@@ -12309,6 +12354,18 @@ int numMonsterTypeAliveOnMap(Monster creature, Entity*& lastMonster)
 
 void Entity::monsterMoveBackwardsAndPath(bool trySidesFirst)
 {
+	if ( monsterInvestigatingGunshot )
+	{
+		// mod add: blocked-route recovery must not substitute the generic
+		// backwards path for the fixed gunshot investigation route.
+		if ( !monsterRebuildGunshotPath() )
+		{
+			monsterClearGunshotInvestigation();
+			monsterState = MONSTER_STATE_WAIT;
+		}
+		serverUpdateEntitySkill(this, 0);
+		return;
+	}
 	while ( yaw < 0 )
 	{
 		yaw += 2 * PI;

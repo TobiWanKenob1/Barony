@@ -3422,6 +3422,16 @@ void setupSpells()   ///TODO: Verify this function.
 		{ SPELL_ELEMENT_PROPULSION_MISSILE, SPELL_HOLY_BEAM }
 	);
 
+	// mod add: Entrench. TODO: replace its placeholder spellbook/icon in mod assets.
+	spell = createSimpleSpell(
+		SPELL_ENTRENCH,
+		20, // difficulty
+		5,  // modest mana cost
+		5, 1, 0, 1,
+		"spell_entrench");
+	spell->rangefinder = SpellRangefinderType::RANGEFINDER_TOUCH_INTERACT;
+	spell->distance = 128.0;
+
 	//static const int SPELL_LIGHTNING_NEXUS = 182;
 	//static const int SPELL_LIFT = 184;
 	//static const int SPELL_IGNITE = 186;
@@ -3534,6 +3544,12 @@ void setupSpells()   ///TODO: Verify this function.
 				}
 			}
 		}
+	}
+	// mod edit: keep Entrench's interaction reach even when expanded JSON defaults
+	// overwrite native spell properties.
+	if ( auto entrench = getSpellFromID(SPELL_ENTRENCH) )
+	{
+		entrench->distance = 128.0;
 	}
 }
 

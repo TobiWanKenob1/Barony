@@ -118,6 +118,10 @@ void actFurniture(Entity* my)
 	{
 		return;
 	}
+	if ( isEntrenchCarriedObject(my) )
+	{
+		return;
+	}
 
 	if ( !my->flags[BURNABLE] )
 	{
@@ -1850,6 +1854,10 @@ std::set<Uint32> collidersToRaiseToHeight;
 void actColliderDecoration(Entity* my)
 {
 	if ( !my )
+	{
+		return;
+	}
+	if ( isEntrenchCarriedObject(my) )
 	{
 		return;
 	}

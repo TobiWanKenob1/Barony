@@ -433,6 +433,38 @@ enum CrossbowHudweaponChop : int
 	CROSSBOW_CHOP_RELOAD_ENDING = 17
 };
 
+// mod add: Firearm action presentation is transform-only and timer-driven.
+// Keep the tune values together so later animation polish does not touch the
+// reload/jam mechanics themselves.
+namespace FirearmHudAnimation
+{
+	static constexpr real_t RELOAD_MOVE_X = -1.25;
+	static constexpr real_t RELOAD_MOVE_Y = 1.0;
+	static constexpr real_t RELOAD_MOVE_Z = 5.0;
+	static constexpr real_t RELOAD_PITCH = 0.35;
+	static constexpr real_t RELOAD_YAW = -0.20;
+	static constexpr real_t RELOAD_ROLL = 0.25;
+	static constexpr real_t JAM_MOVE_X = 1.75;
+	static constexpr real_t JAM_MOVE_Y = -0.75;
+	static constexpr real_t JAM_MOVE_Z = 2.5;
+	static constexpr real_t JAM_PITCH = -0.20;
+	static constexpr real_t JAM_YAW = 0.35;
+	static constexpr real_t JAM_ROLL = 0.45;
+
+	static real_t envelope(real_t progress, real_t lowerEnd, real_t raiseStart)
+	{
+		if ( progress < lowerEnd )
+		{
+			return progress / lowerEnd;
+		}
+		if ( progress > raiseStart )
+		{
+			return std::max<real_t>(0.0, (1.0 - progress) / (1.0 - raiseStart));
+		}
+		return 1.0;
+	}
+}
+
 void actHudWeapon(Entity* my)
 {
 	double result = 0;
@@ -819,6 +851,11 @@ void actHudWeapon(Entity* my)
 	}
 
 	bool shootmode = players[HUDWEAPON_PLAYERNUM]->shootmode;
+	// mod add: Spyglass zoom normally occupies the mainhand action, but the
+	// currently equipped Musket may enter the existing ranged/firearm pipeline.
+	const bool spyglassMusketAttack = playerIsUsingSpyglass(players[HUDWEAPON_PLAYERNUM]->entity)
+		&& stats[HUDWEAPON_PLAYERNUM]->weapon
+		&& stats[HUDWEAPON_PLAYERNUM]->weapon->type == MUSKET;
 
 	bool swingweapon = false;
 	if ( players[HUDWEAPON_PLAYERNUM]->entity
@@ -828,7 +865,9 @@ void actHudWeapon(Entity* my)
 		&& shootmode 
 		&& !gamePaused
 		&& players[HUDWEAPON_PLAYERNUM]->entity->isMobile()
-		&& (!(input.binaryToggle("Defend") && stats[HUDWEAPON_PLAYERNUM]->defending) || cast_animation[HUDWEAPON_PLAYERNUM].spellWaitingAttackInput() )
+		&& (!(input.binaryToggle("Defend") && stats[HUDWEAPON_PLAYERNUM]->defending)
+			|| cast_animation[HUDWEAPON_PLAYERNUM].spellWaitingAttackInput()
+			|| spyglassMusketAttack )
 		&& HUDWEAPON_OVERCHARGE < Stat::getMaxAttackCharge(stats[HUDWEAPON_PLAYERNUM]) )
 	{
 		swingweapon = true;
@@ -847,7 +886,14 @@ void actHudWeapon(Entity* my)
 			}
 		}
 	}
-
+	// mod add: Firearm reload/unjam actions use the throwing wind-up
+	// without allowing that animation to become an attack during the timer.
+	if ( players[HUDWEAPON_PLAYERNUM]->mechanics.firearmReloadTicks > 0
+		|| players[HUDWEAPON_PLAYERNUM]->mechanics.firearmUnjamTicks > 0 )
+	{
+		swingweapon = false;
+	}
+	// mod add end
 	bool thrownWeapon = stats[HUDWEAPON_PLAYERNUM]->weapon
 		&& (itemCategory(stats[HUDWEAPON_PLAYERNUM]->weapon) == THROWN || itemCategory(stats[HUDWEAPON_PLAYERNUM]->weapon) == GEM
 			|| stats[HUDWEAPON_PLAYERNUM]->weapon->type == FOOD_CREAMPIE || stats[HUDWEAPON_PLAYERNUM]->weapon->type == TOOL_DUCK);
@@ -1415,56 +1461,94 @@ void actHudWeapon(Entity* my)
 
 								if ( doAttack )
 								{
+									// mod add: A transient unjam owns this input until completion.
+									// Consume held/shared bindings so it cannot restart or leak a shot.
+									if ( stats[HUDWEAPON_PLAYERNUM]->weapon->isFirearm()
+										&& firearmUnjamIsActive(HUDWEAPON_PLAYERNUM) )
+									{
+										input.consumeBinaryToggle("Attack");
+										input.consumeBindingsSharedWithBinding("Attack");
+										doAttack = false;
+									}
+									// mod add: An empty firearm spends this input on
+									// the shared scrap reload attempt, never a shot or recoil.
+									else if ( stats[HUDWEAPON_PLAYERNUM]->weapon->isFirearm()
+										&& !stats[HUDWEAPON_PLAYERNUM]->weapon->firearmIsLoaded() )
+									{
+										players[HUDWEAPON_PLAYERNUM]->entity->attack(MONSTER_POSE_RANGED_SHOOT1, 0, nullptr);
+										// mod add: Consume the input edge whether reload succeeds or
+										// fails so holding attack cannot spend scrap repeatedly.
+										input.consumeBinaryToggle("Attack");
+										input.consumeBindingsSharedWithBinding("Attack");
+										// mod add end
+										doAttack = false;
+									}
+								}
+								// mod add end
+
+								if ( doAttack )
+								{
 									players[HUDWEAPON_PLAYERNUM]->entity->attack(MONSTER_POSE_RANGED_SHOOT1, 0, nullptr);
-									HUDWEAPON_MOVEX = -4;
-
-									// set delay before crossbow can fire again
-									throwGimpTimer = 40;
-									if ( stats[HUDWEAPON_PLAYERNUM]->weapon->type == CROSSBOW
-										|| stats[HUDWEAPON_PLAYERNUM]->weapon->type == BLACKIRON_CROSSBOW )
+									// A host learns the authoritative jam synchronously. Suppress
+									// recoil/cooldown and spend this click exactly once in that case.
+									if ( firearmUnjamIsActive(HUDWEAPON_PLAYERNUM) )
 									{
-										throwGimpTimer *= rangedAttackGetSpeedModifier(stats[HUDWEAPON_PLAYERNUM]);
+										input.consumeBinaryToggle("Attack");
+										input.consumeBindingsSharedWithBinding("Attack");
+										doAttack = false;
 									}
-
-									HUDWEAPON_CHOP = CROSSBOW_CHOP_RELOAD_START;
-									HUDWEAPON_CROSSBOW_RELOAD_ANIMATION = CROSSBOW_ANIM_SHOOT;
-
-									if ( heavyCrossbow )
+									else
 									{
-										players[HUDWEAPON_PLAYERNUM]->entity->playerStrafeVelocity = 0.3;
-										players[HUDWEAPON_PLAYERNUM]->entity->playerStrafeDir = players[HUDWEAPON_PLAYERNUM]->entity->yaw + PI;
-										if ( multiplayer != CLIENT )
+										HUDWEAPON_MOVEX = -4;
+
+										// set delay before crossbow can fire again
+										throwGimpTimer = 40;
+										if ( stats[HUDWEAPON_PLAYERNUM]->weapon->type == CROSSBOW
+											|| stats[HUDWEAPON_PLAYERNUM]->weapon->type == BLACKIRON_CROSSBOW )
 										{
-											players[HUDWEAPON_PLAYERNUM]->entity->setEffect(EFF_KNOCKBACK, true, 30, false);
+											throwGimpTimer *= rangedAttackGetSpeedModifier(stats[HUDWEAPON_PLAYERNUM]);
 										}
-										if ( players[HUDWEAPON_PLAYERNUM]->entity->skill[3] == 0 )   // debug cam OFF
+
+										HUDWEAPON_CHOP = CROSSBOW_CHOP_RELOAD_START;
+										HUDWEAPON_CROSSBOW_RELOAD_ANIMATION = CROSSBOW_ANIM_SHOOT;
+
+										if ( heavyCrossbow )
 										{
-											camera_shakex += .06;
-											camera_shakey += 6;
-										}
-									}
-
-									if ( multiplayer == CLIENT )
-									{
-										if ( rangedWeaponUseQuiverOnAttack(stats[HUDWEAPON_PLAYERNUM]) )
-										{
-											Item* quiver = stats[HUDWEAPON_PLAYERNUM]->shield;
-											quiver->count--;
-
-											Compendium_t::Events_t::eventUpdate(HUDWEAPON_PLAYERNUM, Compendium_t::CPDM_AMMO_FIRED,
-												quiver->type, 1);
-
-											if ( quiver->count <= 0 )
+											players[HUDWEAPON_PLAYERNUM]->entity->playerStrafeVelocity = 0.3;
+											players[HUDWEAPON_PLAYERNUM]->entity->playerStrafeDir = players[HUDWEAPON_PLAYERNUM]->entity->yaw + PI;
+											if ( multiplayer != CLIENT )
 											{
-												if ( quiver->node )
+												players[HUDWEAPON_PLAYERNUM]->entity->setEffect(EFF_KNOCKBACK, true, 30, false);
+											}
+											if ( players[HUDWEAPON_PLAYERNUM]->entity->skill[3] == 0 )   // debug cam OFF
+											{
+												camera_shakex += .06;
+												camera_shakey += 6;
+											}
+										}
+
+										if ( multiplayer == CLIENT )
+										{
+											if ( rangedWeaponUseQuiverOnAttack(stats[HUDWEAPON_PLAYERNUM]) )
+											{
+												Item* quiver = stats[HUDWEAPON_PLAYERNUM]->shield;
+												quiver->count--;
+
+												Compendium_t::Events_t::eventUpdate(HUDWEAPON_PLAYERNUM, Compendium_t::CPDM_AMMO_FIRED,
+													quiver->type, 1);
+
+												if ( quiver->count <= 0 )
 												{
-													list_RemoveNode(quiver->node);
+													if ( quiver->node )
+													{
+														list_RemoveNode(quiver->node);
+													}
+													else
+													{
+														free(quiver);
+													}
+													stats[HUDWEAPON_PLAYERNUM]->shield = NULL;
 												}
-												else
-												{
-													free(quiver);
-												}
-												stats[HUDWEAPON_PLAYERNUM]->shield = NULL;
 											}
 										}
 									}
@@ -3767,6 +3851,51 @@ void actHudWeapon(Entity* my)
 		}
 	}
 
+	// mod add: Replace the old throwing placeholder with deliberate firearm
+	// manipulation poses. The equipped item's authoritative action timer is the
+	// sole progress source, so weapon switches and interruptions cannot drift.
+	if ( Item* firearm = stats[HUDWEAPON_PLAYERNUM]->weapon )
+	{
+		auto& mechanics = players[HUDWEAPON_PLAYERNUM]->mechanics;
+		const bool reloadActive = mechanics.firearmReloadTicks > 0
+			&& firearm->isFirearm() && firearm->uid == mechanics.firearmReloadItemUid
+			&& firearm->type == mechanics.firearmReloadItemType;
+		const bool unjamActive = mechanics.firearmUnjamTicks > 0
+			&& firearm->isFirearm() && firearm->uid == mechanics.firearmUnjamItemUid
+			&& firearm->type == mechanics.firearmUnjamItemType;
+		if ( reloadActive || unjamActive )
+		{
+			HUDWEAPON_CHOP = 0;
+			HUDWEAPON_CROSSBOW_RELOAD_ANIMATION = CROSSBOW_ANIM_NONE;
+			HUDWEAPON_SHOOTING_RANGED_WEAPON = RANGED_ANIM_IDLE;
+			if ( reloadActive )
+			{
+				const real_t duration = std::max<Sint32>(1, firearm->firearmReloadDuration());
+				const real_t progress = 1.0 - mechanics.firearmReloadTicks / duration;
+				const real_t pose = FirearmHudAnimation::envelope(progress, 0.15, 0.80);
+				HUDWEAPON_MOVEX = FirearmHudAnimation::RELOAD_MOVE_X * pose;
+				HUDWEAPON_MOVEY = FirearmHudAnimation::RELOAD_MOVE_Y * pose;
+				HUDWEAPON_MOVEZ = FirearmHudAnimation::RELOAD_MOVE_Z * pose;
+				HUDWEAPON_PITCH = FirearmHudAnimation::RELOAD_PITCH * pose;
+				HUDWEAPON_YAW = -0.1 + FirearmHudAnimation::RELOAD_YAW * pose;
+				HUDWEAPON_ROLL = FirearmHudAnimation::RELOAD_ROLL * pose;
+			}
+			else
+			{
+				const real_t duration = std::max<Sint32>(1, TICKS_PER_SECOND / 2);
+				const real_t progress = 1.0 - mechanics.firearmUnjamTicks / duration;
+				const real_t pose = FirearmHudAnimation::envelope(progress, 0.20, 0.75);
+				const real_t twist = sin(progress * 4.0 * PI) * pose;
+				HUDWEAPON_MOVEX = FirearmHudAnimation::JAM_MOVE_X * pose;
+				HUDWEAPON_MOVEY = FirearmHudAnimation::JAM_MOVE_Y * pose;
+				HUDWEAPON_MOVEZ = FirearmHudAnimation::JAM_MOVE_Z * pose;
+				HUDWEAPON_PITCH = FirearmHudAnimation::JAM_PITCH * pose;
+				HUDWEAPON_YAW = -0.1 + FirearmHudAnimation::JAM_YAW * twist;
+				HUDWEAPON_ROLL = FirearmHudAnimation::JAM_ROLL * twist;
+			}
+		}
+	}
+
 	// init defaults
 	my->focalx = 0.0;
 	my->focaly = 0.0;
@@ -3870,12 +3999,13 @@ void actHudWeapon(Entity* my)
 			{
 				defaultpitch = -PI / 8.f;
 			}
-			if ( item->type == CROSSBOW || item->type == HEAVY_CROSSBOW || item->type == BLACKIRON_CROSSBOW )
+			if ( item->type == CROSSBOW || item->type == HEAVY_CROSSBOW || item->type == BLACKIRON_CROSSBOW
+				|| item->isFirearm() )
 			{
 				my->x = 6 + HUDWEAPON_MOVEX;
 				my->y = 1.5 + HUDWEAPON_MOVEY;
 				my->z = (cameras[HUDWEAPON_PLAYERNUM].z * .5 - players[HUDWEAPON_PLAYERNUM]->entity->z) + 8 + HUDWEAPON_MOVEZ;
-				my->yaw = -.05 - camera_shakex2;
+				my->yaw = -.05 + (item->isFirearm() ? HUDWEAPON_YAW + 0.1 : 0.0) - camera_shakex2;
 				my->pitch = HUDWEAPON_PITCH - camera_shakey2 / 200.f;
 				my->roll = HUDWEAPON_ROLL;
 			}
@@ -5215,6 +5345,15 @@ void actHudShield(Entity* my)
 				}
 			}*/
 		}
+	}
+
+	// mod add: the Spyglass is represented by this local first-person HUD
+	// entity. Hide only its presentation for exactly the same maintained-use
+	// state that drives the camera zoom and scope overlay.
+	if ( playerIsUsingSpyglass(players[HUDSHIELD_PLAYERNUM]->entity) )
+	{
+		my->flags[INVISIBLE] = true;
+		my->flags[INVISIBLE_DITHER] = false;
 	}
 }
 

@@ -728,6 +728,12 @@ if (EDITOR_ENABLED)
 	#target_link_libraries(${EDITOR_EXE_NAME} OpenSSL::Crypto)
   endif()
   target_link_libraries(${EDITOR_EXE_NAME} ${SDL2_LIBRARIES} ${SDL2_LIBRARY} ${SDL2IMAGE_LIBRARIES} ${SDL2_IMAGE_LIBRARIES} ${SDL2_NET_LIBRARIES} ${SDL2_TTF_LIBRARIES} ${SDL2TTF_LIBRARY})
+  if(WIN32) # mod edit - editor Windows dependencies
+      target_link_libraries(${EDITOR_EXE_NAME}
+          "${BARONY_WIN32_LIBRARIES}/vcpkg_installed/x64-windows/lib/glew32.lib"
+          "${BARONY_WIN32_LIBRARIES}/lib/SDL2main.lib"
+      )
+  endif()
   if(STEAMWORKS_ENABLED)
 	target_link_libraries(${EDITOR_EXE_NAME} ${STEAMWORKS_LIBRARY})
     target_link_libraries(${EDITOR_EXE_NAME} ${NFD_LIBRARY})

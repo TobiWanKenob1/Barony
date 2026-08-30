@@ -1290,7 +1290,13 @@ char itemNameStrings[NUM_ITEM_STRINGS][32] =
 	"spellbook_sanctuary",
 	"spellbook_holy_beam",
 	"spellbook_dominate",
-	"harpoon" //mod add
+	"harpoon", //mod add
+	// mod add: firearm item names
+	"flintlock_pistol",
+	"musket",
+	// mod add end
+	"spellbook_entrench", // mod add: Entrench spellbook
+	"spyglass", // mod add: offhand telescope
 	""
 };
 

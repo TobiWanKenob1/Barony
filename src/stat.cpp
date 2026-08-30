@@ -941,7 +941,8 @@ int Stat::pickRandomEquippedItemToDegradeOnHit(Item** returnItem, bool excludeWe
 		|| shield->type == TOOL_FRYING_PAN
 		|| itemTypeIsFoci(shield->type)
 		|| itemTypeIsInstrument(shield->type)
-		|| shield->type == TOOL_DUCK )
+		|| shield->type == TOOL_DUCK
+		|| shield->type == SPYGLASS ) // mod add: utility optics do not absorb equipment degradation
 		 )
 	{
 		excludeShield = true;

@@ -2876,6 +2876,13 @@ void Entity::checkBetterEquipment(Stat* myStats)
 				{
 					continue;
 				}
+				// mod add: Legacy nearby-equipment scan follows the same non-player
+				// Musket pickup prohibition as monsterWantsItem().
+				if ( item->type == MUSKET )
+				{
+					free(item);
+					continue;
+				}
 				if ( !canWieldItem(*item) )
 				{
 					free(item);
@@ -10125,6 +10132,60 @@ Causes an entity to attack using whatever weapon it's holding
 
 -------------------------------------------------------------------------------*/
 
+static node_t* findMonsterMusketAlternative(const Entity& monster, const Stat& monsterStats)
+{
+	// Prefer a conventional ranged weapon, then melee, then another native
+	// hand-usable combat item. Musket is deliberately excluded at every pass.
+	for ( int priority = 0; priority < 3; ++priority )
+	{
+		for ( node_t* node = monsterStats.inventory.first; node; node = node->next )
+		{
+			Item* item = static_cast<Item*>(node->element);
+			if ( !item || item->type == MUSKET || item->status == BROKEN
+				|| !monster.canWieldItem(*item) )
+			{
+				continue;
+			}
+			const bool ranged = isRangedWeapon(*item);
+			const bool melee = isMeleeWeapon(*item);
+			const bool otherCombatItem = itemCategory(item) == MAGICSTAFF
+				|| itemCategory(item) == THROWN;
+			if ( (priority == 0 && ranged)
+				|| (priority == 1 && melee)
+				|| (priority == 2 && otherCombatItem) )
+			{
+				return node;
+			}
+		}
+	}
+	return nullptr;
+}
+
+static void rejectMonsterMusketAttack(Entity& monster, Stat& monsterStats)
+{
+	playFirearmJamSound(&monster);
+	if ( node_t* alternative = findMonsterMusketAlternative(monster, monsterStats) )
+	{
+		if ( swapMonsterWeaponWithInventoryItem(&monster, &monsterStats, alternative, false, true) )
+		{
+			return;
+		}
+	}
+
+	Item* musket = monsterStats.weapon;
+	if ( musket && monsterUnequipSlot(&monsterStats, &monsterStats.weapon, musket) )
+	{
+		return;
+	}
+	if ( monsterStats.weapon )
+	{
+		if ( Entity* dropped = dropItemMonster(monsterStats.weapon, &monster, &monsterStats) )
+		{
+			dropped->itemDelayMonsterPickingUp = TICKS_PER_SECOND * 2;
+		}
+	}
+}
+
 void Entity::attack(int pose, int charge, Entity* target)
 {
 	Stat* hitstats = nullptr;
@@ -10150,6 +10211,98 @@ void Entity::attack(int pose, int charge, Entity* target)
 	{
 		player = -1; // not a player
 	}
+
+	// mod add: Musket firing is player-exclusive. Reject non-player use before
+	// animation, projectile creation, loaded-state consumption, XP, and alerts.
+	if ( player < 0 && myStats->weapon && myStats->weapon->type == MUSKET )
+	{
+		if ( multiplayer != CLIENT )
+		{
+			rejectMonsterMusketAttack(*this, *myStats);
+		}
+		return;
+	}
+
+	// mod add: maintained Spyglass use occupies the mainhand action. Musket is
+	// the sole exception and retains its existing loaded-fire/empty-reload path.
+	if ( player >= 0 && playerIsUsingSpyglass(this)
+		&& (!myStats->weapon || myStats->weapon->type != MUSKET) )
+	{
+		return;
+	}
+
+	// mod add: An empty firearm uses this attack action to reload
+	// from scrap instead of firing. Clients continue to ATAK below so the
+	// authoritative server performs the same inventory/state transition.
+	if ( myStats->weapon && myStats->weapon->isFirearm() )
+	{
+		// mod add: Clearing a jam exclusively owns firearm input. This guard runs
+		// on both peers so held input cannot fire, reload, or restart the action.
+		if ( firearmUnjamIsActive(player) )
+		{
+			return;
+		}
+		// mod add: The Library Musket's persistent quest jam takes priority over
+		// loaded firing, empty reload, random jams, animation, and projectile work.
+		if ( myStats->weapon->musketQuestJammed() )
+		{
+			if ( multiplayer == CLIENT )
+			{
+				strcpy((char*)net_packet->data, "ATAK");
+				net_packet->data[4] = player;
+				net_packet->data[5] = pose;
+				net_packet->data[6] = charge;
+				SDLNet_Write32(static_cast<Sint32>(myStats->weapon->type), &net_packet->data[7]);
+				SDLNet_Write32(myStats->weapon->appearance, &net_packet->data[11]);
+				net_packet->address.host = net_server.host;
+				net_packet->address.port = net_server.port;
+				net_packet->len = 15;
+				sendPacketSafe(net_sock, -1, net_packet, 0);
+			}
+			else
+			{
+				tryQuestJamMusket(*myStats->weapon, player);
+			}
+			return;
+		}
+		if ( multiplayer == CLIENT )
+		{
+			// mod add: Firearms do not create a client-predicted projectile. Send the
+			// normal attack request directly so a server-side jam can never leave a
+			// phantom shot; successful projectiles arrive through normal entity sync.
+			if ( !myStats->weapon->firearmIsLoaded() )
+			{
+				tryReloadFirearm(*myStats->weapon, player);
+			}
+			else
+			{
+				myStats->weapon->setFirearmLoaded(false);
+			}
+			strcpy((char*)net_packet->data, "ATAK");
+			net_packet->data[4] = player;
+			net_packet->data[5] = pose;
+			net_packet->data[6] = charge;
+			SDLNet_Write32(static_cast<Sint32>(myStats->weapon->type), &net_packet->data[7]);
+			SDLNet_Write32(myStats->weapon->appearance, &net_packet->data[11]);
+			net_packet->address.host = net_server.host;
+			net_packet->address.port = net_server.port;
+			net_packet->len = 15;
+			sendPacketSafe(net_sock, -1, net_packet, 0);
+			return;
+		}
+		if ( !myStats->weapon->firearmIsLoaded() )
+		{
+			tryReloadFirearm(*myStats->weapon, player);
+			return;
+		}
+		else if ( tryJamFirearm(*myStats->weapon, player) )
+		{
+			// The loaded state is intentionally retained. This is before attack
+			// animation, shot accounting, projectile creation, and gunshot alerting.
+			return;
+		}
+	}
+	// mod add end
 
 	if ( multiplayer != CLIENT )
 	{
@@ -10892,6 +11045,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 				}
 
 				if ( bowDegradeChance < 100 && local_rng.rand() % bowDegradeChance == 0 && myStats->weapon->type != ARTIFACT_BOW
+					&& !myStats->weapon->isUnbreakableFromUse()
 					&& !spellEffectPreserveItem(myStats->weapon) )
 				{
 					if ( myStats->weapon != NULL )
@@ -10940,7 +11094,8 @@ void Entity::attack(int pose, int charge, Entity* target)
 				}
 				else if ( myStats->weapon->type == CROSSBOW 
 					|| myStats->weapon->type == HEAVY_CROSSBOW
-					|| myStats->weapon->type == BLACKIRON_CROSSBOW )
+					|| myStats->weapon->type == BLACKIRON_CROSSBOW
+					|| myStats->weapon->isFirearm() ) // mod add: firearms use bolt projectile setup
 				{
 					entity = newEntity(167, 1, map.entities, nullptr); // bolt
 					if ( myStats->weapon->type == HEAVY_CROSSBOW )
@@ -10951,7 +11106,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 							this->setEffect(EFF_KNOCKBACK, true, 30, false);
 						}
 					}
-					else
+					else if ( !myStats->weapon->isFirearm() )
 					{
 						playSoundEntity(this, 239 + local_rng.rand() % 3, 96);
 					}
@@ -10965,6 +11120,27 @@ void Entity::attack(int pose, int charge, Entity* target)
 				{
 					return;
 				}
+				// mod add: A successful authoritative firearm shot consumes its
+				// per-item loaded state, never inventory scrap or quiver ammo.
+				if ( multiplayer != CLIENT && myStats->weapon->isFirearm() )
+				{
+					myStats->weapon->setFirearmLoaded(false);
+					const real_t muzzleDistance = 4.0;
+					const real_t muzzleX = x + cos(yaw) * muzzleDistance;
+					const real_t muzzleY = y + sin(yaw) * muzzleDistance;
+					const real_t muzzleZ = z - 1.0;
+					// mod edit: The authoritative positional sound path plays locally for
+					// host/singleplayer and sends one attenuated world sound to each client.
+					playSoundPos(muzzleX, muzzleY,
+						myStats->weapon->type == MUSKET ? 863 : 862, 128);
+					spawnFirearmMuzzleFlash(
+						static_cast<Sint16>(muzzleX),
+						static_cast<Sint16>(muzzleY),
+						static_cast<Sint16>(muzzleZ), 0.35,
+						myStats->weapon->type == MUSKET);
+					alertMonstersToFirearmGunshot(*this);
+				}
+				// mod add end
 				entity->parent = uid;
 				entity->x = x;
 				entity->y = y;
@@ -11341,13 +11517,30 @@ void Entity::attack(int pose, int charge, Entity* target)
 		bool miss = false;
 		bool guard = false;
 		int strikeRange = STRIKERANGE;
+		auto traceMeleeTarget = [&](int range)
+		{
+			int traceFlags = LINETRACE_ATK_CHECK_FRIENDLYFIRE;
+			if ( behavior == &actPlayer )
+			{
+				// mod add: Creatures/ordinary scenery take priority over an Entrench
+				// barricade. Only retry with the barricade enabled when the first pass
+				// found no valid entity within the native melee trace.
+				traceFlags |= LINETRACE_ATK_IGNORE_ENTRENCH_BARRICADE;
+			}
+			real_t traceDistance = lineTrace(this, x, y, yaw, range, traceFlags, false);
+			if ( behavior == &actPlayer && !hit.entity )
+			{
+				traceDistance = lineTrace(this, x, y, yaw, range, LINETRACE_ATK_CHECK_FRIENDLYFIRE, false);
+			}
+			return traceDistance;
+		};
 		// normal attacks
 		if ( target == nullptr )
 		{
 			if ( flail )
 			{
 				strikeRange = STRIKERANGE * 1.5;
-				dist = lineTrace(this, x, y, yaw, strikeRange, LINETRACE_ATK_CHECK_FRIENDLYFIRE, false);
+				dist = traceMeleeTarget(strikeRange);
 				if ( behavior == &actMonster || charge >= Stat::getMaxAttackCharge(myStats) / 2 )
 				{
 					playSoundEntity(this, 23 + local_rng.rand() % 5, 128); // whoosh noise
@@ -11360,12 +11553,12 @@ void Entity::attack(int pose, int charge, Entity* target)
 			else if ( whip )
 			{
 				strikeRange = STRIKERANGE * 1.5;
-				dist = lineTrace(this, x, y, yaw, strikeRange, LINETRACE_ATK_CHECK_FRIENDLYFIRE, false);
+				dist = traceMeleeTarget(strikeRange);
 				playSoundEntity(this, 23 + local_rng.rand() % 5, 128); // whoosh noise
 			}
 			else
 			{
-				dist = lineTrace(this, x, y, yaw, strikeRange, LINETRACE_ATK_CHECK_FRIENDLYFIRE, false);
+				dist = traceMeleeTarget(strikeRange);
 				if ( sweepAttackTimer )
 				{
 					// already played the sound
@@ -13512,7 +13705,8 @@ void Entity::attack(int pose, int charge, Entity* target)
 								degradeWeapon = false;
 							}
 
-							if ( degradeWeapon && !spellEffectPreserveItem(*weaponToBreak) )
+							if ( degradeWeapon && !(*weaponToBreak)->isUnbreakableFromUse()
+								&& !spellEffectPreserveItem(*weaponToBreak) )
 							{
 								if ( player >= 0 )
 								{
@@ -13695,6 +13889,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 						&& !itemTypeIsFoci(hitstats->shield->type)
 						&& !itemTypeIsInstrument(hitstats->shield->type)
 						&& hitstats->shield->type != TOOL_DUCK
+						&& hitstats->shield->type != SPYGLASS // mod add: utility optics are not shields for degradation
 						&& parriedDamage == 0
 						&& hitstats->shield->type != TOOL_TINKERING_KIT
 						&& hitstats->shield->type != TOOL_FRYING_PAN )
@@ -20383,6 +20578,7 @@ int checkEquipType(const Item *item)
 		case TOOL_TORCH:
 		case TOOL_LANTERN:
 		case TOOL_CRYSTALSHARD:
+		case SPYGLASS: // mod add: Spyglass occupies the normal offhand slot.
 			return TYPE_OFFHAND;
 			break;
 
@@ -22849,6 +23045,42 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 			weaponLimb->z = weaponArmLimb->z + 1;
 			weaponLimb->pitch = weaponArmLimb->pitch;
 		}
+		 // mod add flintlock and musket offset
+		else if ( weaponLimb->sprite == items[FLINTLOCK_PISTOL].index )
+		{
+			weaponLimb->x = weaponArmLimb->x;
+			weaponLimb->y = weaponArmLimb->y;
+			weaponLimb->z = weaponArmLimb->z + 1;
+			weaponLimb->pitch = weaponArmLimb->pitch;
+			// forward/back
+			weaponLimb->x += 2 * cos(weaponArmLimb->yaw);
+			weaponLimb->y += 2 * sin(weaponArmLimb->yaw);
+
+			// sideways
+			weaponLimb->x += 0.0 * cos(weaponArmLimb->yaw + PI / 2);
+			weaponLimb->y += 0.0 * sin(weaponArmLimb->yaw + PI / 2);
+
+			// up/down
+			weaponLimb->z += 0.0;
+		}
+		else if ( weaponLimb->sprite == items[MUSKET].index )
+		{
+			weaponLimb->x = weaponArmLimb->x;
+			weaponLimb->y = weaponArmLimb->y;
+			weaponLimb->z = weaponArmLimb->z + 1;
+			weaponLimb->pitch = weaponArmLimb->pitch;
+			// forward/back
+			weaponLimb->x += 2 * cos(weaponArmLimb->yaw);
+			weaponLimb->y += 2 * sin(weaponArmLimb->yaw);
+
+			// sideways
+			weaponLimb->x += 0.0 * cos(weaponArmLimb->yaw + PI / 2);
+			weaponLimb->y += 0.0 * sin(weaponArmLimb->yaw + PI / 2);
+
+			// up/down
+			weaponLimb->z += 2.0;
+		}
+		//mod add end
 		else if ( weaponLimb->sprite == items[TOOL_LOCKPICK].index )
 		{
 			weaponLimb->x = weaponArmLimb->x + 1.5 * cos(weaponArmLimb->yaw);
@@ -23149,11 +23381,18 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 		}
 		else if ( weaponLimb->sprite == items[CROSSBOW].index 
 			|| weaponLimb->sprite == items[HEAVY_CROSSBOW].index
-			|| weaponLimb->sprite == items[BLACKIRON_CROSSBOW].index )
+			|| weaponLimb->sprite == items[BLACKIRON_CROSSBOW].index
+			|| weaponLimb->sprite == items[FLINTLOCK_PISTOL].index )// mod add: reuse crossbow focal offsets
 		{
 			weaponLimb->focalx += 2.1;
 			weaponLimb->focaly -= 0.1;
 		}
+			//mod add
+		else if ( weaponLimb->sprite == items[MUSKET].index )
+		{
+			weaponLimb->focalx += 5.1;
+			weaponLimb->focaly -= 0.0;
+		} //mod add end
 		else if ( weaponLimb->sprite == items[SHORTBOW].index || weaponLimb->sprite == items[ARTIFACT_BOW].index
 			|| weaponLimb->sprite == items[LONGBOW].index || weaponLimb->sprite == items[BRANCH_BOW].index
 			|| weaponLimb->sprite == items[BRANCH_BOW_INFECTED].index
@@ -24674,6 +24913,21 @@ void Entity::monsterAcquireAttackTarget(const Entity& target, Sint32 state, bool
 			return;
 		}
 	}
+
+	// mod add: Hearing a gunshot should not make a monster abandon its search
+	// for unrelated dungeon creatures. Players and their followers/bots still
+	// override it normally, and a physical hit always causes retaliation.
+	if ( monsterInvestigatingGunshot )
+	{
+		if ( monsterWasHit || monsterGunshotAllowsTarget(target) )
+		{
+			monsterClearGunshotInvestigation();
+		}
+		else
+		{
+			return;
+		}
+	}
 	
 	if ( myStats->type == GYROBOT )
 	{
@@ -24943,6 +25197,475 @@ void Entity::monsterAcquireAttackTarget(const Entity& target, Sint32 state, bool
 		//pose = MONSTER_POSE_MAGIC_WINDUP1;
 		monsterShadowInitialMimic = 1; //true!
 		attack(MONSTER_POSE_MAGIC_WINDUP3, 0, nullptr);
+	}
+}
+
+bool Entity::monsterGunshotAllowsTarget(const Entity& target) const
+{
+	if ( target.behavior == &actPlayer )
+	{
+		return true;
+	}
+	if ( target.behavior == &actMonster )
+	{
+		if ( target.monsterAllyGetPlayerLeader() )
+		{
+			return true;
+		}
+		if ( Stat* targetStats = target.getStats() )
+		{
+			return achievementObserver.checkUidIsFromPlayer(targetStats->leader_uid) >= 0;
+		}
+	}
+	return false;
+}
+
+bool Entity::monsterGunshotShouldIgnoreMonsterCollision(const Entity& target) const
+{
+	// mod add: use the same investigation target-priority rule for physical traffic
+	// that vision and target acquisition use. Retaliation enters through
+	// monsterAcquireAttackTarget(..., monsterWasHit = true) and remains allowed.
+	return monsterInvestigatingGunshot && target.behavior == &actMonster
+		&& !monsterGunshotAllowsTarget(target);
+}
+
+void Entity::monsterClearGunshotInvestigation()
+{
+	monsterInvestigatingGunshot = false;
+	monsterGunshotPending = false;
+	monsterGunshotPhase = MonsterGunshotPhase::NONE;
+	monsterGunshotX = 0.0;
+	monsterGunshotY = 0.0;
+	monsterGunshotOriginX = 0.0;
+	monsterGunshotOriginY = 0.0;
+	monsterGunshotSearchTicks = 0;
+	monsterGunshotReturnPathTries = 0;
+	monsterGunshotHadPath = false;
+}
+
+bool Entity::monsterRebuildGunshotPath()
+{
+	if ( !monsterInvestigatingGunshot )
+	{
+		return false;
+	}
+	if ( monsterGunshotPhase == MonsterGunshotPhase::RETURN )
+	{
+		return monsterRebuildGunshotReturnPath();
+	}
+	if ( monsterGunshotPhase == MonsterGunshotPhase::SEARCH
+		|| monsterGunshotPhase == MonsterGunshotPhase::RETURN_SEARCH )
+	{
+		// Search phases deliberately have no movement path, but remain part of the
+		// disturbance state for target and collision filtering.
+		monsterState = MONSTER_STATE_WAIT;
+		return true;
+	}
+	if ( monsterGunshotPhase != MonsterGunshotPhase::INVESTIGATE )
+	{
+		return false;
+	}
+
+	const int shotTileX = static_cast<int>(floor(monsterGunshotX / 16.0));
+	const int shotTileY = static_cast<int>(floor(monsterGunshotY / 16.0));
+	const int currentTileX = static_cast<int>(floor(x / 16.0));
+	const int currentTileY = static_cast<int>(floor(y / 16.0));
+	if ( currentTileX == shotTileX && currentTileY == shotTileY )
+	{
+		monsterGunshotHadPath = true;
+		monsterState = MONSTER_STATE_WAIT;
+		return true;
+	}
+
+	auto tryDestination = [this, currentTileX, currentTileY](int tileX, int tileY)
+	{
+		if ( currentTileX == tileX && currentTileY == tileY )
+		{
+			// A newest-shot redirect may select the tile currently occupied while an
+			// older investigation/return path still exists. Discard that stale path
+			// and begin SEARCH here instead of accidentally continuing toward it.
+			if ( children.first )
+			{
+				list_RemoveNode(children.first);
+			}
+			node_t* pathNode = list_AddNodeFirst(&children);
+			pathNode->element = nullptr;
+			pathNode->deconstructor = &listDeconstructor;
+			monsterGunshotHadPath = true;
+			monsterState = MONSTER_STATE_WAIT;
+			return true;
+		}
+		if ( !monsterSetPathToLocation(tileX, tileY, 0,
+			GeneratePathTypes::GENERATE_PATH_GUNSHOT_INVESTIGATION) )
+		{
+			return false;
+		}
+		monsterGunshotHadPath = true;
+		monsterState = children.first && children.first->element
+			? MONSTER_STATE_HUNT : MONSTER_STATE_WAIT;
+		return true;
+	};
+
+	// mod edit: stop two tiles from the gunshot rather than entering its tile.
+	// Try the four cardinal positions, nearest to this monster first.
+	static constexpr int GUNSHOT_STOP_DISTANCE_TILES = 2;
+	std::vector<std::pair<int, std::pair<int, int>>> cardinalTiles;
+	cardinalTiles.push_back({ abs(currentTileX - (shotTileX + GUNSHOT_STOP_DISTANCE_TILES)) + abs(currentTileY - shotTileY), {shotTileX + GUNSHOT_STOP_DISTANCE_TILES, shotTileY} });
+	cardinalTiles.push_back({ abs(currentTileX - (shotTileX - GUNSHOT_STOP_DISTANCE_TILES)) + abs(currentTileY - shotTileY), {shotTileX - GUNSHOT_STOP_DISTANCE_TILES, shotTileY} });
+	cardinalTiles.push_back({ abs(currentTileX - shotTileX) + abs(currentTileY - (shotTileY + GUNSHOT_STOP_DISTANCE_TILES)), {shotTileX, shotTileY + GUNSHOT_STOP_DISTANCE_TILES} });
+	cardinalTiles.push_back({ abs(currentTileX - shotTileX) + abs(currentTileY - (shotTileY - GUNSHOT_STOP_DISTANCE_TILES)), {shotTileX, shotTileY - GUNSHOT_STOP_DISTANCE_TILES} });
+	std::sort(cardinalTiles.begin(), cardinalTiles.end());
+	for ( const auto& candidate : cardinalTiles )
+	{
+		if ( tryDestination(candidate.second.first, candidate.second.second) )
+		{
+			monsterTargetX = monsterGunshotX;
+			monsterTargetY = monsterGunshotY;
+			return true;
+		}
+	}
+
+	// If every cardinal position is blocked, try the matching diagonal ring.
+	// Never fall back onto the report tile.
+	std::vector<std::pair<int, std::pair<int, int>>> diagonalTiles;
+	diagonalTiles.push_back({ abs(currentTileX - (shotTileX + GUNSHOT_STOP_DISTANCE_TILES)) + abs(currentTileY - (shotTileY + GUNSHOT_STOP_DISTANCE_TILES)), {shotTileX + GUNSHOT_STOP_DISTANCE_TILES, shotTileY + GUNSHOT_STOP_DISTANCE_TILES} });
+	diagonalTiles.push_back({ abs(currentTileX - (shotTileX + GUNSHOT_STOP_DISTANCE_TILES)) + abs(currentTileY - (shotTileY - GUNSHOT_STOP_DISTANCE_TILES)), {shotTileX + GUNSHOT_STOP_DISTANCE_TILES, shotTileY - GUNSHOT_STOP_DISTANCE_TILES} });
+	diagonalTiles.push_back({ abs(currentTileX - (shotTileX - GUNSHOT_STOP_DISTANCE_TILES)) + abs(currentTileY - (shotTileY + GUNSHOT_STOP_DISTANCE_TILES)), {shotTileX - GUNSHOT_STOP_DISTANCE_TILES, shotTileY + GUNSHOT_STOP_DISTANCE_TILES} });
+	diagonalTiles.push_back({ abs(currentTileX - (shotTileX - GUNSHOT_STOP_DISTANCE_TILES)) + abs(currentTileY - (shotTileY - GUNSHOT_STOP_DISTANCE_TILES)), {shotTileX - GUNSHOT_STOP_DISTANCE_TILES, shotTileY - GUNSHOT_STOP_DISTANCE_TILES} });
+	std::sort(diagonalTiles.begin(), diagonalTiles.end());
+	for ( const auto& candidate : diagonalTiles )
+	{
+		if ( tryDestination(candidate.second.first, candidate.second.second) )
+		{
+			monsterTargetX = monsterGunshotX;
+			monsterTargetY = monsterGunshotY;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool Entity::monsterRebuildGunshotReturnPath()
+{
+	if ( !monsterInvestigatingGunshot
+		|| monsterGunshotPhase != MonsterGunshotPhase::RETURN )
+	{
+		return false;
+	}
+
+	// mod add: bound repeated collision/stall rebuilds so an obstructed origin
+	// can never strand a monster permanently in the RETURN phase.
+	static constexpr Sint32 MAX_RETURN_PATH_TRIES = 8;
+	if ( ++monsterGunshotReturnPathTries > MAX_RETURN_PATH_TRIES )
+	{
+		return false;
+	}
+
+	const int originTileX = static_cast<int>(floor(monsterGunshotOriginX / 16.0));
+	const int originTileY = static_cast<int>(floor(monsterGunshotOriginY / 16.0));
+	auto tryOrigin = [this, originTileX, originTileY](int adjacentTiles)
+	{
+		if ( !monsterSetPathToLocation(originTileX, originTileY, adjacentTiles,
+			GeneratePathTypes::GENERATE_PATH_GUNSHOT_INVESTIGATION) )
+		{
+			return false;
+		}
+		monsterTargetX = monsterGunshotOriginX;
+		monsterTargetY = monsterGunshotOriginY;
+		monsterState = children.first && children.first->element
+			? MONSTER_STATE_HUNT : MONSTER_STATE_WAIT;
+		return true;
+	};
+
+	// Prefer the original tile, then its immediate neighbourhood. A two-tile
+	// fallback is the final small search rather than an unbounded destination.
+	if ( tryOrigin(1) )
+	{
+		return true;
+	}
+	return tryOrigin(2);
+}
+
+void Entity::monsterBeginGunshotInvestigation(real_t shotX, real_t shotY)
+{
+	Stat* monsterStats = getStats();
+	if ( !monsterStats )
+	{
+		monsterClearGunshotInvestigation();
+		return;
+	}
+
+	if ( monsterStats->getEffectActive(EFF_ASLEEP) )
+	{
+		setEffect(EFF_ASLEEP, false, 0, true); // mod add: an accepted firearm report wakes the listener
+	}
+
+	// mod add: only the first report in a continuous disturbance sequence owns
+	// the return origin. New reports during INVESTIGATE, SEARCH, or RETURN retain it.
+	if ( !monsterInvestigatingGunshot
+		|| monsterGunshotPhase == MonsterGunshotPhase::NONE )
+	{
+		monsterGunshotOriginX = x;
+		monsterGunshotOriginY = y;
+	}
+	monsterInvestigatingGunshot = true;
+	monsterGunshotPending = false;
+	monsterGunshotPhase = MonsterGunshotPhase::INVESTIGATE;
+	monsterGunshotX = shotX;
+	monsterGunshotY = shotY;
+	monsterGunshotSearchTicks = 0;
+	monsterGunshotReturnPathTries = 0;
+	monsterGunshotHadPath = false;
+	monsterReleaseAttackTarget(true);
+	monsterTargetX = shotX;
+	monsterTargetY = shotY;
+	if ( !monsterRebuildGunshotPath() )
+	{
+		monsterClearGunshotInvestigation();
+	}
+	serverUpdateEntitySkill(this, 0);
+}
+
+void Entity::monsterBeginGunshotReturn()
+{
+	if ( !monsterInvestigatingGunshot )
+	{
+		return;
+	}
+
+	monsterGunshotPhase = MonsterGunshotPhase::RETURN;
+	monsterGunshotSearchTicks = 0;
+	monsterGunshotReturnPathTries = 0;
+	monsterTargetX = monsterGunshotOriginX;
+	monsterTargetY = monsterGunshotOriginY;
+	if ( !monsterRebuildGunshotReturnPath() )
+	{
+		// The preferred origin and both small fallbacks failed. Resume vanilla AI
+		// instead of retrying forever in a broken transient state.
+		monsterClearGunshotInvestigation();
+		monsterState = MONSTER_STATE_WAIT;
+	}
+	serverUpdateEntitySkill(this, 0);
+}
+
+void Entity::monsterUpdateGunshotInvestigation()
+{
+	if ( !monsterInvestigatingGunshot || multiplayer == CLIENT )
+	{
+		return;
+	}
+	if ( monsterGunshotPending )
+	{
+		// mod add: map monsters can hear a shot before their first actMonster
+		// initialization. Begin only now so init cannot overwrite sleep/path state.
+		monsterBeginGunshotInvestigation(monsterGunshotX, monsterGunshotY);
+		return;
+	}
+
+	// Any real target means a permitted acquisition (or retaliation) won.
+	if ( monsterTarget && uidToEntity(monsterTarget) )
+	{
+		monsterClearGunshotInvestigation();
+		return;
+	}
+
+	if ( monsterGunshotPhase == MonsterGunshotPhase::SEARCH
+		|| monsterGunshotPhase == MonsterGunshotPhase::RETURN_SEARCH )
+	{
+		if ( monsterGunshotSearchTicks > 0 )
+		{
+			--monsterGunshotSearchTicks;
+		}
+		if ( monsterGunshotSearchTicks <= 0 )
+		{
+			if ( monsterGunshotPhase == MonsterGunshotPhase::RETURN_SEARCH )
+			{
+				// The monster returned to an origin still close to the report. Keep
+				// dungeon-hostility suppression for the full post-return search, then
+				// resume vanilla AI without starting another RETURN loop.
+				monsterClearGunshotInvestigation();
+				monsterState = MONSTER_STATE_WAIT;
+				serverUpdateEntitySkill(this, 0);
+			}
+			else
+			{
+				monsterBeginGunshotReturn();
+			}
+		}
+		else if ( ticks % (TICKS_PER_SECOND / 2) == 0 )
+		{
+			// Reuse the normal idle-looking controls while briefly searching.
+			monsterLookTime = 1;
+			monsterMoveTime = local_rng.rand() % 10 + 1;
+			monsterLookDir = yaw + (local_rng.rand() % 2 ? PI / 2 : -PI / 2);
+		}
+		return;
+	}
+	else if ( monsterGunshotPhase == MonsterGunshotPhase::RETURN )
+	{
+		static constexpr real_t RETURN_ORIGIN_DISTANCE = 2.0 * 16.0;
+		static constexpr real_t CLOSE_ORIGIN_SHOT_DISTANCE = 7.0 * 16.0;
+		const real_t originDx = x - monsterGunshotOriginX;
+		const real_t originDy = y - monsterGunshotOriginY;
+		if ( originDx * originDx + originDy * originDy
+				<= RETURN_ORIGIN_DISTANCE * RETURN_ORIGIN_DISTANCE )
+		{
+			// The stored origin, rather than distance travelled from the report, now
+			// exclusively determines when RETURN has arrived.
+			if ( children.first )
+			{
+				list_RemoveNode(children.first);
+			}
+			node_t* pathNode = list_AddNodeFirst(&children);
+			pathNode->element = nullptr;
+			pathNode->deconstructor = &listDeconstructor;
+			monsterState = MONSTER_STATE_WAIT;
+
+			const real_t originShotDx = monsterGunshotOriginX - monsterGunshotX;
+			const real_t originShotDy = monsterGunshotOriginY - monsterGunshotY;
+			if ( originShotDx * originShotDx + originShotDy * originShotDy
+					< CLOSE_ORIGIN_SHOT_DISTANCE * CLOSE_ORIGIN_SHOT_DISTANCE )
+			{
+				// An origin close to the report would restore natural hostility while
+				// investigators are still congregated. Search there for ten more seconds
+				// while the existing player-side/retaliation priority remains active.
+				monsterGunshotPhase = MonsterGunshotPhase::RETURN_SEARCH;
+				monsterGunshotSearchTicks = TICKS_PER_SECOND * 10;
+			}
+			else
+			{
+				monsterClearGunshotInvestigation();
+			}
+			serverUpdateEntitySkill(this, 0);
+			return;
+		}
+
+		// HUNT becomes WAIT when its coordinate path is exhausted. If a fallback
+		// endpoint did not yet satisfy dispersal, make another bounded return attempt.
+		if ( monsterState == MONSTER_STATE_WAIT )
+		{
+			if ( !monsterRebuildGunshotReturnPath() )
+			{
+				monsterClearGunshotInvestigation();
+				monsterState = MONSTER_STATE_WAIT;
+			}
+			serverUpdateEntitySkill(this, 0);
+		}
+		return;
+	}
+
+	// HUNT naturally returns to WAIT when its coordinate path is exhausted or
+	// unreachable. At that point, search the arrival area for 3-5 seconds.
+	if ( monsterState == MONSTER_STATE_WAIT )
+	{
+		if ( monsterGunshotHadPath )
+		{
+			monsterGunshotPhase = MonsterGunshotPhase::SEARCH;
+			monsterGunshotSearchTicks = TICKS_PER_SECOND * (3 + local_rng.rand() % 3);
+		}
+		else
+		{
+			// A failed/empty path is not an arrival. Do not leave the monster
+			// spinning in a search state at the place where it heard the shot.
+			monsterClearGunshotInvestigation();
+		}
+	}
+}
+
+bool playerIsUsingSpyglass(const Entity* playerEntity)
+{
+	if ( !playerEntity || playerEntity->behavior != &actPlayer )
+	{
+		return false;
+	}
+	const Stat* playerStats = playerEntity->getStats();
+	return playerStats && playerStats->HP > 0 && playerStats->defending
+		&& playerStats->shield && playerStats->shield->type == SPYGLASS;
+}
+
+void alertMonstersToFirearmGunshot(const Entity& shooter)
+{
+	if ( multiplayer == CLIENT || !map.creatures )
+	{
+		return;
+	}
+
+	// mod edit: centralized per-firearm hearing distances. Keep a flintlock
+	// fallback for any future firearm that has not received its own tuning yet.
+	static constexpr real_t FLINTLOCK_GUNSHOT_ALERT_RADIUS = 15.0 * 16.0;
+	static constexpr real_t MUSKET_GUNSHOT_ALERT_RADIUS = 30.0 * 16.0;
+	real_t alertRadius = FLINTLOCK_GUNSHOT_ALERT_RADIUS;
+	if ( const Stat* shooterStats = shooter.getStats() )
+	{
+		if ( shooterStats->weapon && shooterStats->weapon->type == MUSKET )
+		{
+			alertRadius = MUSKET_GUNSHOT_ALERT_RADIUS;
+		}
+	}
+	const real_t radiusSquared = alertRadius * alertRadius;
+
+	for ( node_t* node = map.creatures->first; node; node = node->next )
+	{
+		Entity* monster = static_cast<Entity*>(node->element);
+		if ( !monster || monster == &shooter || monster->behavior != &actMonster )
+		{
+			continue;
+		}
+		Stat* monsterStats = monster->getStats();
+		const bool initialized = monster->skill[3] >= 2; // MONSTER_INIT, unavailable as a macro in this file
+		const bool sleeping = monsterStats && monsterStats->getEffectActive(EFF_ASLEEP); // mod add: gunshots wake sleepers
+		if ( !monsterStats || monsterStats->HP <= 0
+			|| (initialized && !monster->isMobile() && !sleeping) || monster->isBossMonster()
+			|| monster->isInertMimic() || monster->monsterIsTinkeringCreation()
+			|| monsterStats->type == SHOPKEEPER
+			|| monster->monsterAllyGetPlayerLeader()
+			|| achievementObserver.checkUidIsFromPlayer(monsterStats->leader_uid) >= 0
+			|| monster->monsterAllyIndex >= 0 )
+		{
+			continue;
+		}
+		const real_t dx = monster->x - shooter.x;
+		const real_t dy = monster->y - shooter.y;
+		Entity* mutableShooter = const_cast<Entity*>(&shooter);
+		if ( dx * dx + dy * dy > radiusSquared
+			|| !monster->checkEnemy(mutableShooter) ) // mod edit: listener's native hostility is authoritative
+		{
+			continue;
+		}
+
+		// Do not interrupt genuine combat. A monster already investigating may be
+		// redirected by the latest shot, but a fresh alert only starts from idle.
+		Entity* currentCombatTarget = uidToEntity(monster->monsterTarget);
+		if ( !monster->monsterInvestigatingGunshot && currentCombatTarget )
+		{
+			continue;
+		}
+
+		if ( initialized )
+		{
+			monster->monsterBeginGunshotInvestigation(shooter.x, shooter.y);
+		}
+		else
+		{
+			// mod add: retain the report until actMonster has initialized its
+			// species, effects, body, and child/path nodes on its normal tick.
+			// Preserve the first pre-disturbance position if more reports arrive
+			// before that initialization tick.
+			if ( !monster->monsterInvestigatingGunshot
+				|| monster->monsterGunshotPhase == MonsterGunshotPhase::NONE )
+			{
+				monster->monsterGunshotOriginX = monster->x;
+				monster->monsterGunshotOriginY = monster->y;
+			}
+			monster->monsterInvestigatingGunshot = true;
+			monster->monsterGunshotPending = true;
+			monster->monsterGunshotPhase = MonsterGunshotPhase::INVESTIGATE;
+			monster->monsterGunshotX = shooter.x;
+			monster->monsterGunshotY = shooter.y;
+			monster->monsterGunshotSearchTicks = 0;
+			monster->monsterGunshotReturnPathTries = 0;
+			monster->monsterGunshotHadPath = false;
+		}
 	}
 }
 
@@ -25618,6 +26341,12 @@ bool Entity::monsterWantsItem(const Item& item, Item**& shouldEquip, node_t*& re
 	{
 		return false;
 	}
+	// mod add: Ordinary and forced ground-item AI must not acquire Muskets.
+	// Scripted theft may still place one directly into an Incubus inventory.
+	if ( item.type == MUSKET )
+	{
+		return false;
+	}
 
 	if ( myStats->type == GYROBOT && item.interactNPCUid == getUID() )
 	{
@@ -26135,7 +26864,8 @@ bool Entity::degradeArmor(Stat& hitstats, Item& armor, int armornum)
 		|| armor.type == CLOAK_GUARDIAN
 		|| armor.type == ARTIFACT_GLOVES
 		|| armor.type == ARTIFACT_BREASTPIECE
-		|| armor.type == MASK_ARTIFACT_VISOR )
+		|| armor.type == MASK_ARTIFACT_VISOR
+		|| armor.type == SPYGLASS ) // mod add: offhand utility optics do not absorb attack durability loss
 	{
 		return false;
 	}
@@ -27757,6 +28487,50 @@ bool Entity::setArrowProjectileProperties(int weaponType)
 		return false;
 	}
 
+	// mod add: Firearms remain ordinary actArrow projectiles. Their firing
+	// weapon identity selects only the presentation sprite; this runs for both
+	// authoritative setup and client initialization from synchronized skill[2].
+	int firearmProjectileSprite = -1;
+	switch ( weaponType )
+	{
+		case FLINTLOCK_PISTOL:
+			firearmProjectileSprite = 2443;
+			break;
+		case MUSKET:
+			firearmProjectileSprite = 2444;
+			break;
+		default:
+			break;
+	}
+	if ( firearmProjectileSprite >= 0 )
+	{
+		// A bad/missing mod model should fall back to the bolt used to create the
+		// entity, rather than producing an invisible projectile. The mounted
+		// models.txt is zero-indexed, so sprites 2443/2444 require 2445 entries.
+		if ( firearmProjectileSprite < static_cast<int>(nummodels)
+			&& models && models[firearmProjectileSprite] )
+		{
+			this->sprite = firearmProjectileSprite;
+			this->flags[INVISIBLE] = false;
+			this->flags[SPRITE] = false;
+		}
+		else
+		{
+			static bool reportedMissingFlintlockProjectile = false;
+			static bool reportedMissingMusketProjectile = false;
+			bool& alreadyReported = weaponType == FLINTLOCK_PISTOL
+				? reportedMissingFlintlockProjectile
+				: reportedMissingMusketProjectile;
+			if ( !alreadyReported )
+			{
+				printlog("[MODELS]: firearm projectile sprite %d is unavailable (loaded model count: %u); using bolt sprite %d.",
+					firearmProjectileSprite, nummodels, this->sprite);
+				alreadyReported = true;
+			}
+		}
+	}
+	// mod add end
+
 	if ( multiplayer == CLIENT && weaponType == TOOL_SENTRYBOT )
 	{
 		// hack for arrow traps.
@@ -27767,10 +28541,24 @@ bool Entity::setArrowProjectileProperties(int weaponType)
 	}
 
 	if ( weaponType == CROSSBOW || weaponType == SLING || weaponType == HEAVY_CROSSBOW
-		|| weaponType == BLACKIRON_CROSSBOW )
+		|| weaponType == BLACKIRON_CROSSBOW
+		|| weaponType == FLINTLOCK_PISTOL || weaponType == MUSKET ) // mod add: firearms use bolt physics
 	{
 		this->vel_z = -0.2;
-		this->arrowSpeed = 6;
+		// mod edit: Fixed firearm ballistics. Crossbows and Flintlock retain the
+		// native speed; Musket travels three times as far horizontally per tick.
+		switch ( weaponType )
+		{
+			case FLINTLOCK_PISTOL:
+				this->arrowSpeed = 6;
+				break;
+			case MUSKET:
+				this->arrowSpeed = 18;
+				break;
+			default:
+				this->arrowSpeed = 6;
+				break;
+		}
 		this->pitch = -PI / 32;
 		this->arrowFallSpeed = 0.1;
 		this->arrowBoltDropOffRange = 5; // ticks before projectile starts falling.
@@ -27821,6 +28609,17 @@ bool Entity::setArrowProjectileProperties(int weaponType)
 		return true;
 	}
 	return false;
+}
+
+bool Entity::arrowShotByFirearm() const
+{
+	return arrowShotByWeapon == FLINTLOCK_PISTOL || arrowShotByWeapon == MUSKET;
+}
+
+bool Entity::arrowUsesBoltSemantics() const
+{
+	static constexpr int PROJECTILE_BOLT_SPRITE = 167;
+	return sprite == PROJECTILE_BOLT_SPRITE || arrowShotByFirearm();
 }
 
 /* SetEntityOnFire
@@ -31443,9 +32242,14 @@ real_t Entity::getDamageTableEquipmentMod(Stat& myStats, Item& item, real_t base
 	return bonus;
 }
 
-real_t Entity::getDamageTableMultiplier(Entity* my, Stat& myStats, DamageTableType damageType, int* magicResistance, int* outNumSources)
+real_t Entity::getDamageTableMultiplier(Entity* my, Stat& myStats, DamageTableType damageType,
+	int* magicResistance, int* outNumSources, real_t innateDamageMultiplierOverride)
 {
-	real_t damageMultiplier = damagetables[myStats.type][damageType];
+	// mod edit: Callers may replace only the creature's innate affinity while
+	// retaining the normal equipment/effect reductions assembled below.
+	real_t damageMultiplier = innateDamageMultiplierOverride >= 0.0
+		? innateDamageMultiplierOverride
+		: damagetables[myStats.type][damageType];
 	if ( myStats.getEffectActive(EFF_SHADOW_TAGGED) )
 	{
 		if ( myStats.type == LICH || myStats.type == LICH_FIRE || myStats.type == LICH_ICE

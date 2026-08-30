@@ -293,6 +293,8 @@ void actSleepZ(Entity* my);
 Entity* spawnBang(Sint16 x, Sint16 y, Sint16 z);
 Entity* spawnExplosion(Sint16 x, Sint16 y, Sint16 z);
 Entity* spawnExplosionFromSprite(Uint16 sprite, Sint16 x, Sint16 y, Sint16 z);
+Entity* spawnFirearmMuzzleFlash(Sint16 x, Sint16 y, Sint16 z,
+	real_t scale = 0.35, bool spawnMusketSmoke = false); // mod add: replicated firearm presentation
 Entity* spawnPoof(Sint16 x, Sint16 y, Sint16 z, real_t scale, bool updateClients = false);
 Entity* spawnSleepZ(Sint16 x, Sint16 y, Sint16 z);
 Entity* spawnFloatingSpriteMisc(int sprite, Sint16 x, Sint16 y, Sint16 z);

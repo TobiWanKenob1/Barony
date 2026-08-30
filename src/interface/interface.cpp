@@ -11519,6 +11519,7 @@ bool GenericGUIMenu::tinkeringGetItemValue(const Item* item, int* metal, int* ma
 		case MASK_EYEPATCH:
 		case TOOL_BEARTRAP:
 		case TOOL_GLASSES:
+		case SPYGLASS: // mod add: offhand utility, mirrors glasses salvage
 		case TOOL_LANTERN:
 		case BONE_AXE:
 		case BONE_MACE:
@@ -11678,6 +11679,7 @@ bool GenericGUIMenu::tinkeringGetItemValue(const Item* item, int* metal, int* ma
 		case SPELLBOOK_RAT_FORM:
 		case SPELLBOOK_POISON:
 		case SPELLBOOK_SALVAGE:
+		case SPELLBOOK_ENTRENCH: // mod add: ordinary spellbook salvage
 		case SPELLBOOK_DASH:
 		case SPELLBOOK_HEAL_OTHER:
 		case SPELLBOOK_BLOOD_WARD:
@@ -11840,6 +11842,7 @@ bool GenericGUIMenu::tinkeringGetItemValue(const Item* item, int* metal, int* ma
 		case IRON_MACE:
 		case IRON_AXE:
 		case HARPOON: // mod add: Harpoon
+		case FLINTLOCK_PISTOL: // mod add: salvageable despite use-indestructibility
 		case IRON_SHIELD:
 		case SHORTBOW:
 		case BRACERS:
@@ -11994,6 +11997,7 @@ bool GenericGUIMenu::tinkeringGetItemValue(const Item* item, int* metal, int* ma
 		case COMPOUND_BOW:
 		case BLACKIRON_AXE:
 		case BLACKIRON_CROSSBOW:
+		case MUSKET: // mod add: high-tier firearm salvage/repair valuation
 		case BLACKIRON_MACE:
 		case BLACKIRON_SWORD:
 		case BLACKIRON_TRIDENT:

@@ -3613,8 +3613,9 @@ bool Player::PlayerMovement_t::isPlayerSwimming()
 	{
 		int x = std::min(std::max<unsigned int>(0, floor(my->x / 16)), map.width - 1);
 		int y = std::min(std::max<unsigned int>(0, floor(my->y / 16)), map.height - 1);
-		if ( swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]]
-			|| lavatiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] )
+		if ( !entrenchBridgeSupportsTile(x, y)
+			&& (swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]]
+				|| lavatiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]]) )
 		{
 			// can swim in lavatiles or swimmingtiles only.
 			swimming = true;
@@ -6154,10 +6155,19 @@ void playerDebugTests(Entity* my)
 
 void actPlayer(Entity* my)
 {
+	// mod add: keep an Entrench-carried world object hovering collisionlessly.
+	if ( my && my->skill[2] >= 0 && my->skill[2] < MAXPLAYERS )
+	{
+		updateEntrenchCarriedObject(my->skill[2]);
+	}
 	if (!my)
 	{
 		return;
 	}
+	// mod add: Advance firearm reload/unjam actions for local, host, and remote players.
+	updateFirearmReload(PLAYER_NUM);
+	updateFirearmUnjam(PLAYER_NUM);
+	// mod add end
 	if ( logCheckObstacle )
 	{
 		if ( ticks % 50 == 0 )
@@ -9455,6 +9465,26 @@ void actPlayer(Entity* my)
 		{
 			int x = std::min(std::max<unsigned int>(0, floor(my->x / 16)), map.width - 1);
 			int y = std::min(std::max<unsigned int>(0, floor(my->y / 16)), map.height - 1);
+			const int swimmingTile = map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height];
+			const bool enteredSwimming = !PLAYER_INWATER;
+			const bool inNormalWater = swimmingtiles[swimmingTile];
+			const bool enteredNormalWater = inNormalWater
+				&& !players[PLAYER_NUM]->mechanics.firearmInNormalWater;
+			players[PLAYER_NUM]->mechanics.firearmInNormalWater = inNormalWater;
+			if ( enteredNormalWater && multiplayer != CLIENT )
+			{
+				const Sint32 spoiled = spoilLoadedFirearmsInInventory(PLAYER_NUM, true);
+				if ( spoiled > 0 && multiplayer == SERVER && PLAYER_NUM > 0
+					&& !players[PLAYER_NUM]->isLocalPlayer() )
+				{
+					// mod add: Owner-only authoritative inventory-state correction.
+					strcpy((char*)net_packet->data, "FWET");
+					net_packet->address.host = net_clients[PLAYER_NUM - 1].host;
+					net_packet->address.port = net_clients[PLAYER_NUM - 1].port;
+					net_packet->len = 4;
+					sendPacketSafe(net_sock, -1, net_packet, PLAYER_NUM - 1);
+				}
+			}
 			if ( local_rng.rand() % 400 == 0 && multiplayer != CLIENT )
 			{
 				my->increaseSkill(PRO_LEGACY_SWIMMING);
@@ -9464,10 +9494,10 @@ void actPlayer(Entity* my)
 			{
 				my->z += 1;
 			}
-			if ( !PLAYER_INWATER && (players[PLAYER_NUM]->isLocalPlayer()) )
+			if ( enteredSwimming && players[PLAYER_NUM]->isLocalPlayer() )
 			{
 				PLAYER_INWATER = 1;
-				if ( lavatiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] )
+				if ( lavatiles[swimmingTile] )
 				{
 					messagePlayer(PLAYER_NUM, MESSAGE_STATUS, Language::get(573));
 					if ( stats[PLAYER_NUM]->type == AUTOMATON )
@@ -9484,7 +9514,7 @@ void actPlayer(Entity* my)
 					cameravars[PLAYER_NUM].shakex += .1;
 					cameravars[PLAYER_NUM].shakey += 10;
 				}
-				else if ( swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] && stats[PLAYER_NUM]->type == VAMPIRE )
+				else if ( swimmingtiles[swimmingTile] && stats[PLAYER_NUM]->type == VAMPIRE )
 				{
 					messagePlayerColor(PLAYER_NUM, MESSAGE_STATUS, makeColorRGB(255, 0, 0), Language::get(3183));
 					if ( stats[PLAYER_NUM]->mask && stats[PLAYER_NUM]->mask->type == MASK_HAZARD_GOGGLES )
@@ -9500,13 +9530,13 @@ void actPlayer(Entity* my)
 					cameravars[PLAYER_NUM].shakey += 10;
 					createWaterSplash(my->x, my->y, 30);
 				}
-				else if ( swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] && stats[PLAYER_NUM]->type == AUTOMATON )
+				else if ( swimmingtiles[swimmingTile] && stats[PLAYER_NUM]->type == AUTOMATON )
 				{
 					messagePlayer(PLAYER_NUM, MESSAGE_STATUS, Language::get(3702));
 					playSound(136, 128);
 					createWaterSplash(my->x, my->y, 30);
 				}
-				else if ( swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] )
+				else if ( swimmingtiles[swimmingTile] )
 				{
 					playSound(136, 128);
 					createWaterSplash(my->x, my->y, 30);
@@ -9515,7 +9545,7 @@ void actPlayer(Entity* my)
 
 			if ( players[PLAYER_NUM]->isLocalPlayer() )
 			{
-				if ( swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] )
+				if ( swimmingtiles[swimmingTile] )
 				{
 					Compendium_t::Events_t::eventUpdateWorld(PLAYER_NUM, Compendium_t::CPDM_SWIM_TIME, "murky water", 1);
 				}
@@ -9528,7 +9558,7 @@ void actPlayer(Entity* my)
 			if ( multiplayer != CLIENT )
 			{
 				// Check if the Player is in Water or Lava
-				if ( swimmingtiles[map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height]] )
+				if ( swimmingtiles[swimmingTile] )
 				{
 
 					my->tryCleanMerrowReflectingScales();	// mod add: Merrow reflecting scales
@@ -9630,6 +9660,7 @@ void actPlayer(Entity* my)
 
 	if ( !swimming )
 	{
+		players[PLAYER_NUM]->mechanics.firearmInNormalWater = false;
 		if ( PLAYER_INWATER != 0 )
 		{
 			PLAYER_INWATER = 0;
@@ -10856,6 +10887,12 @@ void actPlayer(Entity* my)
 				}
 				if ( doDeathProcedure )
 				{
+					// mod add: Death shatters an Entrench-carried object at the death
+					// position. Disconnect/map cleanup still takes the restore path.
+					if ( !client_disconnected[PLAYER_NUM] && stats[PLAYER_NUM]->HP <= 0 )
+					{
+						shatterEntrenchCarriedObjectOnPlayerDeath(PLAYER_NUM, my);
+					}
 					// remove body parts
 					node_t* nextnode;
 					for ( node = my->children.first, i = 0; node != NULL; node = nextnode, i++ )

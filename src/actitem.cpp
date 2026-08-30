@@ -1148,6 +1148,17 @@ void actItem(Entity* my)
 				else if (overWater) {
 					if (!ITEM_SPLOOSHED) {
 						ITEM_SPLOOSHED = true;
+						// mod add: Normal water spoils a world firearm's loaded shot in
+						// place. Lava keeps its existing break/burn behavior above.
+						if ( multiplayer != CLIENT && swimmingtiles[tile]
+							&& Item::firearmAppearanceIsLoaded(static_cast<ItemType>(ITEM_TYPE),
+								static_cast<Uint32>(ITEM_APPEARANCE)) )
+						{
+							ITEM_APPEARANCE = static_cast<Sint32>(Item::setFirearmAppearanceLoaded(
+								static_cast<ItemType>(ITEM_TYPE), static_cast<Uint32>(ITEM_APPEARANCE), false));
+							serverUpdateEntitySkill(my, 14);
+						}
+						// mod add end
 						bool splash = true;
 						if ( multiplayer == SINGLE && !splitscreen && my->parent == achievementObserver.playerUids[clientnum] )
 						{

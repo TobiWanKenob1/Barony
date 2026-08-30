@@ -258,6 +258,11 @@ bool rangefinderTargetEnemyType(spell_t& spell, Entity& entity)
 		}
 		return false;
 	}
+	// mod add: use the authoritative Entrench predicate so targeting and pickup agree.
+	else if ( spell.ID == SPELL_ENTRENCH )
+	{
+		return isEntrenchMovableObject(&entity);
+	}
 	else if ( spell.ID == SPELL_SABOTAGE
 		|| spell.ID == SPELL_HARVEST_TRAP )
 	{
@@ -382,6 +387,14 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 	}
 
 	rangefinder = spell->rangefinder;
+	// mod add: Entrench's second stage targets a cardinal floor tile.
+	if ( spell->ID == SPELL_ENTRENCH && players[player]
+		&& (players[player]->mechanics.entrenchCarriedUid != 0
+			|| (players[player]->entity
+				&& players[player]->entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] != 0)) )
+	{
+		rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
+	}
 
 	if ( stage == ANIM_SPELL_TOUCH_THROW || stage == ANIM_SPELL_OVERCHARGE_THROW )
 	{
@@ -593,6 +606,15 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 
 	target_x = previousx;
 	target_y = previousy;
+	// mod edit: placement logic consumes a tile, so make the preview and packet
+	// use that tile's exact center instead of an arbitrary point along the ray.
+	if ( rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE )
+	{
+		const int tilex = std::min<int>(std::max(static_cast<int>(floor(target_x / 16.0)), 0), map.width - 1);
+		const int tiley = std::min<int>(std::max(static_cast<int>(floor(target_y / 16.0)), 0), map.height - 1);
+		target_x = tilex * 16 + 8;
+		target_y = tiley * 16 + 8;
+	}
 	caster_x = caster->x;
 	caster_y = caster->y;
 
@@ -612,8 +634,12 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 		{
 			minDist = 16.0;
 		}
+		else if ( spell->ID == SPELL_ENTRENCH )
+		{
+			minDist = 0.0;
+		}
 
-		if ( spell->ID == SPELL_BOOBY_TRAP || spell->ID == SPELL_VOID_CHEST || spell->ID == SPELL_TELEKINESIS
+		if ( spell->ID == SPELL_BOOBY_TRAP || spell->ID == SPELL_VOID_CHEST || spell->ID == SPELL_TELEKINESIS || spell->ID == SPELL_ENTRENCH
 			|| spell->ID == SPELL_KINETIC_PUSH || spell->ID == SPELL_SABOTAGE || spell->ID == SPELL_HARVEST_TRAP
 			|| spell->ID == SPELL_SPLINTER_GEAR || spell->ID == SPELL_DEFACE || spell->ID == SPELL_SUNDER_MONUMENT
 			|| spell->ID == SPELL_DEMESNE_DOOR )
@@ -675,7 +701,13 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 
 						real_t interactAngle = PI / 8;
 						bool bonusRange = false;
-						if ( spell->ID == SPELL_BOOBY_TRAP )
+						if ( spell->ID == SPELL_ENTRENCH )
+						{
+							// Environmental props are aimed at by their center point. Do not
+							// collapse the selection cone to a few degrees at long range.
+							interactAngle = PI / 8;
+						}
+						else if ( spell->ID == SPELL_BOOBY_TRAP )
 						{
 							bonusRange = true;
 						}
@@ -696,7 +728,11 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 							bonusRange = true;
 						}
 						
-						if ( bonusRange )
+						if ( spell->ID == SPELL_ENTRENCH )
+						{
+							// Keep the fixed cone set above.
+						}
+						else if ( bonusRange )
 						{
 							interactAngle = (PI / 6);
 							if ( dist > STRIKERANGE )
@@ -1130,6 +1166,13 @@ void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* a
 
 void spellcastingAnimationManager_completeSpell(int player, spellcasting_animation_manager_t* animation_manager, bool deactivate)
 {
+	const bool entrenchFirstStage = animation_manager->spell
+		&& animation_manager->spell->ID == SPELL_ENTRENCH
+		&& animation_manager->rangefinder != RANGEFINDER_TOUCH_FLOOR_TILE;
+	const bool entrenchPlacementStage = animation_manager->spell
+		&& animation_manager->spell->ID == SPELL_ENTRENCH
+		&& animation_manager->rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE;
+	const Uint32 entrenchPickupUid = animation_manager->targetUid;
 	if ( animation_manager->stage == ANIM_SPELL_TOUCH_THROW
 		|| animation_manager->stage == ANIM_SPELL_OVERCHARGE_THROW )
 	{
@@ -1150,6 +1193,10 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 		castSpellProps.target_y = animation_manager->target_y;
 		castSpellProps.wallDir = animation_manager->wallDir;
 		castSpellProps.overcharge = overcharge;
+		if ( entrenchPlacementStage )
+		{
+			castSpellProps.optionalData = 1; // same cast; do not charge/fumble twice
+		}
 		if ( animation_manager->spell )
 		{
 			if ( animation_manager->spell->ID == SPELL_MUSHROOM )
@@ -1222,7 +1269,34 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 		castSpell(animation_manager->caster, animation_manager->spell, false, false, animation_manager->active_spellbook); //Actually cast the spell.
 	}
 
-	if ( deactivate )
+	if ( entrenchFirstStage )
+	{
+		// mod edit: remain in the native targeting pose after pickup. The next
+		// attack release places the carried object and then ends the cast.
+		animation_manager->stage = ANIM_SPELL_TOUCH;
+		animation_manager->rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
+		animation_manager->targetUid = 0;
+		if ( players[player] && players[player]->entity )
+		{
+			// Local prediction keeps floor targeting active until the authoritative
+			// carried UID arrives on this same replicated skill.
+			players[player]->entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL]
+				= static_cast<Sint32>(entrenchPickupUid);
+		}
+		animation_manager->throw_count = 0;
+		animation_manager->setRangeFinderLocation();
+		spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_WINDUP2, 0);
+	}
+	else if ( entrenchPlacementStage && players[player] && players[player]->entity
+		&& players[player]->entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] != 0 )
+	{
+		// Invalid placement retains the object and immediately resumes targeting.
+		// Remote clients also wait here for the server's success marker to clear.
+		animation_manager->stage = ANIM_SPELL_TOUCH;
+		animation_manager->throw_count = 0;
+		animation_manager->setRangeFinderLocation();
+	}
+	else if ( deactivate )
 	{
 		spellcastingAnimationManager_deactivate(animation_manager);
 	}
@@ -1548,6 +1622,15 @@ void actLeftHandMagic(Entity* my)
 
 	if ( (cast_animation[HANDMAGIC_PLAYERNUM].active || cast_animation[HANDMAGIC_PLAYERNUM].active_spellbook) )
 	{
+		if ( cast_animation[HANDMAGIC_PLAYERNUM].spell
+			&& cast_animation[HANDMAGIC_PLAYERNUM].spell->ID == SPELL_ENTRENCH
+			&& cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE
+			&& players[HANDMAGIC_PLAYERNUM]->entity
+				->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] == 0 )
+		{
+			spellcastingAnimationManager_deactivate(&cast_animation[HANDMAGIC_PLAYERNUM]);
+			return;
+		}
 		cast_animation[HANDMAGIC_PLAYERNUM].setRangeFinderLocation();
 		switch ( cast_animation[HANDMAGIC_PLAYERNUM].stage)
 		{

@@ -6645,6 +6645,51 @@ void ingameHud()
 	}
 }
 
+// mod add: local screen-space Spyglass mask, drawn over the completed 3D
+// viewport and beneath the ordinary HUD.
+static void drawSpyglassOverlay(const view_t& camera)
+{
+	// The UI image loader's '*' prefix selects nearest-neighbor minification
+	// and magnification while resolving the same underlying asset path.
+	Image* overlay = Image::get("*images/spyglass_overlay.png");
+	if ( !overlay || overlay->getWidth() <= 0 || overlay->getHeight() <= 0
+		|| camera.winw <= 0 || camera.winh <= 0 )
+	{
+		return;
+	}
+
+	const real_t scale = std::min(
+		static_cast<real_t>(camera.winw) / overlay->getWidth(),
+		static_cast<real_t>(camera.winh) / overlay->getHeight());
+	const int renderWidth = std::max(1, static_cast<int>(std::round(overlay->getWidth() * scale)));
+	const int renderHeight = std::max(1, static_cast<int>(std::round(overlay->getHeight() * scale)));
+	const SDL_Rect destination{
+		camera.winx + (camera.winw - renderWidth) / 2,
+		camera.winy + (camera.winh - renderHeight) / 2,
+		renderWidth,
+		renderHeight
+	};
+	const SDL_Rect viewport{ camera.winx, camera.winy, camera.winw, camera.winh };
+
+	// The overlay has a transparent viewing aperture, so blacken only the area
+	// outside its aspect-fit destination. Its opaque pixels mask the remainder.
+	auto drawBlackBorder = [](SDL_Rect rect)
+	{
+		if ( rect.w > 0 && rect.h > 0 )
+		{
+			drawRect(&rect, makeColor(0, 0, 0, 255), 255);
+		}
+	};
+	drawBlackBorder(SDL_Rect{ viewport.x, viewport.y, viewport.w, destination.y - viewport.y });
+	drawBlackBorder(SDL_Rect{ viewport.x, destination.y + destination.h,
+		viewport.w, viewport.y + viewport.h - (destination.y + destination.h) });
+	drawBlackBorder(SDL_Rect{ viewport.x, destination.y, destination.x - viewport.x, destination.h });
+	drawBlackBorder(SDL_Rect{ destination.x + destination.w, destination.y,
+		viewport.x + viewport.w - (destination.x + destination.w), destination.h });
+
+	overlay->draw(nullptr, destination, SDL_Rect{ 0, 0, xres, yres });
+}
+
 void drawAllPlayerCameras() {
 	DebugStats.drawWorldT1 = std::chrono::high_resolution_clock::now();
 	int playercount = 0;
@@ -6696,6 +6741,17 @@ void drawAllPlayerCameras() {
 				continue;
 			}
 			auto& camera = players[c]->camera();
+			const bool spyglassZoomActive = playerIsUsingSpyglass(players[c]->entity);
+			// mod add: local-only maintained Spyglass zoom. Apply relative to the
+			// current/custom (and split-screen adjusted) FOV, then restore after
+			// this viewport so other local players are unaffected.
+			const Uint32 viewportFov = ::fov;
+			static constexpr real_t SPYGLASS_ZOOM_FOV_MULTIPLIER = 0.45;
+			if ( spyglassZoomActive )
+			{
+				::fov = static_cast<Uint32>(std::max<real_t>(10.0,
+					viewportFov * SPYGLASS_ZOOM_FOV_MULTIPLIER));
+			}
 		    auto& globalLightModifier = players[c]->camera().globalLightModifier;
 		    auto& globalLightModifierEntities = players[c]->camera().globalLightModifierEntities;
 		    auto& globalLightModifierActive = players[c]->camera().globalLightModifierActive;
@@ -6899,6 +6955,13 @@ void drawAllPlayerCameras() {
 			DebugStats.drawWorldT5 = std::chrono::high_resolution_clock::now();
 			drawEntities3D(&camera, REALCOLORS);
 			glEndCamera(&camera, true, map);
+			::fov = viewportFov;
+			if ( spyglassZoomActive )
+			{
+				// mod add: Use the exact state which selected the Spyglass FOV. The
+				// mask therefore remains until that zoom state has fully released.
+				drawSpyglassOverlay(camera);
+			}
             
             // undo ghost fog
             if (players[c]->ghost.isActive() || (players[c]->entity && players[c]->entity->isBlind()) ) {

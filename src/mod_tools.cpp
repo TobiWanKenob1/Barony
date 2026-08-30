@@ -1147,6 +1147,80 @@ void ItemTooltips_t::readItemsFromFile()
 		}*/
 	}
 
+	// mod add: The executable may be run with a mod items.json that predates
+	// SPYGLASS. Keep the new enum spawnable/equippable with existing glasses
+	// presentation until dedicated mod data/assets override this final item ID.
+	if ( itemsRead <= static_cast<int>(SPYGLASS) )
+	{
+		items[SPYGLASS].level = 0;
+		items[SPYGLASS].gold_value = 50;
+		items[SPYGLASS].weight = 1;
+		items[SPYGLASS].fpindex = items[TOOL_GLASSES].fpindex;
+		items[SPYGLASS].index = items[TOOL_GLASSES].index;
+		items[SPYGLASS].indexShort = items[TOOL_GLASSES].indexShort;
+		items[SPYGLASS].variations = std::max(1, items[TOOL_GLASSES].variations);
+		items[SPYGLASS].category = TOOL;
+		items[SPYGLASS].item_slot = ItemEquippableSlot::EQUIPPABLE_IN_SLOT_SHIELD;
+		items[SPYGLASS].tooltip = "tooltip_default";
+		// mod edit: readItemsFromFile() may run repeatedly while the mounted JSON
+		// still predates SPYGLASS. Rebuild the fallback list instead of appending
+		// duplicate glasses image nodes on every reload.
+		list_FreeAll(&items[SPYGLASS].images);
+		items[SPYGLASS].images.first = NULL;
+		items[SPYGLASS].images.last = NULL;
+		for ( node_t* imageNode = items[TOOL_GLASSES].images.first; imageNode; imageNode = imageNode->next )
+		{
+			const string_t* source = static_cast<const string_t*>(imageNode->element);
+			if ( !source || !source->data ) { continue; }
+			string_t* copy = static_cast<string_t*>(malloc(sizeof(string_t)));
+			const size_t len = 64;
+			copy->data = static_cast<char*>(malloc(len));
+			memset(copy->data, 0, len);
+			copy->lines = 1;
+			node_t* node = list_AddNodeLast(&items[SPYGLASS].images);
+			node->element = copy;
+			node->deconstructor = &stringDeconstructor;
+			node->size = sizeof(string_t);
+			copy->node = node;
+			stringCopy(copy->data, source->data, len - 1, strlen(source->data));
+		}
+	}
+	// mod edit: enforce the executable contract even when a mounted mod JSON
+	// supplies item 528 with a missing or stale equip_slot/category value.
+	items[SPYGLASS].category = TOOL;
+	items[SPYGLASS].item_slot = ItemEquippableSlot::EQUIPPABLE_IN_SLOT_SHIELD;
+
+	// mod add: Keep spell icon indexing aligned with SPELL_ENTRENCH even when
+	// the mounted items.json still ends at spell 224. Every registered path is
+	// consumed by the fatal startup image preloader, so resolve the optional mod
+	// asset here rather than relying on a later UI fallback.
+	const char* entrenchIconPath = PHYSFS_getRealDir("items/images/spells/entrench.png")
+		? "items/images/spells/entrench.png" : "items/images/null.png";
+	while ( list_Size(&items[SPELL_ITEM].images) <= SPELL_ENTRENCH )
+	{
+		const int iconIndex = list_Size(&items[SPELL_ITEM].images);
+		const char* iconPath = iconIndex == SPELL_ENTRENCH
+			? entrenchIconPath : "items/images/null.png";
+		string_t* string = static_cast<string_t*>(malloc(sizeof(string_t)));
+		const size_t len = 64;
+		string->data = static_cast<char*>(malloc(len));
+		memset(string->data, 0, len);
+		string->lines = 1;
+		node_t* node = list_AddNodeLast(&items[SPELL_ITEM].images);
+		node->element = string;
+		node->deconstructor = &stringDeconstructor;
+		node->size = sizeof(string_t);
+		string->node = node;
+		stringCopy(string->data, iconPath, len - 1, strlen(iconPath));
+	}
+	if ( node_t* entrenchIconNode = list_Node(&items[SPELL_ITEM].images, SPELL_ENTRENCH) )
+	{
+		if ( string_t* string = static_cast<string_t*>(entrenchIconNode->element) )
+		{
+			stringCopy(string->data, entrenchIconPath, 63, strlen(entrenchIconPath));
+		}
+	}
+
 	spellItems.clear();
 
 	int spellsRead = 0;
@@ -3160,8 +3234,15 @@ std::string ItemTooltips_t::getSpellIconPath(const int player, Item& item, int s
 	if ( spellImageNode )
 	{
 		string_t* string = (string_t*)spellImageNode->element;
-		if ( string )
+		if ( string && string->data )
 		{
+			// mod add: Entrench uses its dedicated mounted asset when present and
+			// falls back only when that exact file is unavailable.
+			if ( !strcmp(string->data, "items/images/spells/entrench.png")
+				&& !PHYSFS_getRealDir(string->data) )
+			{
+				return "items/images/null.png";
+			}
 			return string->data;
 		}
 	}

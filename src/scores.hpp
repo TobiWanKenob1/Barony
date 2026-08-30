@@ -71,6 +71,8 @@ static const int STATISTICS_THATS_CHEATING = 29;
 static const int STATISTICS_DISCIPLINE = 30;
 static const int STATISTICS_DISABLE_UPLOAD = 31;
 static const int STATISTICS_FIRE_FIGHTER = 32;
+// mod add: Saved one-time state for the Library Musket awakening.
+static const int STATISTICS_MUSKET_QUEST_UNLOCKED = 33;
 
 enum SteamStatIndexes : int
 {
