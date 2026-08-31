@@ -11997,7 +11997,6 @@ bool GenericGUIMenu::tinkeringGetItemValue(const Item* item, int* metal, int* ma
 		case COMPOUND_BOW:
 		case BLACKIRON_AXE:
 		case BLACKIRON_CROSSBOW:
-		case MUSKET: // mod add: high-tier firearm salvage/repair valuation
 		case BLACKIRON_MACE:
 		case BLACKIRON_SWORD:
 		case BLACKIRON_TRIDENT:
@@ -12040,6 +12039,7 @@ bool GenericGUIMenu::tinkeringGetItemValue(const Item* item, int* metal, int* ma
 			break;
 
 		case ARTIFACT_BOW:
+		case MUSKET: // mod edit: matches Khryselakatos' magic-weapon salvage tier
 		case BOOMERANG:
 			*metal = 4;
 			*magic = 16;

@@ -768,6 +768,8 @@ int isCharacterValidFromDLC(Stat& myStats, int characterClass)
 				: INVALID_REQUIRE_ACHIEVEMENT;
 			break;
 		// mod add end
+		case CLASS_GUNSLINGER: // mod add: standalone Base class
+			return VALID_OK_CHARACTER;
 		default:
 			break;
 	}

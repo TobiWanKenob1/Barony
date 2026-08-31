@@ -13363,6 +13363,18 @@ failed:
 				}
 			}
 		}
+		// mod add: Keep Gunslinger selectable before the mod's description JSON is
+		// installed. Its proper "gunslinger" description entry overrides this fallback.
+		if ( data.find(CLASS_GUNSLINGER) == data.end() )
+		{
+			auto tinkerer = data.find(CLASS_MACHINIST);
+			if ( tinkerer != data.end() )
+			{
+				data[CLASS_GUNSLINGER] = tinkerer->second;
+				data[CLASS_GUNSLINGER].internal_name = "gunslinger";
+				data[CLASS_GUNSLINGER].text = "A resourceful marksman armed with a flintlock pistol and fieldcraft spellbooks.";
+			}
+		}
 		init = true;
 		printlog("[JSON]: Successfully read json file %s", inputPath.c_str());
 	}
@@ -13553,6 +13565,7 @@ failed:
 	}
 
 	constexpr int num_classes = sizeof(classes_in_order) / sizeof(classes_in_order[0]);
+	static_assert(num_classes == NUMCLASSES, "Class selection list must match NUMCLASSES"); // mod add
 
     constexpr Uint32 color_dlc0 = makeColorRGB(169, 185, 212);
     constexpr Uint32 color_dlc1 = makeColorRGB(241, 129, 78);
@@ -16745,7 +16758,7 @@ failed:
   		    static auto class_desc_fn = [](Field& field, int index){
 			    const int i = std::min(std::max(0, client_classes[index]), (Sint32)(ClassDescriptions::data.size() - 1));
 				field.setText(ClassDescriptions::data[i].text.c_str());
-			    if (i < CLASS_CONJURER) {
+			    if (i == CLASS_GUNSLINGER || i < CLASS_CONJURER) { // mod edit: Gunslinger is a Base class
 			        field.addColorToLine(0, color_dlc0);
 			    } else if (i < CLASS_MACHINIST) {
 			        field.addColorToLine(0, color_dlc1);
@@ -16954,11 +16967,15 @@ failed:
 				{
 					field.setText("Whaler");
 				}
+				else if ( i == CLASS_GUNSLINGER ) // mod add: hardcoded like Whaler
+				{
+					field.setText("Gunslinger");
+				}
 				else
 				{
 					field.setText(Language::get(playerClassLangEntryCapitalized(i)));
 				}
-			    if (i < CLASS_CONJURER) {
+			    if (i == CLASS_GUNSLINGER || i < CLASS_CONJURER) { // mod edit: Gunslinger is a Base class
 			        field.setColor(color_dlc0);
 			    } else if (i < CLASS_MACHINIST) {
 			        field.setColor(color_dlc1);
@@ -18031,6 +18048,10 @@ failed:
 			if ( i == CLASS_WHALER ) //mod add: override lang packs because I'm lazy
 			{
 				field.setText("Whaler");
+			}
+			else if ( i == CLASS_GUNSLINGER ) // mod add: hardcoded like Whaler
+			{
+				field.setText("Gunslinger");
 			}
 			else
 			{
@@ -33235,7 +33256,8 @@ failed:
 						std::string s = playerClassLangEntry(e.scenarioInfo.classnum, 0);
 						camelCaseString(s);
 						txt->setText(s.c_str());
-						if ( e.scenarioInfo.classnum <= CLASS_MONK )
+						if ( e.scenarioInfo.classnum <= CLASS_MONK
+							|| e.scenarioInfo.classnum == CLASS_GUNSLINGER )
 						{
 							txt->setColor(hudColors.characterBaseClassText);
 						}

@@ -653,6 +653,29 @@ void initClassStats(const int classnum, void* myStats)
 		stat->setProficiency(PRO_RANGED, 50);
 		stat->setProficiency(PRO_LOCKPICKING, 20);
 	} //mod add end
+	// mod add: Gunslinger, initially copied from the Tinkerer/Mechanist profile.
+	else if ( classnum == CLASS_GUNSLINGER )
+	{
+		// attributes
+		stat->STR -= 3;
+		stat->DEX += 1;
+		stat->CON += 0;
+		stat->INT += 1;
+		stat->PER += 1;
+
+		stat->MAXHP -= 5;
+		stat->HP -= 5;
+
+		stat->MAXMP += 10;
+		stat->MP += 10;
+
+		// skills
+		stat->setProficiency(PRO_LOCKPICKING, 40);
+		stat->setProficiency(PRO_RANGED, 30);
+		stat->setProficiency(PRO_SWORD, 20);
+		stat->setProficiency(PRO_UNARMED, 20);
+		stat->setProficiency(PRO_SORCERY, 10);
+	} //mod add end
 	if ( gameModeManager.currentSession.challengeRun.isActive() )
 	{
 		if ( gameModeManager.currentSession.challengeRun.customBaseStats )
@@ -3486,6 +3509,115 @@ void initClass(const int player)
 
 		}
 	}
+	// mod add: Gunslinger
+	else if ( client_classes[player] == CLASS_GUNSLINGER )
+	{
+		initClassStats(client_classes[player], stats[player]);
+
+		if ( !isLocalPlayer && multiplayer == CLIENT && intro == false )
+		{
+			// Do not construct inventory for players this client does not own.
+			return;
+		}
+
+		item = newItem(FLINTLOCK_PISTOL, DECREPIT, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			hotbar[0].item = item2->uid;
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		item = newItem(HAT_BOUNTYHUNTER, SERVICABLE, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		item = newItem(LEATHER_BOOTS, SERVICABLE, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		item = newItem(LEATHER_BREASTPIECE, SERVICABLE, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		item = newItem(SPYGLASS, EXCELLENT, 0, 1, 0, true, nullptr);
+		if ( isLocalPlayer )
+		{
+			item2 = itemPickup(player, item);
+			useItem(item2, player);
+			free(item);
+		}
+		else
+		{
+			useItem(item, player);
+		}
+
+		if ( isLocalPlayer )
+		{
+			item = newItem(TOOL_METAL_SCRAP, DECREPIT, 0, 50, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			item = newItem(SPELLBOOK_ENTRENCH, EXCELLENT, 0, 1, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			hotbar[1].item = item2->uid;
+			free(item);
+
+			item = newItem(SPELLBOOK_SALVAGE, WORN, 0, 1, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			hotbar[2].item = item2->uid;
+			free(item);
+
+			item = newItem(SCROLL_MAGICMAPPING, EXCELLENT, 0, 5, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			hotbar[3].item = item2->uid;
+			free(item);
+
+			// SERVICABLE is the normal food freshness value displayed as "slightly aged".
+			item = newItem(FOOD_MEAT, SERVICABLE, 0, 3, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			item = newItem(BRONZE_SWORD, WORN, 0, 1, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			hotbar[4].item = item2->uid;
+			free(item);
+
+			item = newItem(POTION_RESTOREMAGIC, EXCELLENT, 0, 2, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			hotbar[5].item = item2->uid;
+			free(item);
+		}
+	}
 	//mod add end
 	stats[player]->OLDHP = stats[player]->HP;
 
@@ -3563,7 +3695,8 @@ void initClass(const int player)
 	if ( stats[player]->stat_appearance == 0 
 		&& ((client_classes[player] >= CLASS_CONJURER 
 			&& client_classes[player] <= CLASS_PALADIN)
-			|| client_classes[player] == CLASS_WHALER) // mod add: Whaler
+			|| client_classes[player] == CLASS_WHALER
+			|| client_classes[player] == CLASS_GUNSLINGER) // mod add: Whaler/Gunslinger
 		&& stats[player]->playerRace != RACE_HUMAN )
 	{
 		if ( isLocalPlayer )

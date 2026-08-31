@@ -3545,10 +3545,15 @@ void setupSpells()   ///TODO: Verify this function.
 			}
 		}
 	}
-	// mod edit: keep Entrench's interaction reach even when expanded JSON defaults
-	// overwrite native spell properties.
+	// mod edit: keep these low-tier spell difficulties authoritative even when
+	// expanded JSON defaults overwrite native spell properties.
+	if ( auto salvage = getSpellFromID(SPELL_SALVAGE) )
+	{
+		salvage->difficulty = 20;
+	}
 	if ( auto entrench = getSpellFromID(SPELL_ENTRENCH) )
 	{
+		entrench->difficulty = 20;
 		entrench->distance = 128.0;
 	}
 }

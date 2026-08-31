@@ -127,7 +127,8 @@ const std::vector<ClassBaseGrowths::ClassHPMPValues> ClassBaseGrowths::classBase
 	{2,		4,		3,		4}, //CLASS_SCION,
 	{3,		4,		3,		3}, //CLASS_HERMIT,
 	{3,		3,		3,		3},  //CLASS_PALADIN,
-	{3,		1,		4,		1} //CLASS_WHALER ------ mod add
+	{3,		1,		4,		1}, //CLASS_WHALER ------ mod add
+	{3,		4,		2,		4}  //CLASS_GUNSLINGER mod add
 };
 
 Entity::~Entity()
@@ -12390,6 +12391,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 
 					if ( oldHP > 0 )
 					{
+						entrenchOnEntityDestroyedByCreature(hit.entity, this);
 						if ( behavior == &actPlayer )
 						{
 							if ( weaponskill >= 0 && (weaponskill != PRO_RANGED || whip) )
@@ -23053,8 +23055,8 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 			weaponLimb->z = weaponArmLimb->z + 1;
 			weaponLimb->pitch = weaponArmLimb->pitch;
 			// forward/back
-			weaponLimb->x += 2 * cos(weaponArmLimb->yaw);
-			weaponLimb->y += 2 * sin(weaponArmLimb->yaw);
+			weaponLimb->x += 1 * cos(weaponArmLimb->yaw);
+			weaponLimb->y += 1 * sin(weaponArmLimb->yaw);
 
 			// sideways
 			weaponLimb->x += 0.0 * cos(weaponArmLimb->yaw + PI / 2);
@@ -28951,7 +28953,11 @@ get text string for the different player chosen classes.
 
 char const * playerClassLangEntry(int classnum, int playernum)
 {
-	if ( classnum == CLASS_WHALER ) //mod add 
+	if ( classnum == CLASS_GUNSLINGER ) // mod add
+	{
+		return "Gunslinger";
+	}
+	else if ( classnum == CLASS_WHALER ) //mod add
     {
         return "Whaler";
 	}

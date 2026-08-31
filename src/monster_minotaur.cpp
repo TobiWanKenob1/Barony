@@ -975,7 +975,12 @@ void actMinotaurCeilingBuster(Entity* my)
 							{
 								if ( multiplayer != CLIENT )
 								{
+									const int oldHP = entity->doorHealth;
 									entity->doorHealth = 0; // destroy the door
+									if ( oldHP > 0 )
+									{
+										entrenchOnEntityDestroyedByCreature(entity, my);
+									}
 								}
 							}
 							else if ( entity->behavior == &actCeilingTile && entity->ceilingTileBreakable != 0 )
@@ -1013,8 +1018,13 @@ void actMinotaurCeilingBuster(Entity* my)
 							{
 								if ( multiplayer != CLIENT )
 								{
+									const int oldHP = entity->colliderCurrentHP;
 									entity->colliderCurrentHP = 0;
 									entity->colliderKillerUid = 0;
+									if ( oldHP > 0 )
+									{
+										entrenchOnEntityDestroyedByCreature(entity, my);
+									}
 								}
 							}
 							else if ( entity->behavior == &actBell )

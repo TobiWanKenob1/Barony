@@ -1480,6 +1480,14 @@ int itemCompare(const Item* const item1, const Item* const item2, bool checkAppe
 	{
 		return 1;
 	}
+	// mod edit: malformed/outdated mod item data can leave newly added item
+	// slots without image variations. Never modulo by zero while comparing
+	// those items; treating them as non-matching is the safest fallback.
+	if ( item1->type < 0 || item1->type >= NUMITEMS
+		|| items[item1->type].variations <= 0 )
+	{
+		return 1;
+	}
 	model1 = items[item1->type].index + item1->appearance % items[item1->type].variations;
 	model2 = items[item2->type].index + item2->appearance % items[item2->type].variations;
 	//messagePlayer(0, "item1- %d, item2 - %d", model1, model2);

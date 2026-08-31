@@ -370,7 +370,12 @@ void Entity::doorHandleDamageMagic(int damage, Entity &magicProjectile, Entity *
 		damage = 0;
 	}
 	updateEntityOldHPBeforeMagicHit(*this, magicProjectile);
+	const int oldHP = doorHealth;
 	doorHealth -= damage; //Decrease door health.
+	if ( oldHP > 0 && doorHealth <= 0 )
+	{
+		entrenchOnEntityDestroyedByCreature(this, caster);
+	}
 	if ( caster )
 	{
 		if ( caster->behavior == &actPlayer )

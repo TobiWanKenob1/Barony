@@ -3266,6 +3266,8 @@ void Player::init() // for use on new/restart game, UI related
 	mechanics.entrenchOriginDoorMode = 0;
 	mechanics.entrenchOriginDoorLocked = 0;
 	mechanics.entrenchOriginDoorStatus = 0;
+	mechanics.entrenchOriginDeployedOwner = 0;
+	mechanics.entrenchOriginDeployedReward = 0;
 	mechanics.sustainedSpellIDCounter.clear();
 	hamletShopkeeperSkillLimit[playernum].clear();
 	mechanics.baseSpellLevelUpProcs.clear();

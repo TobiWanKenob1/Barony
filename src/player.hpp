@@ -2442,6 +2442,8 @@ public:
 		Sint32 entrenchOriginDoorMode = 0;
 		Sint32 entrenchOriginDoorLocked = 0;
 		Sint32 entrenchOriginDoorStatus = 0;
+		Sint32 entrenchOriginDeployedOwner = 0;
+		Sint32 entrenchOriginDeployedReward = 0;
 		int fociHolyChargeTime = 0;
 		int fociDarkChargeTime = 0;
 		int lastFociHeldType = 0;

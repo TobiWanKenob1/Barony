@@ -2356,6 +2356,10 @@ void actThrown(Entity* my)
 								entityHP = 0;
 
 								hit.entity->colliderKillerUid = parent ? parent->getUID() : 0;
+								if ( oldHP > 0 )
+								{
+									entrenchOnEntityDestroyedByCreature(hit.entity, parent);
+								}
 								if ( parent && parent->behavior == &actPlayer )
 								{
 									if ( hit.entity->getColliderOnBreakLangEntry() != 0 )

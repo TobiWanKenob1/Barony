@@ -604,7 +604,8 @@ static std::vector<std::vector<unsigned int>> classStatGrowth =
 	{	2,	3,	2,	8,	4,	5 },
 	{	4,	2,	3,	6,	3,	5 },
 	{	6,	3,	5,	3,	2,	5 },
-	{   6,  6,  3,  2,  5,  2 } // CLASS_WHALER mod add
+	{   6,  6,  3,  2,  5,  2 }, // CLASS_WHALER mod add
+	{   2,  6,  3,  5,  6,  2 }  // CLASS_GUNSLINGER mod add
 };
 
 enum AllyNPCCommand : int

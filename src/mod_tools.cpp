@@ -992,6 +992,11 @@ void ItemTooltips_t::readItemsFromFile()
 		items[i].tooltip = tmpItems[i].tooltip;
 		items[i].attributes.clear();
 		items[i].attributes = tmpItems[i].attributes;
+		// mod edit: Musket shares Khryselakatos' magic-weapon economic tier.
+		if ( i == MUSKET )
+		{
+			items[i].gold_value = items[ARTIFACT_BOW].gold_value;
+		}
 		if ( i == SPELL_ITEM )
 		{
 			items[i].variations = 1;
@@ -1472,6 +1477,22 @@ void ItemTooltips_t::readItemsFromFile()
 		assert(spellItems.find(t.id) == spellItems.end()); // check we haven't got duplicate key
 		spellItems.insert(std::make_pair(t.id, t));
 		++spellsRead;
+	}
+
+	// mod edit: Entrench participates in the native spell-level system through
+	// the definition supplied by the mod's items.json.
+	auto entrenchSpellDef = spellItems.find(SPELL_ENTRENCH);
+	if ( entrenchSpellDef != spellItems.end() )
+	{
+		auto& t = entrenchSpellDef->second;
+		t.skillID = PRO_SORCERY;
+		t.difficulty = 20;
+		t.spellTags.insert(SPELL_TAG_UTILITY);
+		t.spellLevelTags.insert(spell_t::SPELL_LEVEL_EVENT_DEFAULT);
+		if ( std::find(t.spellTagsStr.begin(), t.spellTagsStr.end(), "SPELL_LEVEL_EVENT") == t.spellTagsStr.end() )
+		{
+			t.spellTagsStr.push_back("SPELL_LEVEL_EVENT");
+		}
 	}
 	printlog("[JSON]: Successfully read %d spells from '%s'", spellsRead, inputPath.c_str());
 

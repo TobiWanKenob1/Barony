@@ -46,9 +46,13 @@ extern ConsoleVariable<int> cvar_entity_bodypart_sync_tick;
 struct spell_t;
 class Entity;
 
-// mod add: Entrench reserves skill[57] on carried scenery for its owner marker.
-// skill[58] is intentionally overloaded: on a player it replicates the carried
-// entity UID/stage, while on a door it stores the deployed Entrench door mode.
+// mod add: Entrench reserves skill[55]/skill[56] on movable scenery for the
+// deployed owner and its one-shot progression eligibility. skill[57] identifies
+// carried scenery. skill[58] is intentionally overloaded: on a player it
+// replicates the carried entity UID/stage, while on a door it stores the
+// deployed Entrench door mode.
+static constexpr int ENTRENCH_DEPLOYED_OWNER_SKILL = 55;
+static constexpr int ENTRENCH_DEPLOYED_REWARD_SKILL = 56;
 static constexpr int ENTRENCH_CARRIED_OWNER_SKILL = 57;
 static constexpr int ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL = 58;
 static constexpr Sint32 ENTRENCH_DOOR_MODE_NONE = 0;
@@ -61,6 +65,7 @@ bool isEntrenchDoorBridge(const Entity* entity);
 bool entrenchBridgeSupportsTile(int tilex, int tiley);
 bool isEntrenchCarriedObject(const Entity* entity);
 bool isEntrenchMovableObject(const Entity* entity);
+void entrenchOnEntityDestroyedByCreature(Entity* entity, Entity* attacker);
 
 // mod add: firearm gunshots alert eligible monsters to a snapshot location.
 void alertMonstersToFirearmGunshot(const Entity& shooter);

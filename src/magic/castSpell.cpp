@@ -91,6 +91,44 @@ bool isEntrenchMovableObject(const Entity* entity)
 		&& entity->colliderDiggable == 0 && !entity->isColliderWall();
 }
 
+void entrenchOnEntityDestroyedByCreature(Entity* entity, Entity* attacker)
+{
+	if ( multiplayer == CLIENT || !entity || !attacker || attacker->behavior != &actMonster
+		|| isEntrenchCarriedObject(entity)
+		|| entity->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] != 1 )
+	{
+		return;
+	}
+
+	const bool doorBarricade = isEntrenchDoorBarricade(entity);
+	const bool ordinaryObject = entity->behavior == &actFurniture
+		|| (entity->behavior == &actColliderDecoration
+			&& entity->isColliderBreakableContainer()
+			&& entity->colliderDiggable == 0 && !entity->isColliderWall());
+	if ( (!doorBarricade && !ordinaryObject) || isEntrenchDoorBridge(entity) )
+	{
+		return;
+	}
+
+	const int owner = entity->skill[ENTRENCH_DEPLOYED_OWNER_SKILL] - 1;
+	if ( owner < 0 || owner >= MAXPLAYERS || !players[owner]
+		|| !players[owner]->entity || !stats[owner]
+		|| !attacker->checkEnemy(players[owner]->entity) )
+	{
+		return;
+	}
+
+	// Consume the deployment's sole opportunity before either RNG or the native
+	// spell event so repeated death processing cannot award it twice.
+	entity->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] = 0;
+	if ( ordinaryObject && local_rng.rand() % 2 != 0 )
+	{
+		return;
+	}
+	magicOnSpellCastEvent(players[owner]->entity, players[owner]->entity, attacker,
+		SPELL_ENTRENCH, spell_t::SPELL_LEVEL_EVENT_DEFAULT, 1);
+}
+
 static void clearEntrenchCarrySnapshot(Player::PlayerMechanics_t& state)
 {
 	state.entrenchCarriedUid = 0;
@@ -106,6 +144,8 @@ static void clearEntrenchCarrySnapshot(Player::PlayerMechanics_t& state)
 	state.entrenchOriginDoorMode = ENTRENCH_DOOR_MODE_NONE;
 	state.entrenchOriginDoorLocked = 0;
 	state.entrenchOriginDoorStatus = 0;
+	state.entrenchOriginDeployedOwner = 0;
+	state.entrenchOriginDeployedReward = 0;
 }
 
 void restoreEntrenchCarriedObject(int player)
@@ -129,6 +169,8 @@ void restoreEntrenchCarriedObject(int player)
 		entity->flags[PASSABLE] = state.entrenchOriginPassable;
 		entity->flags[INVISIBLE] = state.entrenchOriginInvisible;
 		entity->flags[UNCLICKABLE] = state.entrenchOriginUnclickable;
+		entity->skill[ENTRENCH_DEPLOYED_OWNER_SKILL] = state.entrenchOriginDeployedOwner;
+		entity->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] = state.entrenchOriginDeployedReward;
 		if ( entity->behavior == &actDoor )
 		{
 			entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = state.entrenchOriginDoorMode;
@@ -177,6 +219,8 @@ void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity)
 	if ( entity )
 	{
 		entity->skill[ENTRENCH_CARRIED_OWNER_SKILL] = 0;
+		entity->skill[ENTRENCH_DEPLOYED_OWNER_SKILL] = 0;
+		entity->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] = 0;
 		entity->x = playerEntity->x;
 		entity->y = playerEntity->y;
 		entity->z = playerEntity->z;
@@ -312,6 +356,10 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 			: ENTRENCH_DOOR_MODE_NONE;
 		state.entrenchOriginDoorLocked = target->behavior == &actDoor ? target->doorLocked : 0;
 		state.entrenchOriginDoorStatus = target->behavior == &actDoor ? target->doorStatus : 0;
+		state.entrenchOriginDeployedOwner = target->skill[ENTRENCH_DEPLOYED_OWNER_SKILL];
+		state.entrenchOriginDeployedReward = target->skill[ENTRENCH_DEPLOYED_REWARD_SKILL];
+		target->skill[ENTRENCH_DEPLOYED_OWNER_SKILL] = 0;
+		target->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] = 0;
 		target->flags[PASSABLE] = true;
 		target->flags[INVISIBLE] = false;
 		target->flags[UNCLICKABLE] = true;
@@ -395,6 +443,8 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 	carried->flags[UNCLICKABLE] = false;
 	carried->flags[PASSABLE] = bridge ? true : state.entrenchOriginPassable;
 	carried->skill[ENTRENCH_CARRIED_OWNER_SKILL] = 0;
+	carried->skill[ENTRENCH_DEPLOYED_OWNER_SKILL] = bridge ? 0 : player + 1;
+	carried->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] = bridge ? 0 : 1;
 	carried->z = state.entrenchOriginZ;
 	if ( carried->behavior == &actDoor )
 	{

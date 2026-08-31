@@ -98,7 +98,7 @@ extern real_t time_diff;
 extern real_t t, ot, frameval[AVERAGEFRAMES];
 extern Uint32 cycles, pingtime;
 extern real_t fps;
-static const int NUMCLASSES = 27; //mod add
+static const int NUMCLASSES = 28; // mod edit: add Gunslinger
 #define NUMRACES 18
 #define NUMPLAYABLERACES 14
 extern char address[64];
@@ -160,7 +160,8 @@ enum PlayerClasses : int
 	CLASS_SCION,
 	CLASS_HERMIT,
 	CLASS_PALADIN,
-	CLASS_WHALER //mod add
+	CLASS_WHALER, // mod add
+	CLASS_GUNSLINGER // mod add
 };
 
 static const std::vector<std::string> playerClassInternalNames = {
@@ -190,7 +191,8 @@ static const std::vector<std::string> playerClassInternalNames = {
 	"class_scion",
 	"class_hermit",
 	"class_paladin",
-	"class_whaler"  //mod add
+	"class_whaler", // mod add
+	"class_gunslinger" // mod add
 };
 
 static const int CLASS_SHAMAN_NUM_STARTING_SPELLS = 15;

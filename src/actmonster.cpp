@@ -6524,6 +6524,7 @@ timeToGoAgain:
 												my->monsterAttack = my->getAttackPose(); // random attack motion
 												my->monsterHitTime = 0;
 												my->monsterAttackTime = 0;
+												const int oldHP = hit.entity->doorHealth;
 												hit.entity->doorHealth--; // decrease door health
 												if ( myStats->STR > 20 )
 												{
@@ -6533,6 +6534,10 @@ timeToGoAgain:
 												if ( myStats->type == MINOTAUR )
 												{
 													hit.entity->doorHealth = 0;    // minotaurs smash doors instantly
+												}
+												if ( oldHP > 0 && hit.entity->doorHealth <= 0 )
+												{
+													entrenchOnEntityDestroyedByCreature(hit.entity, my);
 												}
 												updateEnemyBar(my, hit.entity, hit.entity->behavior == &actIronDoor ? Language::get(6414) : Language::get(674), 
 													hit.entity->doorHealth, hit.entity->doorMaxHealth, false, DamageGib::DMG_DEFAULT);
@@ -6554,7 +6559,12 @@ timeToGoAgain:
 									}
 									else if ( hit.entity->behavior == &actFurniture && myStats->type == MINOTAUR )
 									{
+										const int oldHP = hit.entity->furnitureHealth;
 										hit.entity->furnitureHealth = 0;
+										if ( oldHP > 0 )
+										{
+											entrenchOnEntityDestroyedByCreature(hit.entity, my);
+										}
 										playSoundEntity(hit.entity, 28, 64);
 									}
 									else if ( hit.entity->behavior == &actChest && myStats->type == MINOTAUR )
@@ -6564,8 +6574,13 @@ timeToGoAgain:
 									}
 									else if ( hit.entity->isDamageableCollider() && myStats->type == MINOTAUR )
 									{
+										const int oldHP = hit.entity->colliderCurrentHP;
 										hit.entity->colliderCurrentHP = 0;
 										hit.entity->colliderKillerUid = 0;
+										if ( oldHP > 0 )
+										{
+											entrenchOnEntityDestroyedByCreature(hit.entity, my);
+										}
 										playSoundEntity(hit.entity, 28, 64);
 									}
 									else if ( hit.entity->behavior == &actFurniture )
@@ -6577,11 +6592,16 @@ timeToGoAgain:
 											my->monsterAttack = my->getAttackPose(); // random attack motion
 											my->monsterHitTime = HITRATE / 4;
 											my->monsterAttackTime = 0;
+											const int oldHP = hit.entity->furnitureHealth;
 											hit.entity->furnitureHealth--; // decrease door health
 											if ( myStats->STR > 20 )
 											{
 												hit.entity->furnitureHealth -= static_cast<int>(std::max((myStats->STR - 20), 0) / 3); // decrease door health
 												hit.entity->furnitureHealth = std::max(hit.entity->furnitureHealth, 0);
+											}
+											if ( oldHP > 0 && hit.entity->furnitureHealth <= 0 )
+											{
+												entrenchOnEntityDestroyedByCreature(hit.entity, my);
 											}
 											playSoundEntity(hit.entity, 28, 64);
 										}
@@ -6601,8 +6621,13 @@ timeToGoAgain:
 											int damage = 2 + local_rng.rand() % 3;
 											damage += std::max(0, myStats->STR / 8);
 
+											const int oldHP = hit.entity->colliderCurrentHP;
 											hit.entity->colliderCurrentHP -= damage;
 											hit.entity->colliderKillerUid = 0;
+											if ( oldHP > 0 && hit.entity->colliderCurrentHP <= 0 )
+											{
+												entrenchOnEntityDestroyedByCreature(hit.entity, my);
+											}
 
 											int sound = 28;
 											if ( hit.entity->getColliderSfxOnHit() > 0 )
@@ -7819,6 +7844,7 @@ timeToGoAgain:
 											my->monsterAttack = my->getAttackPose(); // random attack motion
 											my->monsterAttackTime = 0;
 											my->monsterHitTime = 0;
+											const int oldHP = hit.entity->doorHealth;
 											hit.entity->doorHealth--; // decrease door health
 											if ( myStats->STR > 20 )
 											{
@@ -7828,6 +7854,10 @@ timeToGoAgain:
 											if ( myStats->type == MINOTAUR )
 											{
 												hit.entity->doorHealth = 0;    // minotaurs smash doors instantly
+											}
+											if ( oldHP > 0 && hit.entity->doorHealth <= 0 )
+											{
+												entrenchOnEntityDestroyedByCreature(hit.entity, my);
 											}
 											updateEnemyBar(my, hit.entity, hit.entity->behavior == &actIronDoor ? Language::get(6414) : Language::get(674), 
 												hit.entity->doorHealth, hit.entity->doorMaxHealth,
@@ -7857,6 +7887,7 @@ timeToGoAgain:
 										my->monsterAttack = my->getAttackPose(); // random attack motion
 										my->monsterAttackTime = 0;
 										my->monsterHitTime = HITRATE / 4;
+										const int oldHP = hit.entity->furnitureHealth;
 										hit.entity->furnitureHealth--; // decrease door health
 										if ( myStats->STR > 20 )
 										{
@@ -7866,6 +7897,10 @@ timeToGoAgain:
 										if ( myStats->type == MINOTAUR )
 										{
 											hit.entity->furnitureHealth = 0;    // minotaurs smash furniture instantly
+										}
+										if ( oldHP > 0 && hit.entity->furnitureHealth <= 0 )
+										{
+											entrenchOnEntityDestroyedByCreature(hit.entity, my);
 										}
 										playSoundEntity(hit.entity, 28, 64);
 									}
@@ -7885,8 +7920,13 @@ timeToGoAgain:
 										int damage = 2 + local_rng.rand() % 3;
 										damage += std::max(0, myStats->STR / 8);
 
+										const int oldHP = hit.entity->colliderCurrentHP;
 										hit.entity->colliderCurrentHP -= damage;
 										hit.entity->colliderKillerUid = 0;
+										if ( oldHP > 0 && hit.entity->colliderCurrentHP <= 0 )
+										{
+											entrenchOnEntityDestroyedByCreature(hit.entity, my);
+										}
 
 										int sound = 28;
 										if ( hit.entity->getColliderSfxOnHit() > 0 )

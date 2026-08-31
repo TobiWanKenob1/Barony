@@ -136,6 +136,10 @@ void Entity::furnitureHandleDamageMagic(int damage, Entity& magicProjectile, Ent
 	updateEntityOldHPBeforeMagicHit(*this, magicProjectile);
 	int oldHP = this->furnitureHealth;
 	this->furnitureHealth -= damage;
+	if ( oldHP > 0 && this->furnitureHealth <= 0 )
+	{
+		entrenchOnEntityDestroyedByCreature(this, caster);
+	}
 	if ( caster )
 	{
 		if ( caster->behavior == &actPlayer )
@@ -2362,6 +2366,10 @@ void Entity::colliderHandleDamageMagic(int damage, Entity &magicProjectile, Enti
 	updateEntityOldHPBeforeMagicHit(*this, magicProjectile);
 	auto oldHP = colliderCurrentHP;
 	colliderCurrentHP -= damage; //Decrease object health.
+	if ( oldHP > 0 && colliderCurrentHP <= 0 )
+	{
+		entrenchOnEntityDestroyedByCreature(this, caster);
+	}
 	if ( caster )
 	{
 		if ( colliderCurrentHP <= 0 )
