@@ -1129,7 +1129,14 @@ void glBeginCamera(view_t* camera, bool useHDR, map_t& map)
             if ( players[player]->entity )
             {
                 Sint32 PER = std::min(50, std::max(0, statGetPER(stats[player], players[player]->entity)));
-                if ( darkmap )
+				const bool darkvision = stats[player]->getEffectActive(EFF_DARKVISION)
+					&& !playerDarkvisionSuppressed(player);
+				if ( darkvision )
+				{
+					// mod add: local rendering floor only; never write back to player PER.
+					PER = std::max<Sint32>(20, PER);
+				}
+                else if ( darkmap )
                 {
                     PER = std::min(3, PER);
                 }

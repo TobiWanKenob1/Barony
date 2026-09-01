@@ -69,6 +69,11 @@ public:
 	}
 };
 
+// mod add: apply an optional schema-independent fill-missing JSON overlay
+void applyOptionalJsonAdditiveFile(rapidjson::Document& primary,
+	const char* virtualPath, size_t maximumSize);
+// mod add end
+
 class MonsterStatCustomManager
 {
 public:

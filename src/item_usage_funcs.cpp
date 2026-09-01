@@ -5092,6 +5092,28 @@ int Item::getBaseFoodSatiation(ItemType type)
 	return hungerIncrease;
 }
 
+// mod add: Leonin racial meat mana regeneration
+static void applyLeoninMeatManaRegen(Item* item, int player)
+{
+	if ( multiplayer == CLIENT || !item || item->type != FOOD_MEAT
+		|| player < 0 || player >= MAXPLAYERS || !stats[player]
+		|| !players[player] || !players[player]->entity
+		|| !players[player]->entity->isNaturalLeoninPlayer() )
+	{
+		return;
+	}
+
+	const int minimumDuration = 10 * TICKS_PER_SECOND;
+	const int currentDuration = stats[player]->EFFECTS_TIMERS[EFF_MP_REGEN];
+	if ( !stats[player]->getEffectActive(EFF_MP_REGEN)
+		|| (currentDuration >= 0 && currentDuration < minimumDuration) )
+	{
+		players[player]->entity->setEffect(EFF_MP_REGEN, true,
+			std::max(currentDuration, minimumDuration), false);
+	}
+}
+// mod add end
+
 void item_Food(Item*& item, int player)
 {
 	if ( !item )
@@ -5313,6 +5335,7 @@ void item_Food(Item*& item, int player)
 		}
 		if ( stats[player]->type != MYCONID )
 		{
+			applyLeoninMeatManaRegen(item, player);
 			foodUseAbundanceEffect(item, player);
 			consumeItem(item, player);
 			return;
@@ -5556,6 +5579,7 @@ void item_Food(Item*& item, int player)
 	{
 		updateHungerMessages(players[player]->entity, stats[player], item);
 	}
+	applyLeoninMeatManaRegen(item, player);
 	foodUseAbundanceEffect(item, player);
 	consumeItem(item, player);
 }

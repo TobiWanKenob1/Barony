@@ -3545,15 +3545,14 @@ void setupSpells()   ///TODO: Verify this function.
 			}
 		}
 	}
-	// mod edit: keep these low-tier spell difficulties authoritative even when
-	// expanded JSON defaults overwrite native spell properties.
-	if ( auto salvage = getSpellFromID(SPELL_SALVAGE) )
-	{
-		salvage->difficulty = 20;
-	}
+	// mod edit: Entrench follows Salvage's effective tier after expanded spell data.
+	// Salvage remains entirely controlled by the vanilla initialization path.
 	if ( auto entrench = getSpellFromID(SPELL_ENTRENCH) )
 	{
-		entrench->difficulty = 20;
+		if ( auto salvage = getSpellFromID(SPELL_SALVAGE) )
+		{
+			entrench->difficulty = salvage->difficulty;
+		}
 		entrench->distance = 128.0;
 	}
 }

@@ -608,7 +608,7 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 	target_y = previousy;
 	// mod edit: placement logic consumes a tile, so make the preview and packet
 	// use that tile's exact center instead of an arbitrary point along the ray.
-	if ( rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE )
+	if ( spell->ID == SPELL_ENTRENCH && rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE )
 	{
 		const int tilex = std::min<int>(std::max(static_cast<int>(floor(target_x / 16.0)), 0), map.width - 1);
 		const int tiley = std::min<int>(std::max(static_cast<int>(floor(target_y / 16.0)), 0), map.height - 1);
@@ -963,6 +963,10 @@ void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, 
 	{
 		return;
 	}
+	if ( playerIsPanicking(player) )
+	{
+		return;
+	}
 	if ( !players[player]->hud.magicLeftHand )
 	{
 		return;
@@ -1067,6 +1071,9 @@ void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, 
 	animation_manager->mana_left = spellCost;
 	animation_manager->mana_cost = spellCost;
 	animation_manager->consumeMana = true;
+	animation_manager->panickingRefundMP = 0;
+	animation_manager->panickingRefundHP = 0;
+	animation_manager->panickingRefundHunger = 0;
 	/*if ( spell->ID == SPELL_FORCEBOLT && caster->skillCapstoneUnlockedEntity(PRO_LEGACY_SPELLCASTING) )
 	{
 		animation_manager->consumeMana = false;
@@ -1164,8 +1171,38 @@ void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* a
 	}
 }
 
+// mod add: Panicking owns only casts it interrupts. Track and restore the
+// single-player animation drain exactly so unrelated damage/regeneration is
+// not rolled back and multiplayer's authoritative whole-cost path is untouched.
+static void spellcastingAnimationManager_cancelForPanicking(int player,
+	spellcasting_animation_manager_t* animation_manager)
+{
+	if ( !animation_manager )
+	{
+		return;
+	}
+	if ( player >= 0 && player < MAXPLAYERS && players[player]
+		&& players[player]->entity && stats[player] )
+	{
+		stats[player]->MP = std::min(stats[player]->MAXMP,
+			stats[player]->MP + animation_manager->panickingRefundMP);
+		stats[player]->HP = std::min(stats[player]->MAXHP,
+			stats[player]->HP + animation_manager->panickingRefundHP);
+		stats[player]->HUNGER += animation_manager->panickingRefundHunger;
+	}
+	animation_manager->panickingRefundMP = 0;
+	animation_manager->panickingRefundHP = 0;
+	animation_manager->panickingRefundHunger = 0;
+	spellcastingAnimationManager_deactivate(animation_manager);
+}
+
 void spellcastingAnimationManager_completeSpell(int player, spellcasting_animation_manager_t* animation_manager, bool deactivate)
 {
+	if ( playerIsPanicking(player) )
+	{
+		spellcastingAnimationManager_cancelForPanicking(player, animation_manager);
+		return;
+	}
 	const bool entrenchFirstStage = animation_manager->spell
 		&& animation_manager->spell->ID == SPELL_ENTRENCH
 		&& animation_manager->rangefinder != RANGEFINDER_TOUCH_FLOOR_TILE;
@@ -1333,6 +1370,15 @@ void actLeftHandMagic(Entity* my)
 		players[HANDMAGIC_PLAYERNUM]->hud.magicLeftHand = nullptr;
 		spellcastingAnimationManager_deactivate(&cast_animation[HANDMAGIC_PLAYERNUM]);
 		list_RemoveNode(my->mynode);
+		return;
+	}
+	if ( (cast_animation[HANDMAGIC_PLAYERNUM].active
+		|| cast_animation[HANDMAGIC_PLAYERNUM].active_spellbook)
+		&& playerIsPanicking(HANDMAGIC_PLAYERNUM) )
+	{
+		spellcastingAnimationManager_cancelForPanicking(HANDMAGIC_PLAYERNUM,
+			&cast_animation[HANDMAGIC_PLAYERNUM]);
+		my->flags[INVISIBLE] = true;
 		return;
 	}
 
@@ -1544,6 +1590,11 @@ void actLeftHandMagic(Entity* my)
 			case SALAMANDER:
 				my->sprite = 2329;
 				break;
+			// TODO: LEONIN PLACEHOLDER MODEL
+			// Uses the base Salamander first-person left arm temporarily.
+			case LEONIN:
+				my->sprite = 2329;
+				break;
 			case GNOME:
 				my->sprite = 2321;
 				break;
@@ -1672,7 +1723,14 @@ void actLeftHandMagic(Entity* my)
 					{
 						int HP = stats[HANDMAGIC_PLAYERNUM]->HP;
 						int MP = stats[HANDMAGIC_PLAYERNUM]->MP;
+						int hunger = stats[HANDMAGIC_PLAYERNUM]->HUNGER;
 						players[HANDMAGIC_PLAYERNUM]->entity->drainMP(1, false); // don't notify otherwise we'll get spammed each 1 mp
+						cast_animation[HANDMAGIC_PLAYERNUM].panickingRefundMP +=
+							std::max(0, MP - stats[HANDMAGIC_PLAYERNUM]->MP);
+						cast_animation[HANDMAGIC_PLAYERNUM].panickingRefundHP +=
+							std::max(0, HP - stats[HANDMAGIC_PLAYERNUM]->HP);
+						cast_animation[HANDMAGIC_PLAYERNUM].panickingRefundHunger +=
+							std::max(0, hunger - stats[HANDMAGIC_PLAYERNUM]->HUNGER);
 
 						if ( cast_animation[HANDMAGIC_PLAYERNUM].spell )
 						{
@@ -2377,6 +2435,11 @@ void actRightHandMagic(Entity* my)
 				}
 				break;
 			case SALAMANDER:
+				my->sprite = 2330;
+				break;
+			// TODO: LEONIN PLACEHOLDER MODEL
+			// Uses the base Salamander first-person right arm temporarily.
+			case LEONIN:
 				my->sprite = 2330;
 				break;
 			case GNOME:

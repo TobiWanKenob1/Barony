@@ -3251,6 +3251,11 @@ void Player::init() // for use on new/restart game, UI related
 	mechanics.firearmUnjamWasQuestJammed = false;
 	mechanics.firearmInNormalWater = false;
 	// mod add end
+	// mod add: Leonin racial mechanics begin each run without stale ownership
+	// state.
+	mechanics.leoninRacialDarkvisionApplied = false;
+	mechanics.leoninWaterPanickingApplied = false;
+	// mod add end
 	// mod add: A new map/run discards stale Entrench bookkeeping without touching
 	// an entity from the previous map; removal cleanup performs restoration first.
 	mechanics.entrenchCarriedUid = 0;

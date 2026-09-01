@@ -192,6 +192,8 @@ namespace MainMenu {
 				return "salamander";
 			case RACE_GNOME:
 				return "gnome";
+			case RACE_LEONIN:
+				return "leonin";
 			default:
 				break;
 			}

@@ -7079,6 +7079,8 @@ int SaveGameInfo::Player::isCharacterValidFromDLC()
 			return INVALID_REQUIREDLC3;
 		}
 		break;
+	case RACE_LEONIN: // mod add: Leonin has no DLC requirement
+		break;
 	default:
 		break;
 	}
@@ -7087,6 +7089,28 @@ int SaveGameInfo::Player::isCharacterValidFromDLC()
 	{
 		return VALID_OK_CHARACTER;
 	}
+	// mod add: custom paired classes remain restricted even for aesthetic-only races.
+	if ( this->char_class == CLASS_WHALER )
+	{
+		if ( this->race == RACE_MERROW )
+		{
+			return VALID_OK_CHARACTER;
+		}
+		return isAchievementUnlockedForClassUnlock(RACE_MERROW)
+			? VALID_OK_CHARACTER
+			: INVALID_REQUIRE_ACHIEVEMENT;
+	}
+	else if ( this->char_class == CLASS_GUNSLINGER )
+	{
+		if ( this->race == RACE_LEONIN )
+		{
+			return VALID_OK_CHARACTER;
+		}
+		return isAchievementUnlockedForClassUnlock(RACE_LEONIN)
+			? VALID_OK_CHARACTER
+			: INVALID_REQUIRE_ACHIEVEMENT;
+	}
+	// mod add end
 	else if ( this->race > RACE_HUMAN && this->stats.statscore_appearance == 1 )
 	{
 		return VALID_OK_CHARACTER; // aesthetic only option.
@@ -7189,19 +7213,6 @@ int SaveGameInfo::Player::isCharacterValidFromDLC()
 		}
 		return isAchievementUnlockedForClassUnlock(RACE_SALAMANDER) ? VALID_OK_CHARACTER : INVALID_REQUIRE_ACHIEVEMENT;
 		break;
-		// mod add: Merrow / Whaler
-	case CLASS_WHALER:
-		if ( this->race == RACE_MERROW )
-		{
-			return VALID_OK_CHARACTER;
-		}
-		return isAchievementUnlockedForClassUnlock(RACE_MERROW)
-			? VALID_OK_CHARACTER
-			: INVALID_REQUIRE_ACHIEVEMENT;
-		break;
-	// mod add end
-	case CLASS_GUNSLINGER: // mod add: standalone Base class
-		return VALID_OK_CHARACTER;
 	default:
 		break;
 	}

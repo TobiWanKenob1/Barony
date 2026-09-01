@@ -6101,6 +6101,39 @@ void StatusEffectQueue_t::loadStatusEffectsJSON()
 			}
 		}
 	}
+
+	// mod add: The status JSON is replacement-style rather than merged, so keep
+	// custom effect presentation in C++ and never shadow vanilla definitions.
+	auto registerCustomEffect = [](int effectId, const char* internalName,
+		const char* displayName, const char* description, const char* imagePath)
+	{
+		if ( StatusEffectDefinitions_t::allEffects.find(effectId)
+			!= StatusEffectDefinitions_t::allEffects.end() )
+		{
+			return;
+		}
+		EffectDefinitionEntry_t entry;
+		entry.effect_id = effectId;
+		entry.internal_name = internalName;
+		entry.name = displayName;
+		entry.desc = "\x1E ";
+		entry.desc += description;
+		entry.imgPath = imagePath;
+		entry.useSpellIDForImg = -1;
+		entry.neverDisplay = false;
+		entry.sustainedSpellID = -1;
+		entry.tooltipWidth = 200;
+		StatusEffectDefinitions_t::allEffects.emplace(effectId, std::move(entry));
+	};
+	registerCustomEffect(EFF_PANICKING, "panicking", "Panicking",
+		"Unable to fight, cast spells, or interact with anything except doors.",
+		"images/ui/HUD/statusfx/panicking.png");
+	registerCustomEffect(EFF_DARKVISION, "darkvision", "Darkvision",
+		"See farther through natural darkness.",
+		"images/ui/HUD/statusfx/darkvision.png");
+	registerCustomEffect(EFF_RETRACTABLE_CLAWS, "retractable_claws", "Retractable Claws",
+		"Unarmed attacks gain +%d damage\nand have a %d%% chance to inflict Bleeding.",
+		"images/ui/HUD/statusfx/retractable_claws.png");
 }
 
 int StatusEffectQueue_t::getBaseEffectPosX()
@@ -7817,7 +7850,16 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 	int fontHeight = Font::get(tooltipDesc->getFont())->height(true);
 	int tooltipInnerWidth = 200;
 
-	bool refreshTooltip = (tooltipShowingEffectID != entry.effect) || (tooltipShowingEffectVariable != entry.customVariable);
+	int currentTooltipVariable = entry.customVariable;
+	if ( entry.effect == EFF_RETRACTABLE_CLAWS
+		&& players[player] && players[player]->entity )
+	{
+		// Use the combat mechanic's shared tier formula so a level breakpoint
+		// refreshes an already-open tooltip without recreating the status icon.
+		currentTooltipVariable = players[player]->entity->getLeoninClawTier();
+	}
+	bool refreshTooltip = (tooltipShowingEffectID != entry.effect)
+		|| (tooltipShowingEffectVariable != currentTooltipVariable);
 	if ( refreshTooltip )
 	{
 		if ( entry.effect >= StatusEffectQueue_t::kSpellEffectOffset )
@@ -7908,6 +7950,19 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 								break;
 						}
 					}
+				}
+				else if ( effectID == EFF_RETRACTABLE_CLAWS )
+				{
+					std::string newHeader = definition.getName(-1);
+					uppercaseString(newHeader);
+					tooltipHeader->setText(newHeader.c_str());
+
+					const int clawTier = std::max(0, currentTooltipVariable);
+					char buf[256] = "";
+					snprintf(buf, sizeof(buf), definition.getDesc(-1).c_str(),
+						clawTier, clawTier * 5);
+					tooltipDesc->setText(buf);
+					tooltipInnerWidth = definition.tooltipWidth;
 				}
 				else if ( effectID == EFF_SALAMANDER_HEART )
 				{
@@ -8313,6 +8368,7 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 					&& effectID != StatusEffectQueue_t::kEffectAssistance
 					&& effectID != StatusEffectQueue_t::kEffectVandal
 					&& effectID != StatusEffectQueue_t::kEffectWealth
+					&& effectID != EFF_RETRACTABLE_CLAWS
 					&& !(effectID == EFF_ENSEMBLE_DRUM
 						|| effectID == EFF_ENSEMBLE_FLUTE
 						|| effectID == EFF_ENSEMBLE_LUTE
@@ -8381,7 +8437,7 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 	tooltipFrame->setSize(tooltipPos);
 	Player::GUI_t::imageResizeToContainer9x9(tooltipFrame, SDL_Rect{0, 0, tooltipPos.w, tooltipPos.h}, Player::GUI_t::tooltipEffectBackgroundImages);
 	tooltipShowingEffectID = entry.effect;
-	tooltipShowingEffectVariable = entry.customVariable;
+	tooltipShowingEffectVariable = currentTooltipVariable;
 	return true;
 }
 

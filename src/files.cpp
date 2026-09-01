@@ -6491,6 +6491,16 @@ void physfsReloadMonsterLimbFiles()
 		// close file
 		FileIO::close(fp);
 	}
+
+	// TODO: LEONIN PLACEHOLDER MODEL
+	// Use base Salamander anatomy offsets until dedicated Leonin limbs.txt exists.
+	for ( int limb = 0; limb < 30; ++limb )
+	{
+		for ( int axis = 0; axis < 3; ++axis )
+		{
+			limbs[LEONIN][limb][axis] = limbs[SALAMANDER][limb][axis];
+		}
+	}
 }
 
 bool physfsSearchSystemImagesToUpdate()

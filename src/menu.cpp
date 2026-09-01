@@ -358,11 +358,16 @@ void changeSettingsTab(int option)
 	}
 }
 
-// mod add: Merrow / Whaler unlock
-static bool isMerrowWhalerUnlocked()
+// mod add: persistent custom race / class unlocks
+static constexpr const char* WHALER_UNLOCK_PATH = "savegames/merrow_whaler.unlock";
+static constexpr const char* WHALER_LEGACY_UNLOCK_PATH = "merrow_whaler.unlock";
+static constexpr const char* GUNSLINGER_UNLOCK_PATH = "savegames/leonin_gunslinger.unlock";
+static bool whalerLegacyUnlockRetainedThisSession = false;
+
+static bool customClassUnlockExists(const char* relativePath)
 {
 	char path[PATH_MAX] = "";
-	completePath(path, "merrow_whaler.unlock", outputdir);
+	completePath(path, relativePath, outputdir);
 
 	File* fp = FileIO::open(path, "rb");
 	if ( !fp )
@@ -374,37 +379,113 @@ static bool isMerrowWhalerUnlocked()
 	return true;
 }
 
-static void unlockMerrowWhaler()
+static bool writeCustomClassUnlock(const char* relativePath)
 {
-	if ( isMerrowWhalerUnlocked() )
+	if ( customClassUnlockExists(relativePath) )
 	{
-		return;
+		return true;
 	}
 
 	char path[PATH_MAX] = "";
-	completePath(path, "merrow_whaler.unlock", outputdir);
+	completePath(path, relativePath, outputdir);
 
 	File* fp = FileIO::open(path, "wb");
 	if ( !fp )
 	{
-		printlog("[MERROW]: Failed to save Whaler unlock.");
-		return;
+		return false;
 	}
 
 	const char unlocked = '1';
 	fp->write(&unlocked, sizeof(char), 1);
 	FileIO::close(fp);
 
+	return customClassUnlockExists(relativePath);
+}
+
+static bool isWhalerGloballyUnlocked()
+{
+	if ( customClassUnlockExists(WHALER_UNLOCK_PATH) )
+	{
+		return true;
+	}
+	if ( whalerLegacyUnlockRetainedThisSession )
+	{
+		return true;
+	}
+	if ( !customClassUnlockExists(WHALER_LEGACY_UNLOCK_PATH) )
+	{
+		return false;
+	}
+
+	// A legacy-only marker grants the unlock even if its migration cannot be written.
+	whalerLegacyUnlockRetainedThisSession = true;
+	if ( writeCustomClassUnlock(WHALER_UNLOCK_PATH)
+		&& customClassUnlockExists(WHALER_UNLOCK_PATH) )
+	{
+		char legacyPath[PATH_MAX] = "";
+		completePath(legacyPath, WHALER_LEGACY_UNLOCK_PATH, outputdir);
+		if ( remove(legacyPath) == 0 )
+		{
+			printlog("[MERROW]: Migrated Whaler unlock to savegames.");
+		}
+		else
+		{
+			printlog("[MERROW]: Whaler unlock migrated, but the legacy marker could not be removed.");
+		}
+	}
+	else
+	{
+		printlog("[MERROW]: Failed to migrate Whaler unlock to savegames; retaining the legacy unlock.");
+	}
+	return true;
+}
+
+static bool isGunslingerGloballyUnlocked()
+{
+	return customClassUnlockExists(GUNSLINGER_UNLOCK_PATH);
+}
+
+static bool writeWhalerUnlock()
+{
+	if ( customClassUnlockExists(WHALER_UNLOCK_PATH) )
+	{
+		return true;
+	}
+	if ( !writeCustomClassUnlock(WHALER_UNLOCK_PATH) )
+	{
+		printlog("[MERROW]: Failed to save Whaler unlock.");
+		return false;
+	}
 	printlog("[MERROW]: Whaler class unlocked.");
+	return true;
+}
+
+static bool writeGunslingerUnlock()
+{
+	if ( customClassUnlockExists(GUNSLINGER_UNLOCK_PATH) )
+	{
+		return true;
+	}
+	if ( !writeCustomClassUnlock(GUNSLINGER_UNLOCK_PATH) )
+	{
+		printlog("[LEONIN]: Failed to save Gunslinger unlock.");
+		return false;
+	}
+	printlog("[LEONIN]: Gunslinger class unlocked.");
+	return true;
 }
 // mod add end
 
 bool isAchievementUnlockedForClassUnlock(int race)
 {
-	// mod add: Merrow / Whaler unlock
+	// mod add: custom race / class unlocks
 	if ( race == RACE_MERROW )
 	{
-		return isMerrowWhalerUnlocked();
+		return isWhalerGloballyUnlocked();
+	}
+	else if ( race == RACE_LEONIN )
+	{
+		return isGunslingerGloballyUnlocked();
 	}
 	// mod add end
 #ifdef STEAMWORKS
@@ -647,6 +728,8 @@ int isCharacterValidFromDLC(Stat& myStats, int characterClass)
 				}
 			}
 			break;
+		case RACE_LEONIN: // mod add: Leonin has no DLC requirement
+			break;
 		default:
 			break;
 	}
@@ -655,6 +738,28 @@ int isCharacterValidFromDLC(Stat& myStats, int characterClass)
 	{
 		return VALID_OK_CHARACTER;
 	}
+	// mod add: custom paired classes remain restricted even for aesthetic-only races.
+	if ( characterClass == CLASS_WHALER )
+	{
+		if ( myStats.playerRace == RACE_MERROW )
+		{
+			return VALID_OK_CHARACTER;
+		}
+		return isAchievementUnlockedForClassUnlock(RACE_MERROW)
+			? VALID_OK_CHARACTER
+			: INVALID_REQUIRE_ACHIEVEMENT;
+	}
+	else if ( characterClass == CLASS_GUNSLINGER )
+	{
+		if ( myStats.playerRace == RACE_LEONIN )
+		{
+			return VALID_OK_CHARACTER;
+		}
+		return isAchievementUnlockedForClassUnlock(RACE_LEONIN)
+			? VALID_OK_CHARACTER
+			: INVALID_REQUIRE_ACHIEVEMENT;
+	}
+	// mod add end
 	else if ( myStats.playerRace > RACE_HUMAN && myStats.stat_appearance == 1 )
 	{
 		return VALID_OK_CHARACTER; // aesthetic only option.
@@ -757,19 +862,6 @@ int isCharacterValidFromDLC(Stat& myStats, int characterClass)
 			}
 			return isAchievementUnlockedForClassUnlock(RACE_SALAMANDER) ? VALID_OK_CHARACTER : INVALID_REQUIRE_ACHIEVEMENT;
 			break;
-			// mod add: Merrow / Whaler
-		case CLASS_WHALER:
-			if ( myStats.playerRace == RACE_MERROW )
-			{
-				return VALID_OK_CHARACTER;
-			}
-			return isAchievementUnlockedForClassUnlock(RACE_MERROW)
-				? VALID_OK_CHARACTER
-				: INVALID_REQUIRE_ACHIEVEMENT;
-			break;
-		// mod add end
-		case CLASS_GUNSLINGER: // mod add: standalone Base class
-			return VALID_OK_CHARACTER;
 		default:
 			break;
 	}
@@ -10228,7 +10320,16 @@ void doEndgame(bool saveHighscore, bool onServerDisconnect) {
 									&& conductGameChallenges[CONDUCT_ASSISTANCE_CLAIMED]
 										< GenericGUIMenu::AssistShrineGUI_t::achievementDisabledLimit )
 								{
-									unlockMerrowWhaler();
+									writeWhalerUnlock();
+								}
+								break;
+							case RACE_LEONIN: // mod add: Leonin / Gunslinger
+								if ( !conductGameChallenges[CONDUCT_CHEATS_ENABLED]
+									&& !conductGameChallenges[CONDUCT_LIFESAVING]
+									&& conductGameChallenges[CONDUCT_ASSISTANCE_CLAIMED]
+										< GenericGUIMenu::AssistShrineGUI_t::achievementDisabledLimit )
+								{
+									writeGunslingerUnlock();
 								}
 								break;
 							// mod add end

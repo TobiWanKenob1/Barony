@@ -1137,6 +1137,11 @@ typedef struct spellcastingAnimationManager
 	int mana_left; //How much mana is left to consume.
 	int mana_cost; //Tracking cost of spell
 	bool consumeMana; //If false, goes through the motions, even casts the spell -- just doesn't consume any mana.
+	// mod add: exact single-player spell-animation costs restored only when
+	// Panicking interrupts the cast before it can complete.
+	int panickingRefundMP = 0;
+	int panickingRefundHP = 0;
+	int panickingRefundHunger = 0;
 
 	float lefthand_movex;
 	float lefthand_movey;

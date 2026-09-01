@@ -215,7 +215,9 @@ double sightranges[NUMMONSTERS] =
 	256, // DUCK_SMALL
 	256, // MONSTER_UNUSED_6
 	256, // MONSTER_UNUSED_7
-	256  // MONSTER_UNUSED_8
+	256, // MONSTER_UNUSED_8
+	0,   // MERROW (preserve existing zero-initialized value)
+	256  // mod add: LEONIN uses Human sight range
 };
 
 int monsterGlobalAnimationMultiplier = 10;
@@ -223,6 +225,12 @@ int monsterGlobalAttackTimeMultiplier = 1;
 
 std::string getMonsterLocalizedName(Monster creature, Stat* optionalStats)
 {
+	// mod add: Leonin name without a language-file dependency
+	if ( creature == LEONIN )
+	{
+		return "leonin";
+	}
+
 	// mod add: Merrow
 	if ( creature == MERROW )
 	{

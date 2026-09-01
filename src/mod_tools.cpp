@@ -29,6 +29,7 @@ See LICENSE for details.
 #include <thread>
 #include <future>
 #include <fstream>
+#include "rapidjson/error/en.h"
 
 MonsterStatCustomManager monsterStatCustomManager;
 MonsterCurveCustomManager monsterCurveCustomManager;
@@ -1486,7 +1487,10 @@ void ItemTooltips_t::readItemsFromFile()
 	{
 		auto& t = entrenchSpellDef->second;
 		t.skillID = PRO_SORCERY;
-		t.difficulty = 20;
+		if ( auto salvageSpellDef = spellItems.find(SPELL_SALVAGE); salvageSpellDef != spellItems.end() )
+		{
+			t.difficulty = salvageSpellDef->second.difficulty;
+		}
 		t.spellTags.insert(SPELL_TAG_UTILITY);
 		t.spellLevelTags.insert(spell_t::SPELL_LEVEL_EVENT_DEFAULT);
 		if ( std::find(t.spellTagsStr.begin(), t.spellTagsStr.end(), "SPELL_LEVEL_EVENT") == t.spellTagsStr.end() )
@@ -1582,8 +1586,103 @@ void ItemTooltips_t::readItemsFromFile()
 	}*/
 }
 
+// mod add: optional fill-missing JSON overlays for item presentation data
+static void mergeJsonMissingMembers(rapidjson::Value& destination,
+	const rapidjson::Value& additive, rapidjson::Document::AllocatorType& allocator,
+	bool topLevel)
+{
+	if ( !destination.IsObject() || !additive.IsObject() )
+	{
+		return;
+	}
+
+	for ( auto member = additive.MemberBegin(); member != additive.MemberEnd(); ++member )
+	{
+		if ( topLevel && !strcmp(member->name.GetString(), "version") )
+		{
+			continue;
+		}
+
+		auto destinationMember = destination.FindMember(member->name.GetString());
+		if ( destinationMember == destination.MemberEnd() )
+		{
+			rapidjson::Value copiedName;
+			copiedName.CopyFrom(member->name, allocator);
+			rapidjson::Value copiedValue;
+			copiedValue.CopyFrom(member->value, allocator);
+			destination.AddMember(copiedName, copiedValue, allocator);
+		}
+		else if ( destinationMember->value.IsObject() && member->value.IsObject() )
+		{
+			mergeJsonMissingMembers(destinationMember->value, member->value, allocator, false);
+		}
+	}
+}
+
+static bool loadOptionalJsonDocument(const char* virtualPath,
+	rapidjson::Document& document, size_t maximumSize)
+{
+	const char* realDirectory = PHYSFS_getRealDir(virtualPath);
+	if ( !realDirectory )
+	{
+		return false;
+	}
+
+	std::string inputPath = realDirectory;
+	inputPath.append(virtualPath);
+	File* fp = FileIO::open(inputPath.c_str(), "rb");
+	if ( !fp )
+	{
+		printlog("[JSON]: Warning: Could not open optional additive file '%s'.", inputPath.c_str());
+		return false;
+	}
+
+	const size_t fileSize = fp->size();
+	if ( fileSize >= maximumSize )
+	{
+		printlog("[JSON]: Warning: Optional additive file is too large: '%s'.", inputPath.c_str());
+		FileIO::close(fp);
+		return false;
+	}
+
+	std::vector<char> buffer(fileSize + 1, '\0');
+	const size_t count = fp->read(buffer.data(), sizeof(char), fileSize);
+	buffer[count] = '\0';
+	FileIO::close(fp);
+
+	const rapidjson::ParseResult result = document.Parse(buffer.data());
+	if ( !result )
+	{
+		printlog("[JSON]: Warning: Could not parse optional additive file '%s': %s (offset %llu).",
+			inputPath.c_str(), rapidjson::GetParseError_En(result.Code()),
+			static_cast<unsigned long long>(result.Offset()));
+		return false;
+	}
+	if ( !document.IsObject() )
+	{
+		printlog("[JSON]: Warning: Optional additive file root is not an object: '%s'.", inputPath.c_str());
+		return false;
+	}
+	return true;
+}
+
+void applyOptionalJsonAdditiveFile(rapidjson::Document& primary,
+	const char* virtualPath, size_t maximumSize)
+{
+	rapidjson::Document additive;
+	if ( !loadOptionalJsonDocument(virtualPath, additive, maximumSize) )
+	{
+		return;
+	}
+
+	mergeJsonMissingMembers(primary, additive, primary.GetAllocator(), true);
+	printlog("[JSON]: Applied optional additive file '%s'.", virtualPath);
+}
+// mod add end
+
 void ItemTooltips_t::readItemLocalizationsFromFile(bool forceLoadBaseDirectory)
 {
+	const bool applyAdditiveOverlay = !forceLoadBaseDirectory;
 	if ( !PHYSFS_getRealDir("/lang/item_names.json") )
 	{
 		printlog("[JSON]: Error: Could not find file: lang/item_names.json");
@@ -1646,6 +1745,10 @@ void ItemTooltips_t::readItemLocalizationsFromFile(bool forceLoadBaseDirectory)
 		return;
 	}
 	int version = d["version"].GetInt();
+	if ( applyAdditiveOverlay )
+	{
+		applyOptionalJsonAdditiveFile(d, "/lang/item_names_add.json", buffer_size);
+	}
 
 	if ( d.HasMember("items") )
 	{
@@ -1820,6 +1923,7 @@ void ItemTooltips_t::readBookLocalizationsFromFile(bool forceLoadBaseDirectory)
 #ifndef EDITOR
 void ItemTooltips_t::readTooltipsFromFile(bool forceLoadBaseDirectory)
 {
+	const bool applyAdditiveOverlay = !forceLoadBaseDirectory;
 	if ( !PHYSFS_getRealDir("/items/item_tooltips.json") )
 	{
 		printlog("[JSON]: Error: Could not find file: items/item_tooltips.json");
@@ -1882,6 +1986,10 @@ void ItemTooltips_t::readTooltipsFromFile(bool forceLoadBaseDirectory)
 		return;
 	}
 	int version = d["version"].GetInt();
+	if ( applyAdditiveOverlay )
+	{
+		applyOptionalJsonAdditiveFile(d, "/items/item_tooltips_add.json", buffer_size);
+	}
 
 	if ( forceLoadBaseDirectory )
 	{

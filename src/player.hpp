@@ -26,6 +26,11 @@
 extern Entity* selectedEntity[MAXPLAYERS];
 extern Entity* lastSelectedEntity[MAXPLAYERS];
 
+// mod add: shared predicates for custom player-only status presentation/action gates.
+bool playerIsPanicking(int player);
+bool playerCanInteractWhilePanicking(const Entity* target);
+bool playerDarkvisionSuppressed(int player);
+
 /*
  * TODO: Will need to make messages work for each hotseat player.
  * This will probably involve taking the current notification_messages thing and instead including that in a wrapper or something that is owned by each player instance.
@@ -2427,6 +2432,11 @@ public:
 		// mod add: Separate normal-water transition state; PLAYER_INWATER also
 		// represents lava and cannot distinguish a direct lava-to-water move.
 		bool firearmInNormalWater = false;
+		// mod add end
+		// mod add: Leonin racial mechanics keep effect ownership separate from
+		// vanilla effect and swimming state.
+		bool leoninRacialDarkvisionApplied = false;
+		bool leoninWaterPanickingApplied = false;
 		// mod add end
 		// mod add: Entrench carries an original world entity, never an Item.
 		Uint32 entrenchCarriedUid = 0;

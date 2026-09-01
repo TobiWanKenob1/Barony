@@ -258,6 +258,10 @@ void Entity::initMonster(int mySprite)
 			monsterFootstepType = MONSTER_FOOTSTEP_USE_BOOTS;
 			monsterSpellAnimation = MONSTER_SPELLCAST_HUMANOID;
 			break;
+		case LEONIN: // mod add: Human-standard humanoid presentation defaults
+			monsterFootstepType = MONSTER_FOOTSTEP_USE_BOOTS;
+			monsterSpellAnimation = MONSTER_SPELLCAST_HUMANOID;
+			break;
 		case GREMLIN:
 			monsterFootstepType = MONSTER_FOOTSTEP_USE_BOOTS;
 			monsterSpellAnimation = MONSTER_SPELLCAST_HUMANOID;

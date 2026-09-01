@@ -319,6 +319,11 @@ void actHudArm(Entity* my)
 			case SALAMANDER:
 				my->sprite = 2330;
 				break;
+			// TODO: LEONIN PLACEHOLDER MODEL
+			// Uses the base Salamander first-person right arm temporarily.
+			case LEONIN:
+				my->sprite = 2330;
+				break;
 			case GNOME:
 				my->sprite = 2322;
 				break;
@@ -851,6 +856,20 @@ void actHudWeapon(Entity* my)
 	}
 
 	bool shootmode = players[HUDWEAPON_PLAYERNUM]->shootmode;
+	const bool panicking = playerIsPanicking(HUDWEAPON_PLAYERNUM);
+	if ( panicking )
+	{
+		// mod add: immediately discard any local attack charge/release state.
+		// Inventory and camera controls remain untouched.
+		input.consumeBinaryToggle("Attack");
+		input.consumeBindingsSharedWithBinding("Attack");
+		input.consumeBinaryToggle("Cast Spell");
+		HUDWEAPON_CHOP = 0;
+		HUDWEAPON_CHARGE = 0;
+		HUDWEAPON_OVERCHARGE = 0;
+		bowFire = false;
+		bowIsBeingDrawn = false;
+	}
 	// mod add: Spyglass zoom normally occupies the mainhand action, but the
 	// currently equipped Musket may enter the existing ranged/firearm pipeline.
 	const bool spyglassMusketAttack = playerIsUsingSpyglass(players[HUDWEAPON_PLAYERNUM]->entity)
@@ -865,6 +884,7 @@ void actHudWeapon(Entity* my)
 		&& shootmode 
 		&& !gamePaused
 		&& players[HUDWEAPON_PLAYERNUM]->entity->isMobile()
+		&& !panicking
 		&& (!(input.binaryToggle("Defend") && stats[HUDWEAPON_PLAYERNUM]->defending)
 			|| cast_animation[HUDWEAPON_PLAYERNUM].spellWaitingAttackInput()
 			|| spyglassMusketAttack )
@@ -872,7 +892,7 @@ void actHudWeapon(Entity* my)
 	{
 		swingweapon = true;
 	}
-	else if (shootmode && input.binaryToggle("Attack") && input.binaryToggle("Defend") && stats[HUDWEAPON_PLAYERNUM]->defending)
+	else if (!panicking && shootmode && input.binaryToggle("Attack") && input.binaryToggle("Defend") && stats[HUDWEAPON_PLAYERNUM]->defending)
 	{
 		if ( stats[HUDWEAPON_PLAYERNUM]->shield && stats[HUDWEAPON_PLAYERNUM]->shield->type == TOOL_TINKERING_KIT )
 		{
@@ -3857,10 +3877,10 @@ void actHudWeapon(Entity* my)
 	if ( Item* firearm = stats[HUDWEAPON_PLAYERNUM]->weapon )
 	{
 		auto& mechanics = players[HUDWEAPON_PLAYERNUM]->mechanics;
-		const bool reloadActive = mechanics.firearmReloadTicks > 0
+		const bool reloadActive = !panicking && mechanics.firearmReloadTicks > 0
 			&& firearm->isFirearm() && firearm->uid == mechanics.firearmReloadItemUid
 			&& firearm->type == mechanics.firearmReloadItemType;
-		const bool unjamActive = mechanics.firearmUnjamTicks > 0
+		const bool unjamActive = !panicking && mechanics.firearmUnjamTicks > 0
 			&& firearm->isFirearm() && firearm->uid == mechanics.firearmUnjamItemUid
 			&& firearm->type == mechanics.firearmUnjamItemType;
 		if ( reloadActive || unjamActive )
@@ -4514,6 +4534,7 @@ void actHudShield(Entity* my)
 	bool defending = false;
 	bool wouldBeDefending = false; // to handle different block/sneaking hotkeys. not allowed to sneak if we would be defending on the same hotkey
 	bool sneaking = false;
+	const bool panicking = playerIsPanicking(HUDSHIELD_PLAYERNUM);
     const bool shootmode = players[HUDSHIELD_PLAYERNUM]->shootmode;
 	if ( !players[HUDSHIELD_PLAYERNUM]->usingCommand()
 		&& players[HUDSHIELD_PLAYERNUM]->bControlEnabled
@@ -4545,6 +4566,7 @@ void actHudShield(Entity* my)
 		if ( players[HUDSHIELD_PLAYERNUM] && players[HUDSHIELD_PLAYERNUM]->entity 
 			&& allowDefend
 			&& players[HUDSHIELD_PLAYERNUM]->entity->isMobile() 
+			&& !panicking
 			&& !cast_animation[HUDSHIELD_PLAYERNUM].hideShieldFromBasicCast()
 			&& !cast_animation[HUDSHIELD_PLAYERNUM].active_spellbook
 			&& (!spellbook || (spellbook && (hideShield || playerRace == SPIDER)))
@@ -4608,6 +4630,12 @@ void actHudShield(Entity* my)
 				defending = false;
 			}
 		}
+	}
+	if ( panicking )
+	{
+		defending = false;
+		wouldBeDefending = false;
+		sneaking = false;
 	}
 
 	bool dropShield = false;

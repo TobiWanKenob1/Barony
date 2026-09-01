@@ -156,6 +156,10 @@ static const int EFF_HOLY_FIRE = 131;
 static const int EFF_SIGIL = 132;
 static const int EFF_SANCTUARY = 133;
 static const int EFF_DUCKED = 134;
+// mod add: reserved custom player status effects; NUMEFFECTS already covers these slots.
+static const int EFF_PANICKING = 135;
+static const int EFF_DARKVISION = 136;
+static const int EFF_RETRACTABLE_CLAWS = 137;
 static const int NUMEFFECTS = 160;
 
 // stats

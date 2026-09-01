@@ -8274,6 +8274,14 @@ Sint32 Entity::getAttack(Entity* my, Stat* myStats, bool isPlayer, int chargeMod
 		{
 			attack = BASE_PLAYER_UNARMED_DAMAGE;
 			attack += (myStats->getModifiedProficiency(PRO_UNARMED) / 20); // 0, 1, 2, 3, 4, 5 damage from total
+			// mod add: Leonin racial: natural claws scale every 10 levels.
+			// Requires empty weapon and glove slots; intentionally grants no
+			// knuckle knockback.
+			if ( my )
+			{
+				attack += my->getLeoninNaturalClawTier();
+			}
+			// mod add end
 			if ( shapeshifted )
 			{
 				if ( my->effectShapeshift == RAT )
@@ -10211,6 +10219,14 @@ void Entity::attack(int pose, int charge, Entity* target)
 	else
 	{
 		player = -1; // not a player
+	}
+
+	// mod add: Panicking players remain mobile but cannot execute any attack
+	// request. This runs on clients and the authoritative server before firearm,
+	// ammo, durability, projectile, or animation state can be changed.
+	if ( player >= 0 && playerIsPanicking(player) )
+	{
+		return;
 	}
 
 	// mod add: Musket firing is player-exclusive. Reject non-player use before
@@ -16301,6 +16317,12 @@ void Entity::attack(int pose, int charge, Entity* target)
 					{
 						if ( bleedStatusInflicted || (hitstats->HP > 5 && damage > 0) )
 						{
+							// mod add: Leonin natural claws use the normal bleed path.
+							const int leoninClawTier = getLeoninNaturalClawTier();
+							const bool leoninClawBleed = leoninClawTier > 0
+								&& oldHP > hitstats->HP
+								&& local_rng.rand() % 100 < leoninClawTier * 5;
+							// mod add end
 							if ( bleedStatusInflicted || (local_rng.rand() % 20 == 0 && (weaponskill > PRO_SWORD && weaponskill <= PRO_POLEARM) )
 								|| (local_rng.rand() % 10 == 0 && weaponskill == PRO_SWORD)
 								|| (whip && ( (flanking && local_rng.rand() % 5 == 0) || (backstab && local_rng.rand() % 2 == 0) || disarmed) )
@@ -16309,6 +16331,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 								|| (thornsEffect < 0 && behavior == &actPlayer)
 								|| (local_rng.rand() % 10 == 0 && myStats->type == VAMPIRE && myStats->weapon == nullptr)
 								|| (local_rng.rand() % 8 == 0 && myStats->getEffectActive(EFF_VAMPIRICAURA) && (myStats->weapon == nullptr || myStats->type == LICH_FIRE))
+								|| leoninClawBleed
 							)
 							{
 								bool heavyBleedEffect = false; // heavy bleed will have a greater starting duration, and add to existing duration.
@@ -19313,7 +19336,11 @@ bool Entity::checkEnemy(Entity* your)
 			else if ( behavior == &actPlayer && myStats->type != HUMAN )
 			{
 				result = swornenemies[HUMAN][yourStats->type];
-				if ( (yourStats->type == HUMAN || yourStats->type == SHOPKEEPER) 
+				if ( myStats->type == LEONIN ) // mod add: use Human hostility unchanged
+				{
+					result = yourStats->type == LEONIN ? false : result;
+				}
+				else if ( (yourStats->type == HUMAN || yourStats->type == SHOPKEEPER)
 					&& !(myStats->type == AUTOMATON || myStats->type == DRYAD || myStats->type == MYCONID || myStats->type == SALAMANDER
 						|| myStats->type == GNOME) )
 				{
@@ -19454,7 +19481,11 @@ bool Entity::checkEnemy(Entity* your)
 			else if ( behavior == &actMonster && your->behavior == &actPlayer && yourStats->type != HUMAN )
 			{
 				result = swornenemies[myStats->type][HUMAN];
-				if ( (myStats->type == HUMAN || myStats->type == SHOPKEEPER) && 
+				if ( yourStats->type == LEONIN ) // mod add: use Human hostility unchanged
+				{
+					result = myStats->type == LEONIN ? false : result;
+				}
+				else if ( (myStats->type == HUMAN || myStats->type == SHOPKEEPER) &&
 					!(yourStats->type == AUTOMATON || yourStats->type == DRYAD || yourStats->type == MYCONID || yourStats->type == SALAMANDER
 						|| yourStats->type == GNOME) )
 				{
@@ -19926,7 +19957,11 @@ bool Entity::checkFriend(Entity* your)
 			else if ( behavior == &actPlayer && myStats->type != HUMAN )
 			{
 				result = monsterally[HUMAN][yourStats->type];
-				if ( (yourStats->type == HUMAN || yourStats->type == SHOPKEEPER) 
+				if ( myStats->type == LEONIN ) // mod add: use Human alliances unchanged
+				{
+					result = yourStats->type == LEONIN ? true : result;
+				}
+				else if ( (yourStats->type == HUMAN || yourStats->type == SHOPKEEPER)
 					&& !(myStats->type == AUTOMATON || myStats->type == DRYAD || myStats->type == MYCONID || myStats->type == SALAMANDER
 						|| myStats->type == GNOME) )
 				{
@@ -20065,7 +20100,11 @@ bool Entity::checkFriend(Entity* your)
 			else if ( behavior == &actMonster && your->behavior == &actPlayer && yourStats->type != HUMAN )
 			{
 				result = monsterally[myStats->type][HUMAN];
-				if ( (myStats->type == HUMAN || myStats->type == SHOPKEEPER)
+				if ( yourStats->type == LEONIN ) // mod add: use Human alliances unchanged
+				{
+					result = myStats->type == LEONIN ? true : result;
+				}
+				else if ( (myStats->type == HUMAN || myStats->type == SHOPKEEPER)
 					&& !(yourStats->type == AUTOMATON || yourStats->type == DRYAD || yourStats->type == MYCONID || yourStats->type == SALAMANDER
 						|| yourStats->type == GNOME) )
 				{
@@ -21307,6 +21346,51 @@ int Entity::isEntityPlayer() const
 
 	return -1;
 }
+
+// mod add: Leonin racial mechanics
+bool Entity::isNaturalLeoninPlayer() const
+{
+	Stat* myStats = getStats();
+	if ( !myStats || behavior != &actPlayer )
+	{
+		return false;
+	}
+	return myStats->playerRace == RACE_LEONIN
+		&& myStats->stat_appearance == 0
+		&& myStats->type == LEONIN
+		&& effectPolymorph == NOTHING
+		&& effectShapeshift == NOTHING
+		&& !myStats->getEffectActive(EFF_POLYMORPH)
+		&& !myStats->getEffectActive(EFF_SHAPESHIFT);
+}
+
+bool Entity::isLeoninNaturalClawAttack() const
+{
+	Stat* myStats = getStats();
+	return myStats && isNaturalLeoninPlayer()
+		&& !myStats->weapon
+		&& !myStats->gloves;
+}
+
+int Entity::getLeoninNaturalClawTier() const
+{
+	if ( !isLeoninNaturalClawAttack() )
+	{
+		return 0;
+	}
+	return getLeoninClawTier();
+}
+
+int Entity::getLeoninClawTier() const
+{
+	Stat* myStats = getStats();
+	if ( !myStats || !isNaturalLeoninPlayer() )
+	{
+		return 0;
+	}
+	return 1 + (myStats->LVL / 10);
+}
+// mod add end
 
 // mod add: Merrow reflecting scales
 static constexpr int MERROW_SCALE_SWIM_COOLDOWN =
@@ -22981,6 +23065,14 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 	int monsterType = this->getMonsterTypeFromSprite();
 	int myAttack = this->monsterAttack;
 	bool isPlayer = this->behavior == &actPlayer;
+	// TODO: LEONIN PLACEHOLDER MODEL
+	// Route only this visual-offset helper through base Salamander proportions.
+	// The authoritative player/monster identity remains LEONIN in Stat::type/playerRace.
+	if ( isPlayer && this->skill[2] >= 0 && this->skill[2] < MAXPLAYERS
+		&& stats[this->skill[2]] && stats[this->skill[2]]->type == LEONIN )
+	{
+		monsterType = SALAMANDER;
+	}
 	bool neutralPose = myAttack == 0;
 	if ( isPlayer )
 	{
@@ -30365,6 +30457,93 @@ void Entity::setHumanoidLimbOffset(Entity* limb, Monster race, int limbType)
 				}
 			}
 			break;
+		// TODO: LEONIN PLACEHOLDER MODEL
+		// Duplicates base Salamander body proportions without sharing Salamander state logic.
+		case LEONIN:
+		{
+			constexpr real_t sleepHeight = 2.5;
+			if ( limbType == LIMB_HUMANOID_LEFTLEG || limbType == LIMB_HUMANOID_RIGHTLEG )
+			{
+				limb->z += 0.75;
+				if ( limb->sprite == 2032 || limb->sprite == 2033 )
+				{
+					limb->focalx -= .5;
+				}
+			}
+			else if ( limbType == LIMB_HUMANOID_LEFTARM || limbType == LIMB_HUMANOID_RIGHTARM )
+			{
+				limb->z += .5;
+				limb->x += .25 * cos(this->yaw);
+				limb->y += .25 * sin(this->yaw);
+			}
+
+			if ( limbType == LIMB_HUMANOID_TORSO )
+			{
+				limb->x -= .25 * cos(this->yaw);
+				limb->y -= .25 * sin(this->yaw);
+				limb->z += 2;
+				limb->scalex = 1.01;
+				limb->scaley = 1.01;
+				limb->scalez = 1.01;
+				if ( limb->sprite != 2038 )
+				{
+					limb->focalx += 1.0;
+					limb->focalz += 0.75;
+				}
+				this->setTorsoLimbOffset(limb);
+			}
+			else if ( limbType == LIMB_HUMANOID_RIGHTLEG )
+			{
+				limb->x += 1 * cos(this->yaw + PI / 2) + .25 * cos(this->yaw);
+				limb->y += 1 * sin(this->yaw + PI / 2) + .25 * sin(this->yaw);
+				limb->z += 4;
+				if ( this->z >= (sleepHeight - 0.1) && this->z <= (sleepHeight + 0.1) )
+				{
+					limb->yaw += PI / 8;
+					limb->pitch = -PI / 2;
+				}
+				else if ( limb->pitch <= -PI / 3 )
+				{
+					limb->pitch = 0;
+				}
+			}
+			else if ( limbType == LIMB_HUMANOID_LEFTLEG )
+			{
+				limb->x -= 1 * cos(this->yaw + PI / 2) - .25 * cos(this->yaw);
+				limb->y -= 1 * sin(this->yaw + PI / 2) - .25 * sin(this->yaw);
+				limb->z += 4;
+				if ( this->z >= (sleepHeight - 0.1) && this->z <= (sleepHeight + 0.1) )
+				{
+					limb->yaw -= PI / 8;
+					limb->pitch = -PI / 2;
+				}
+				else if ( limb->pitch <= -PI / 3 )
+				{
+					limb->pitch = 0;
+				}
+			}
+			else if ( limbType == LIMB_HUMANOID_RIGHTARM )
+			{
+				limb->x += 2.5 * cos(this->yaw + PI / 2) - .20 * cos(this->yaw);
+				limb->y += 2.5 * sin(this->yaw + PI / 2) - .20 * sin(this->yaw);
+				limb->z += .5;
+				if ( this->z >= (sleepHeight - 0.1) && this->z <= (sleepHeight + 0.1) )
+				{
+					limb->pitch = 0;
+				}
+			}
+			else if ( limbType == LIMB_HUMANOID_LEFTARM )
+			{
+				limb->x -= 2.5 * cos(this->yaw + PI / 2) + .20 * cos(this->yaw);
+				limb->y -= 2.5 * sin(this->yaw + PI / 2) + .20 * sin(this->yaw);
+				limb->z += .5;
+				if ( this->z >= (sleepHeight - 0.1) && this->z <= (sleepHeight + 0.1) )
+				{
+					limb->pitch = 0;
+				}
+			}
+		}
+			break;
 		case GOBLIN:
 		case GOATMAN:
 		case INSECTOID:
@@ -30753,6 +30932,13 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 	if ( this->behavior == &actPlayer )
 	{
 		player = this->skill[2];
+	}
+	// TODO: LEONIN PLACEHOLDER MODEL
+	// Route only this visual-offset helper through base Salamander proportions.
+	// The authoritative player/monster identity remains LEONIN in Stat::type/playerRace.
+	if ( player >= 0 && player < MAXPLAYERS && stats[player] && stats[player]->type == LEONIN )
+	{
+		race = SALAMANDER;
 	}
 	Entity* flameEntity = nullptr;
 	auto& shieldLimbFociAnimRotate = shieldLimb->fskill[0];

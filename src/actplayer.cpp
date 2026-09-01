@@ -47,6 +47,146 @@ static ConsoleVariable<float> cvar_followerStartZ("/follower_start_z", -2.5);
 static ConsoleVariable<float> cvar_followerMoveTo("/follower_moveto_z", 0.1);
 static ConsoleVariable<float> cvar_followerStartZLimit("/follower_start_z_limit", 7.5);
 
+// mod add: shared custom-effect predicates. These are intentionally player-only
+// and do not alter vanilla mobility, blindness, or Lich behavior.
+bool playerIsPanicking(int player)
+{
+	return player >= 0 && player < MAXPLAYERS && stats[player]
+		&& stats[player]->getEffectActive(EFF_PANICKING);
+}
+
+bool playerCanInteractWhilePanicking(const Entity* target)
+{
+	return target && (target->behavior == &actDoor || target->behavior == &actIronDoor);
+}
+
+bool playerDarkvisionSuppressed(int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !stats[player]
+		|| stats[player]->getEffectActive(EFF_BLIND) )
+	{
+		return true;
+	}
+
+	// Herx synchronizes skill[27] from 0 to 1 when the half-health darkness
+	// phase begins. Read that persistent battle marker without changing the boss.
+	if ( map.creatures )
+	{
+		for ( node_t* node = map.creatures->first; node; node = node->next )
+		{
+			Entity* creature = static_cast<Entity*>(node->element);
+			if ( !creature || creature->behavior != &actMonster
+				|| creature->getMonsterTypeFromSprite() != LICH
+				|| creature->monsterLichBattleState == 0 )
+			{
+				continue;
+			}
+			Stat* creatureStats = creature->getStats();
+			if ( creatureStats && creatureStats->HP > 0 )
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+// mod add: Leonin racial mechanics
+static constexpr Sint32 LEONIN_WATER_PANIC_DURATION = 8 * TICKS_PER_SECOND;
+static constexpr Sint32 LEONIN_WATER_PANIC_REFRESH_THRESHOLD =
+	LEONIN_WATER_PANIC_DURATION / 2;
+static constexpr Sint32 LEONIN_WATER_SCREAM_SOUND_ID = 865;
+
+static void updateLeoninRacialEffects(int player, bool inNormalWater)
+{
+	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS
+		|| !players[player] || !players[player]->entity || !stats[player] )
+	{
+		return;
+	}
+
+	Entity* playerEntity = players[player]->entity;
+	Stat* playerStats = stats[player];
+	auto& mechanics = players[player]->mechanics;
+	const bool baseRaceIsLeonin = playerStats->playerRace == RACE_LEONIN;
+	const bool naturalLeoninForm = baseRaceIsLeonin
+		&& playerStats->stat_appearance == 0
+		&& playerStats->type == LEONIN
+		&& playerEntity->effectPolymorph == NOTHING
+		&& playerEntity->effectShapeshift == NOTHING
+		&& !playerStats->getEffectActive(EFF_POLYMORPH)
+		&& !playerStats->getEffectActive(EFF_SHAPESHIFT);
+
+	// Leonin Darkvision follows natural-form state.
+	if ( naturalLeoninForm )
+	{
+		mechanics.leoninRacialDarkvisionApplied = true;
+		if ( !playerStats->getEffectActive(EFF_DARKVISION)
+			|| playerStats->EFFECTS_TIMERS[EFF_DARKVISION] != -1 )
+		{
+			playerEntity->setEffect(EFF_DARKVISION, true, -1, true);
+		}
+	}
+	else if ( mechanics.leoninRacialDarkvisionApplied )
+	{
+		mechanics.leoninRacialDarkvisionApplied = false;
+		if ( playerStats->getEffectActive(EFF_DARKVISION) )
+		{
+			playerEntity->setEffect(EFF_DARKVISION, false, 0, true);
+		}
+	}
+
+	// Leonin racial: Retractable Claws is a passive HUD indicator for uncovered
+	// hands. Weapon state intentionally does not affect its presentation.
+	const bool retractableClawsAvailable = playerEntity->isNaturalLeoninPlayer()
+		&& !playerStats->gloves;
+	if ( retractableClawsAvailable )
+	{
+		if ( !playerStats->getEffectActive(EFF_RETRACTABLE_CLAWS)
+			|| playerStats->EFFECTS_TIMERS[EFF_RETRACTABLE_CLAWS] != -1 )
+		{
+			playerEntity->setEffect(EFF_RETRACTABLE_CLAWS, true, -1, true);
+		}
+	}
+	else if ( playerStats->getEffectActive(EFF_RETRACTABLE_CLAWS) )
+	{
+		playerEntity->setEffect(EFF_RETRACTABLE_CLAWS, false, 0, true);
+	}
+
+	const bool panicking = playerStats->getEffectActive(EFF_PANICKING);
+	if ( mechanics.leoninWaterPanickingApplied && !panicking )
+	{
+		// The water-owned effect expired after leaving water or transforming.
+		mechanics.leoninWaterPanickingApplied = false;
+	}
+
+	// Leonin Panicking refreshes while physically in water. Only claim ownership
+	// when this mechanic applies a previously inactive generic Panicking effect.
+	if ( naturalLeoninForm && inNormalWater )
+	{
+		if ( !mechanics.leoninWaterPanickingApplied && !panicking )
+		{
+			mechanics.leoninWaterPanickingApplied = true;
+			playerEntity->setEffect(EFF_PANICKING, true,
+				LEONIN_WATER_PANIC_DURATION, true);
+
+			// Leonin water scream only fires with the initial application of a
+			// new water-induced Panicking effect. The authoritative simulation's
+			// positional sound path supplies normal multiplayer propagation.
+			playSoundEntity(playerEntity,
+				static_cast<Uint16>(LEONIN_WATER_SCREAM_SOUND_ID), 128);
+		}
+		else if ( mechanics.leoninWaterPanickingApplied
+			&& playerStats->EFFECTS_TIMERS[EFF_PANICKING] >= 0
+			&& playerStats->EFFECTS_TIMERS[EFF_PANICKING]
+				<= LEONIN_WATER_PANIC_REFRESH_THRESHOLD )
+		{
+			playerEntity->setEffect(EFF_PANICKING, true,
+				LEONIN_WATER_PANIC_DURATION, true);
+		}
+	}
+}
+
 /*-------------------------------------------------------------------------------
 
 	act*
@@ -5825,6 +5965,11 @@ int playerHeadSprite(Monster race, sex_t sex, int appearance, int frame, int pla
 		}
 		return sex == FEMALE ? 2015 : 2014;
 	}
+	// TODO: LEONIN PLACEHOLDER MODEL
+	// Uses base Salamander heads temporarily; replace with dedicated Leonin assets.
+	else if ( race == LEONIN ) {
+		return sex == FEMALE ? 2015 : 2014;
+	}
 	else if ( race == GNOME )
 	{
 		return sex == FEMALE ? 2214 : 2213;
@@ -6163,6 +6308,28 @@ void actPlayer(Entity* my)
 	if (!my)
 	{
 		return;
+	}
+	// mod add: Panicking cancels deliberate stance/selection state without
+	// touching movement, turning, camera input, or Entity::isMobile().
+	if ( playerIsPanicking(PLAYER_NUM) )
+	{
+		if ( stats[PLAYER_NUM] )
+		{
+			stats[PLAYER_NUM]->defending = false;
+			stats[PLAYER_NUM]->sneaking = false;
+		}
+		if ( selectedEntity[PLAYER_NUM]
+			&& !playerCanInteractWhilePanicking(selectedEntity[PLAYER_NUM]) )
+		{
+			selectedEntity[PLAYER_NUM] = nullptr;
+			inrange[PLAYER_NUM] = false;
+		}
+		if ( multiplayer != CLIENT && client_selected[PLAYER_NUM]
+			&& !playerCanInteractWhilePanicking(client_selected[PLAYER_NUM]) )
+		{
+			client_selected[PLAYER_NUM] = nullptr;
+			inrange[PLAYER_NUM] = false;
+		}
 	}
 	// mod add: Advance firearm reload/unjam actions for local, host, and remote players.
 	updateFirearmReload(PLAYER_NUM);
@@ -9167,6 +9334,11 @@ void actPlayer(Entity* my)
 			case SALAMANDER:
 				zOffset = -1.25;
 				break;
+			// TODO: LEONIN PLACEHOLDER MODEL
+			// Uses base Salamander body height temporarily; replace with Leonin assets.
+			case LEONIN:
+				zOffset = -1.25;
+				break;
 			default:
 				break;
 		}
@@ -9238,6 +9410,11 @@ void actPlayer(Entity* my)
 					my->z = 4.0;
 					break;
 				case SALAMANDER:
+					my->z = 3.0;
+					break;
+				// TODO: LEONIN PLACEHOLDER MODEL
+				// Uses base Salamander sleeping height temporarily.
+				case LEONIN:
 					my->z = 3.0;
 					break;
 				//mod add merrow
@@ -9459,6 +9636,18 @@ void actPlayer(Entity* my)
 	}
 
 	bool swimming = players[PLAYER_NUM]->movement.isPlayerSwimming();
+	if ( multiplayer != CLIENT )
+	{
+		bool inNormalWater = false;
+		if ( swimming )
+		{
+			const int x = std::min(std::max<unsigned int>(0, floor(my->x / 16)), map.width - 1);
+			const int y = std::min(std::max<unsigned int>(0, floor(my->y / 16)), map.height - 1);
+			const int swimmingTile = map.tiles[y * MAPLAYERS + x * MAPLAYERS * map.height];
+			inNormalWater = swimmingtiles[swimmingTile];
+		}
+		updateLeoninRacialEffects(PLAYER_NUM, inNormalWater);
+	}
 	if ( players[PLAYER_NUM]->isLocalPlayer() || multiplayer == SERVER )
 	{
 		if ( swimming )
@@ -9673,6 +9862,7 @@ void actPlayer(Entity* my)
 	if ( players[PLAYER_NUM]->isLocalPlayer() )
 	{
 		players[PLAYER_NUM]->entity = my;
+		const bool panicking = playerIsPanicking(PLAYER_NUM);
 
 		if ( !usecamerasmoothing )
 		{
@@ -10319,6 +10509,14 @@ void actPlayer(Entity* my)
 				}
 			}
 
+			if ( selectedEntity[PLAYER_NUM] != NULL
+				&& panicking && !playerCanInteractWhilePanicking(selectedEntity[PLAYER_NUM]) )
+			{
+				input.consumeBinaryToggle("Use");
+				selectedEntity[PLAYER_NUM] = nullptr;
+				inrange[PLAYER_NUM] = false;
+			}
+
 			if ( selectedEntity[PLAYER_NUM] != NULL )
 			{
 				followerMenu.followerToCommand = nullptr;
@@ -10515,6 +10713,8 @@ void actPlayer(Entity* my)
     my->removeLightField();
     bool ambientLight = false;
     const char* light_type = nullptr;
+	const bool darkvision = stats[PLAYER_NUM]->getEffectActive(EFF_DARKVISION)
+		&& !playerDarkvisionSuppressed(PLAYER_NUM);
     static ConsoleVariable<bool> cvar_playerLight("/player_light_enabled", true);
 	int range_bonus = std::min(std::max(0, statGetPER(stats[PLAYER_NUM], my) / 5), 2);
 	int equipmentBonus = 0;
@@ -10766,8 +10966,20 @@ void actPlayer(Entity* my)
 		{
 			my->light = addLight(my->x / 16, my->y / 16, "magic_foci_idle_red");
 		}
-        else if (!my->light) {
-            my->light = addLight(my->x / 16, my->y / 16, light_type, range_bonus, ambientLight ? PLAYER_NUM + 1 : 0);
+		else if (!my->light) {
+			// mod add: Darkvision replaces only the local ambient path. Physical
+			// held lights keep vanilla priority, and a missing mod light definition
+			// safely falls back to the ambient light selected above.
+			if ( ambientLight && players[PLAYER_NUM]->isLocalPlayer() && darkvision )
+			{
+				my->light = addLight(my->x / 16, my->y / 16,
+					"player_darkvision", 0, PLAYER_NUM + 1);
+			}
+			if ( !my->light )
+			{
+				my->light = addLight(my->x / 16, my->y / 16, light_type,
+					range_bonus, ambientLight ? PLAYER_NUM + 1 : 0);
+			}
         }
     }
 
@@ -13164,6 +13376,14 @@ void actPlayer(Entity* my)
 							entity->focaly = limbs[playerRace][4][1] + 0.25;
 							entity->focalz = limbs[playerRace][4][2] - 0.75;
 						}
+						// TODO: LEONIN PLACEHOLDER MODEL
+						// Uses base Salamander right-arm equipment offsets temporarily.
+						else if ( playerRace == LEONIN )
+						{
+							entity->focalx = limbs[LEONIN][4][0] + 0.75;
+							entity->focaly = limbs[LEONIN][4][1] + 0.25;
+							entity->focalz = limbs[LEONIN][4][2] - 0.75;
+						}
 						else if ( playerRace == GREMLIN )
 						{
 							entity->focalx = limbs[playerRace][4][0] + 1;
@@ -13340,6 +13560,14 @@ void actPlayer(Entity* my)
 							entity->focalx = limbs[playerRace][5][0] + 0.75;
 							entity->focaly = limbs[playerRace][5][1] - 0.25;
 							entity->focalz = limbs[playerRace][5][2] - 0.75;
+						}
+						// TODO: LEONIN PLACEHOLDER MODEL
+						// Uses base Salamander left-arm equipment offsets temporarily.
+						else if ( playerRace == LEONIN )
+						{
+							entity->focalx = limbs[LEONIN][5][0] + 0.75;
+							entity->focaly = limbs[LEONIN][5][1] - 0.25;
+							entity->focalz = limbs[LEONIN][5][2] - 0.75;
 						}
 						else if ( playerRace == GREMLIN )
 						{
@@ -14210,6 +14438,85 @@ void actPlayer(Entity* my)
 							}
 						}
 						//entity->yaw += -entity->fskill[0];
+						real_t dir = entity->skill[1] == 0 ? 1 : -1;
+						entity->pitch += 0.5 * sin(entity->fskill[0]);
+						entity->roll = dir * -0.25 * sin(entity->fskill[0]);
+					}
+					// TODO: LEONIN PLACEHOLDER MODEL
+					// Uses the base Salamander tail and generic tail animation temporarily.
+					// This is a separate Leonin block and does not evaluate Salamander Heart state.
+					if ( playerRace == LEONIN )
+					{
+						entity->focalx = limbs[LEONIN][11][0];
+						entity->focaly = limbs[LEONIN][11][1];
+						entity->focalz = limbs[LEONIN][11][2];
+						entity->x += limbs[LEONIN][12][0] * cos(my->yaw + PI / 2) + limbs[LEONIN][12][1] * cos(my->yaw);
+						entity->y += limbs[LEONIN][12][0] * sin(my->yaw + PI / 2) + limbs[LEONIN][12][1] * sin(my->yaw);
+						entity->z += limbs[LEONIN][12][2];
+						entity->pitch = 0.15;
+
+						entity->flags[INVISIBLE] = my->flags[INVISIBLE];
+						entity->flags[INVISIBLE_DITHER] = entity->flags[INVISIBLE];
+						entity->sprite = stats[PLAYER_NUM]->sex == FEMALE ? 2042 : 2041;
+						if ( stats[PLAYER_NUM]->sex == FEMALE )
+						{
+							entity->focalx += 0.5;
+							entity->focalz -= 0.25;
+						}
+
+						bool moving = false;
+						if ( fabs(PLAYER_VELX) > 0.1 || fabs(PLAYER_VELY) > 0.1 || insectoidLevitating )
+						{
+							moving = true;
+						}
+						if ( entity->skill[0] == 0 )
+						{
+							if ( moving )
+							{
+								entity->fskill[0] += std::min(dist * PLAYERWALKSPEED, 2.f * PLAYERWALKSPEED);
+							}
+							else if ( PLAYER_ATTACK != 0 )
+							{
+								entity->fskill[0] += PLAYERWALKSPEED;
+							}
+							else
+							{
+								entity->fskill[0] += 0.01;
+							}
+
+							if ( entity->fskill[0] > PI / 3 || ((!moving || PLAYER_ATTACK != 0) && entity->fskill[0] > PI / 5) )
+							{
+								entity->skill[0] = 1;
+							}
+						}
+						else
+						{
+							if ( moving )
+							{
+								if ( insectoidLevitating )
+								{
+									entity->fskill[0] -= std::min(std::max(0.15, dist * PLAYERWALKSPEED), 2.f * PLAYERWALKSPEED);
+								}
+								else
+								{
+									entity->fskill[0] -= std::min(dist * PLAYERWALKSPEED, 2.f * PLAYERWALKSPEED);
+								}
+							}
+							else if ( PLAYER_ATTACK != 0 )
+							{
+								entity->fskill[0] -= PLAYERWALKSPEED;
+							}
+							else
+							{
+								entity->fskill[0] -= 0.007;
+							}
+
+							if ( entity->fskill[0] < 0.0 )
+							{
+								entity->skill[0] = 0;
+								entity->skill[1] = entity->skill[1] != 0 ? 0 : 1;
+							}
+						}
 						real_t dir = entity->skill[1] == 0 ? 1 : -1;
 						entity->pitch += 0.5 * sin(entity->fskill[0]);
 						entity->roll = dir * -0.25 * sin(entity->fskill[0]);
@@ -15546,6 +15853,9 @@ Monster getMonsterFromPlayerRace(int playerRace)
 			return MERROW;
 			break;
 		// mod add end
+		case RACE_LEONIN: // mod add: distinct Leonin gameplay identity
+			return LEONIN;
+			break;
 		default:
 			return HUMAN;
 			break;
@@ -15671,6 +15981,11 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 						this->sprite = 2040;
 					}
 					break;
+				// TODO: LEONIN PLACEHOLDER MODEL
+				// Uses the base Salamander torso only; never selects transformed variants.
+				case LEONIN:
+					this->sprite = 2038;
+					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2062 : 2061;
 					break;
@@ -15787,6 +16102,11 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 						this->sprite = 2037;
 					}
 					break;
+				// TODO: LEONIN PLACEHOLDER MODEL
+				// Uses the base Salamander right leg only.
+				case LEONIN:
+					this->sprite = 2033;
+					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2060 : 2058;
 					break;
@@ -15891,6 +16211,11 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 						this->sprite = 2036;
 					}
 					break;
+				// TODO: LEONIN PLACEHOLDER MODEL
+				// Uses the base Salamander left leg only.
+				case LEONIN:
+					this->sprite = 2032;
+					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2059 : 2057;
 					break;
@@ -15980,6 +16305,11 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 					{
 						this->sprite = 2029;
 					}
+					break;
+				// TODO: LEONIN PLACEHOLDER MODEL
+				// Uses the base Salamander right arm only.
+				case LEONIN:
+					this->sprite = 2021;
 					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2054 : 2050;
@@ -16082,6 +16412,11 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 					{
 						this->sprite = 2028;
 					}
+					break;
+				// TODO: LEONIN PLACEHOLDER MODEL
+				// Uses the base Salamander left arm only.
+				case LEONIN:
+					this->sprite = 2020;
 					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2053 : 2049;

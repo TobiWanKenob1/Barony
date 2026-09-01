@@ -2577,7 +2577,7 @@ void FollowerRadialMenu::drawFollowerMenu()
 								}
 							}
 						}
-						else
+						else if ( !playerIsPanicking(gui_player) )
 						{
 							Uint32 olduid = followerToCommand->monsterAllyInteractTarget;
 							followerToCommand->monsterAllySendCommand(optionSelected, moveToX, moveToY, followerToCommand->monsterAllyInteractTarget);

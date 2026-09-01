@@ -99,7 +99,7 @@ extern real_t t, ot, frameval[AVERAGEFRAMES];
 extern Uint32 cycles, pingtime;
 extern real_t fps;
 static const int NUMCLASSES = 28; // mod edit: add Gunslinger
-#define NUMRACES 18
+#define NUMRACES 20 // mod edit: include Merrow and Leonin race identities
 #define NUMPLAYABLERACES 14
 extern char address[64];
 extern bool loadnextlevel;
@@ -218,6 +218,7 @@ enum PlayerRaces : int
 	RACE_MYCONID,
 	RACE_SALAMANDER,
 	RACE_MERROW, //mod add merrow
+	RACE_LEONIN, // mod add: Leonin
 	RACE_ENUM_END
 };
 

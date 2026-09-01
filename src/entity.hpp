@@ -1083,6 +1083,12 @@ public:
 	 * Returns -1 if not a player.
 	 */
 	int isEntityPlayer() const;
+	// mod add: Leonin racial mechanics
+	bool isNaturalLeoninPlayer() const;
+	bool isLeoninNaturalClawAttack() const;
+	int getLeoninClawTier() const;
+	int getLeoninNaturalClawTier() const;
+	// mod add end
 
 	void initMonster(int mySprite);
 

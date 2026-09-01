@@ -8617,7 +8617,7 @@ bind_failed:
 	}
 
 	// number of player selectable races
-	constexpr int num_races = 15;
+	constexpr int num_races = 16; // mod edit: add Leonin selectable race
 
 /******************************************************************************/
 	int getLangEntryForMainMenuRaceName(int race)
@@ -8652,6 +8652,10 @@ bind_failed:
 		{
 			return "Merrow";
 		}
+		if ( race == 15 ) // mod add: Leonin's visible menu index
+		{
+			return "Leonin";
+		}
 
 		return Language::get(getLangEntryForMainMenuRaceName(race));
 	}
@@ -8661,6 +8665,10 @@ bind_failed:
 		if ( race == RACE_MERROW )
 		{
 			return "Merrow";
+		}
+		if ( race == RACE_LEONIN ) // mod add: no language-file dependency
+		{
+			return "Leonin";
 		}
 
 		return Language::get(getLangEntryForPlayerRaceName(race));
@@ -13257,6 +13265,9 @@ failed:
 			printlog("[JSON]: Error: No 'version' value in json file, or JSON syntax incorrect! %s", inputPath.c_str());
 			return;
 		}
+		// mod add: optional fill-missing description overlay
+		applyOptionalJsonAdditiveFile(d, "/data/class_descriptions_add.json", sizeof(buf));
+		// mod add end
 
 		data.clear();
 
@@ -13417,6 +13428,9 @@ failed:
 			printlog("[JSON]: Error: No 'version' value in json file, or JSON syntax incorrect! %s", inputPath.c_str());
 			return;
 		}
+		// mod add: optional fill-missing description overlay
+		applyOptionalJsonAdditiveFile(d, "/data/race_descriptions_add.json", sizeof(buf));
+		// mod add end
 
 		data.clear();
 
@@ -13858,17 +13872,19 @@ failed:
 	        color_race = color_dlc0;
 	    }
 
-		// mod add: Merrow race description
+		// mod add: custom race descriptions without language-file dependencies
 		auto& raceDescriptionData =
 			(race == RACE_MERROW)
 				? RaceDescriptions::getMonsterDescriptionData(MERROW)
+				: (race == RACE_LEONIN)
+					? RaceDescriptions::getMonsterDescriptionData(LEONIN)
 				: RaceDescriptions::getRaceDescriptionData(race);
 		// mod add end
 
 	    auto details_title = card.findField("details_title");
 	    if (details_title) {
 	        details_title->clearLinesToColor();
-	        details_title->setText(raceDescriptionData.title.c_str());
+	        details_title->setText(race == RACE_LEONIN ? "Leonin" : raceDescriptionData.title.c_str());
             details_title->setColor(color_race);
 	    }
 
@@ -13909,11 +13925,16 @@ failed:
 
 	static void race_achievement_required_error(int classnum)
 	{
-		// mod add: Merrow / Whaler
-		if ( classnum == CLASS_WHALER )
+		// mod add: custom race / class unlocks
+		if ( classnum == CLASS_WHALER || classnum == CLASS_GUNSLINGER )
 		{
+			const char* pairedRace = classnum == CLASS_WHALER ? "Merrow" : "Leonin";
+			const char* pairedClass = classnum == CLASS_WHALER ? "Whaler" : "Gunslinger";
+			char customPrompt[128] = "";
+			snprintf(customPrompt, sizeof(customPrompt),
+				"Win the game as a %s to unlock %s for other races.", pairedRace, pairedClass);
 			auto prompt = errorPrompt(
-				"Win the game as a Merrow to unlock Whaler for other races.",
+				customPrompt,
 				Language::get(5884),
 				[](Button& button) {
 					soundCancel();
@@ -14056,6 +14077,14 @@ failed:
 		else if ( race != RACE_SALAMANDER && challengeClass == CLASS_PALADIN )
 		{
 			allowPick = isAchievementUnlockedForClassUnlock(RACE_SALAMANDER);
+		}
+		else if ( race != RACE_MERROW - 4 && challengeClass == CLASS_WHALER )
+		{
+			allowPick = isAchievementUnlockedForClassUnlock(RACE_MERROW);
+		}
+		else if ( race != RACE_LEONIN - 4 && challengeClass == CLASS_GUNSLINGER )
+		{
+			allowPick = isAchievementUnlockedForClassUnlock(RACE_LEONIN);
 		}
 		return allowPick;
 	}
@@ -17912,7 +17941,8 @@ failed:
 						}
 						stats[index]->playerRace = race;
 						chances[race] = 0;
-						if ( isCharacterValidFromDLC(*stats[index], index) == VALID_OK_CHARACTER )
+						if ( isCharacterValidFromDLC(*stats[index],
+							gameModeManager.currentSession.challengeRun.classnum) == VALID_OK_CHARACTER )
 						{
 							chances[race] = 1;
 							chanceFound = true;
@@ -17957,6 +17987,7 @@ failed:
 						chances[RACE_GNOME] = 1;
 						chances[RACE_SALAMANDER] = 1;
 					}
+					chances[RACE_LEONIN] = 1; // mod add: Leonin is a no-DLC selectable race
 					stats[index]->playerRace = RNG.discrete(chances.data(), chances.size());
 				}
 			}

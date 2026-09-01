@@ -2614,6 +2614,15 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 		// assume used by the player unless otherwise (a fountain potion effect e.g)
 		usedBy = players[player]->entity;
 	}
+	// mod add: Inventory browsing remains available while Panicking, but using
+	// an item is a deliberate character action. Environmental item effects that
+	// supply a different source entity are left untouched.
+	if ( player >= 0 && player < MAXPLAYERS && players[player]
+		&& usedBy == players[player]->entity && playerIsPanicking(player)
+		&& !unequipForDropping )
+	{
+		return;
+	}
 
 
 	if ( item->status == BROKEN && player >= 0 && players[player]->isLocalPlayer() )
@@ -7798,6 +7807,7 @@ bool tryQuestJamMusket(Item& firearm, int player)
 {
 	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS
 		|| !players[player] || !stats[player] || !players[player]->entity
+		|| playerIsPanicking(player)
 		|| !firearm.musketQuestJammed() )
 	{
 		return false;
@@ -7833,6 +7843,7 @@ bool tryJamFirearm(Item& firearm, int player)
 {
 	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS
 		|| !players[player] || !stats[player] || !players[player]->entity
+		|| playerIsPanicking(player)
 		|| !firearm.isFirearm() || firearm.musketQuestJammed()
 		|| !firearm.firearmIsLoaded() )
 	{
@@ -7926,6 +7937,13 @@ void updateFirearmUnjam(int player)
 	{
 		return;
 	}
+	// mod add: A jam-clear cannot finish while Panicking. Pause the existing
+	// action instead of restarting it or charging its already-decided recovery
+	// cost again; it resumes normally when the effect ends.
+	if ( playerIsPanicking(player) )
+	{
+		return;
+	}
 
 	Item* firearm = stats[player] ? stats[player]->weapon : nullptr;
 	const bool actionStillValid = players[player]->entity && stats[player] && stats[player]->HP > 0
@@ -7995,6 +8013,7 @@ static bool playerConsumeFirearmReloadMaterials(const Item& firearm, int player)
 bool tryReloadFirearm(Item& firearm, int player)
 {
 	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !stats[player]
+		|| playerIsPanicking(player)
 		|| !firearm.isFirearm() || firearm.musketQuestJammed()
 		|| firearm.firearmIsLoaded() )
 	{
@@ -8049,6 +8068,15 @@ void updateFirearmReload(int player)
 	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
 	if ( mechanics.firearmReloadTicks <= 0 )
 	{
+		return;
+	}
+	// mod add: Reload materials are committed only at completion, so cancelling
+	// a reload as Panicking takes control cannot consume scrap or load the gun.
+	if ( playerIsPanicking(player) )
+	{
+		mechanics.firearmReloadTicks = 0;
+		mechanics.firearmReloadItemUid = 0;
+		mechanics.firearmReloadItemType = WOODEN_SHIELD;
 		return;
 	}
 

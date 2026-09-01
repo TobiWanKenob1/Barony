@@ -1498,7 +1498,7 @@ void sendMinimapPing(Uint8 player, Uint8 x, Uint8 y, Uint8 pingType, bool radius
 
 void sendAllyCommandClient(int player, Uint32 uid, int command, Uint8 x, Uint8 y, Uint32 targetUid)
 {
-	if ( multiplayer != CLIENT )
+	if ( multiplayer != CLIENT || playerIsPanicking(player) )
 	{
 		return;
 	}
@@ -7474,6 +7474,12 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		client_keepalive[player] = ticks;
 		Uint32 uid = SDLNet_Read32(&net_packet->data[5]);
 		Entity* entity = uidToEntity(uid);
+		if ( playerIsPanicking(player) && !playerCanInteractWhilePanicking(entity) )
+		{
+			client_selected[player] = nullptr;
+			inrange[player] = false;
+			return;
+		}
 		if ( entity )
 		{
 			client_selected[player] = entity;
@@ -7485,6 +7491,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	{'SALV', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
 		client_keepalive[player] = ticks;
+		if ( playerIsPanicking(player) )
+		{
+			return;
+		}
 		Uint32 uid = SDLNet_Read32(&net_packet->data[5]);
 		Entity* entity = uidToEntity(uid);
 		if ( entity )
@@ -7506,6 +7516,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	{'LKEY', []() {
 		const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
 		client_keepalive[player] = ticks;
+		if ( playerIsPanicking(player) )
+		{
+			return;
+		}
 		Uint32 uid = SDLNet_Read32(&net_packet->data[5]);
 		Entity* entity = uidToEntity(uid);
 		if ( entity && entity->behavior == &actWallLock )
@@ -7535,6 +7549,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	{'LNOK', []() {
 		const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
 		client_keepalive[player] = ticks;
+		if ( playerIsPanicking(player) )
+		{
+			return;
+		}
 		Uint32 uid = SDLNet_Read32(&net_packet->data[5]);
 		Entity* entity = uidToEntity(uid);
 		if ( entity && entity->behavior == &actWallLock )
@@ -7610,6 +7628,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	{'RATF', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
 		client_keepalive[player] = ticks;
+		if ( playerIsPanicking(player) )
+		{
+			return;
+		}
 		Uint32 uid = SDLNet_Read32(&net_packet->data[5]);
 		Entity* entity = uidToEntity(uid);
 		if ( entity )
@@ -7910,6 +7932,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	// raise/lower shield
 	{'SHLD', [](){
 		const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(player) )
+		{
+			net_packet->data[5] = 0;
+		}
 		stats[player]->defending = net_packet->data[5];
         for (int c = 1; c < MAXPLAYERS; ++c) {
             // relay packet to other players
@@ -7925,6 +7951,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	// sneaking
 	{'SNEK', [](){
 		const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(player) )
+		{
+			net_packet->data[5] = 0;
+		}
 		stats[player]->sneaking = net_packet->data[5];
         for (int c = 1; c < MAXPLAYERS; ++c) {
             // relay packet to other players
@@ -8224,6 +8254,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	// use item
 	{'USEI', [](){
 		const int client = std::min(net_packet->data[25], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(client) )
+		{
+			return;
+		}
 		auto item = newItem(
 		    static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4])),
 		    static_cast<Status>(SDLNet_Read32(&net_packet->data[8])),
@@ -8245,6 +8279,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	// equip item (as a weapon)
 	{'EQUI', [](){
 		const int client = std::min(net_packet->data[25], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(client) )
+		{
+			return;
+		}
 		auto item = newItem(
 		    static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4])),
 		    static_cast<Status>(SDLNet_Read32(&net_packet->data[8])),
@@ -8274,6 +8312,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	// equip item (as a shield)
 	{'EQUS', [](){
 		const int client = std::min(net_packet->data[25], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(client) )
+		{
+			return;
+		}
 		auto item = newItem(
 		    static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4])),
 		    static_cast<Status>(SDLNet_Read32(&net_packet->data[8])),
@@ -8347,6 +8389,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	// equip item (any other slot)
 	{'EQUM', [](){
 		const int client = std::min(net_packet->data[25], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(client) )
+		{
+			return;
+		}
 		auto item = newItem(
 		    static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4])),
 		    static_cast<Status>(SDLNet_Read32(&net_packet->data[8])),
@@ -8590,6 +8636,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	// attacking
 	{'ATAK', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(player) )
+		{
+			return;
+		}
 		if (players[player] && players[player]->entity)
 		{
 			ItemType type = static_cast<ItemType>(SDLNet_Read32(&net_packet->data[7]));
@@ -8679,6 +8729,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	//The client cast a spell.
 	{'SPEL', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(player) )
+		{
+			return;
+		}
 
 		spell_t* thespell = getSpellFromID(SDLNet_Read32(&net_packet->data[5]));
 		if ( players[player] && players[player]->entity )
@@ -9112,6 +9166,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	// the client sent a monster command.
 	{'ALLY', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
+		if ( playerIsPanicking(player) )
+		{
+			return;
+		}
 		const int allyCmd = net_packet->data[5];
 		const Uint32 uid = SDLNet_Read32(&net_packet->data[8]);
 		//messagePlayer(0, " received %d, %d, %d, %d, %d", player, allyCmd, net_packet->data[6], net_packet->data[7], uid);

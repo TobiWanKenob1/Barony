@@ -520,6 +520,10 @@ void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool 
 			player = i; //Set the player.
 		}
 	}
+	if ( player >= 0 && playerIsPanicking(player) )
+	{
+		return;
+	}
 
 	if ( player >= 0 && players[player]->hud.weapon )
 	{
@@ -1016,6 +1020,15 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 	{
 		//Need a spell and caster to cast a spell.
 		return NULL;
+	}
+	// mod add: authoritative spell rejection for a Panicking player. Monster,
+	// trap, staff, and focus casts without a player caster retain vanilla paths.
+	for ( int i = 0; i < MAXPLAYERS; ++i )
+	{
+		if ( players[i] && caster == players[i]->entity && playerIsPanicking(i) )
+		{
+			return NULL;
+		}
 	}
 
 	Entity* result = NULL; //If the spell spawns an entity (like a magic light ball or a magic missile), it gets stored here and returned.
