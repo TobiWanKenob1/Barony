@@ -595,7 +595,7 @@ void actArrow(Entity* my)
 			{
 				Entity* parent = uidToEntity(my->parent);
 				Stat* hitstats = hit.entity->getStats();
-				// mod edit: Preserve target-specific material/damage reactions below,
+				//mod add: Preserve target-specific material/damage reactions below,
 				// but replace the generic projectile contact for firearms only.
 				playSoundEntity(my,
 					my->arrowShotByFirearm() ? 864 : 72 + local_rng.rand() % 3, 64);
@@ -2044,7 +2044,7 @@ void actArrow(Entity* my)
 			}
 			else
 			{
-				// mod edit: Firearm wall/floor impacts use the dedicated bullet report;
+				//mod add: Firearm wall/floor impacts use the dedicated bullet report;
 				// arrows, bolts, and all other projectiles retain their vanilla family.
 				playSoundEntity(my,
 					my->arrowShotByFirearm() ? 864 : 72 + local_rng.rand() % 3, 64);

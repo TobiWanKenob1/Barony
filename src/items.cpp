@@ -1480,7 +1480,7 @@ int itemCompare(const Item* const item1, const Item* const item2, bool checkAppe
 	{
 		return 1;
 	}
-	// mod edit: malformed/outdated mod item data can leave newly added item
+	//mod add: malformed/outdated mod item data can leave newly added item
 	// slots without image variations. Never modulo by zero while comparing
 	// those items; treating them as non-matching is the safest fallback.
 	if ( item1->type < 0 || item1->type >= NUMITEMS
@@ -7366,7 +7366,7 @@ bool Item::isFirearm() const
 
 bool Item::isUnbreakableFromUse() const
 {
-	// mod edit: Mythical firearms may still be dropped, traded, or deliberately
+	//mod add: Firearms protected from use wear may still be dropped, traded, or deliberately
 	// salvaged, and repaired when acquired damaged; only ordinary use/combat
 	// durability loss is suppressed.
 	return type == FLINTLOCK_PISTOL || type == MUSKET;
@@ -8022,7 +8022,7 @@ bool tryReloadFirearm(Item& firearm, int player)
 	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
 	if ( mechanics.firearmReloadTicks > 0 || mechanics.firearmUnjamTicks > 0 )
 	{
-		// mod edit: attack input may be evaluated repeatedly while held and once
+		//mod add: attack input may be evaluated repeatedly while held and once
 		// again through client/server prediction. An active reload silently owns
 		// the action until completion; do not emit a misleading duplicate warning.
 		return false;

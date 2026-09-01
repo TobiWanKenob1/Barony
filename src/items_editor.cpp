@@ -146,7 +146,7 @@ returns a pointer to the SDL_Surface used to represent the item
 
 SDL_Surface* itemSprite(Item* const item)
 {
-	// mod edit: The editor can know a compiled-in item name before its mounted
+	//mod add: The editor can know a compiled-in item name before its mounted
 	// items.json supplies ItemGeneric image data. Never modulo by an uninitialized
 	// zero variation count; the map renderer will use sprite 8 as its fallback.
 	if ( !item || item->type < 0 || item->type >= NUMITEMS

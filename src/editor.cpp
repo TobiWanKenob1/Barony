@@ -4640,7 +4640,7 @@ int main(int argc, char** argv)
 
 							if ( editproperty == 0 )
 							{
-								// mod edit: Custom item IDs are stored as Sint32 in .lmp files;
+								//mod add: Custom item IDs are stored as Sint32 in .lmp files;
 								// do not retain the editor's old three-digit UI restriction.
 								inputlen = 10;
 								//update the item name when the ID changes.

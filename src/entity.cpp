@@ -11146,7 +11146,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 					const real_t muzzleX = x + cos(yaw) * muzzleDistance;
 					const real_t muzzleY = y + sin(yaw) * muzzleDistance;
 					const real_t muzzleZ = z - 1.0;
-					// mod edit: The authoritative positional sound path plays locally for
+					//mod add: The authoritative positional sound path plays locally for
 					// host/singleplayer and sends one attenuated world sound to each client.
 					playSoundPos(muzzleX, muzzleY,
 						myStats->weapon->type == MUSKET ? 863 : 862, 128);
@@ -23065,14 +23065,6 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 	int monsterType = this->getMonsterTypeFromSprite();
 	int myAttack = this->monsterAttack;
 	bool isPlayer = this->behavior == &actPlayer;
-	// TODO: LEONIN PLACEHOLDER MODEL
-	// Route only this visual-offset helper through base Salamander proportions.
-	// The authoritative player/monster identity remains LEONIN in Stat::type/playerRace.
-	if ( isPlayer && this->skill[2] >= 0 && this->skill[2] < MAXPLAYERS
-		&& stats[this->skill[2]] && stats[this->skill[2]]->type == LEONIN )
-	{
-		monsterType = SALAMANDER;
-	}
 	bool neutralPose = myAttack == 0;
 	if ( isPlayer )
 	{
@@ -23431,6 +23423,7 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 				case DRYAD:
 				case MYCONID:
 				case SALAMANDER:
+				case LEONIN:
 				case GREMLIN:
 				case GNOME:
 					weaponLimb->x += 0.5 * cos(weaponArmLimb->yaw + PI / 2);
@@ -23516,6 +23509,7 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 					case DRYAD:
 					case MYCONID:
 					case SALAMANDER:
+					case LEONIN:
 					case GREMLIN:
 					case GNOME:
 						weaponLimb->x += -.1 * cos(weaponArmLimb->yaw + PI / 2) + 0.25 * cos(weaponArmLimb->yaw);
@@ -23572,6 +23566,7 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 					case DRYAD:
 					case MYCONID:
 					case SALAMANDER:
+					case LEONIN:
 					case GREMLIN:
 					case GNOME:
 						weaponLimb->x += -.1 * cos(weaponArmLimb->yaw + PI / 2) + 0.5 * cos(weaponArmLimb->yaw);
@@ -23635,6 +23630,7 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 					case DRYAD:
 					case MYCONID:
 					case SALAMANDER:
+					case LEONIN:
 					case GREMLIN:
 					case GNOME:
 						weaponLimb->x += -.1 * cos(weaponArmLimb->yaw + PI / 2) + 0.5 * cos(weaponArmLimb->yaw);
@@ -23687,6 +23683,7 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 				case DRYAD:
 				case MYCONID:
 				case SALAMANDER:
+				case LEONIN:
 				case GREMLIN:
 				case GNOME:
 					weaponLimb->focaly -= 0.05; // minor z-fighting fix.
@@ -23695,7 +23692,7 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 					break;
 			}
 
-			if ( monsterType == DRYAD || monsterType == MYCONID || monsterType == SALAMANDER || monsterType == GREMLIN
+			if ( monsterType == DRYAD || monsterType == MYCONID || monsterType == SALAMANDER || monsterType == LEONIN || monsterType == GREMLIN
 				|| monsterType == GNOME )
 			{
 				weaponLimb->x += limbs[monsterType][17][0] * cos(weaponArmLimb->yaw + PI / 2) + limbs[monsterType][17][1] * cos(weaponArmLimb->yaw);
@@ -23758,6 +23755,7 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 				case DRYAD:
 				case MYCONID:
 				case SALAMANDER:
+				case LEONIN:
 				case GREMLIN:
 				case GNOME:
 					weaponLimb->x += 0.5 * cos(weaponArmLimb->yaw + PI / 2);
@@ -23970,7 +23968,7 @@ void doParticleEffectForTouchSpell(Entity& my, Entity* focalLimb, Monster monste
 	{
 		z += 0.5;
 	}
-	else if ( monsterType == SALAMANDER )
+	else if ( monsterType == SALAMANDER || monsterType == LEONIN )
 	{
 		z += 1.0;
 	}
@@ -25400,7 +25398,7 @@ bool Entity::monsterRebuildGunshotPath()
 		return true;
 	};
 
-	// mod edit: stop two tiles from the gunshot rather than entering its tile.
+	//mod add: stop two tiles from the gunshot rather than entering its tile.
 	// Try the four cardinal positions, nearest to this monster first.
 	static constexpr int GUNSHOT_STOP_DISTANCE_TILES = 2;
 	std::vector<std::pair<int, std::pair<int, int>>> cardinalTiles;
@@ -25684,7 +25682,7 @@ void alertMonstersToFirearmGunshot(const Entity& shooter)
 		return;
 	}
 
-	// mod edit: centralized per-firearm hearing distances. Keep a flintlock
+	//mod add: centralized per-firearm hearing distances. Keep a flintlock
 	// fallback for any future firearm that has not received its own tuning yet.
 	static constexpr real_t FLINTLOCK_GUNSHOT_ALERT_RADIUS = 15.0 * 16.0;
 	static constexpr real_t MUSKET_GUNSHOT_ALERT_RADIUS = 30.0 * 16.0;
@@ -25722,7 +25720,7 @@ void alertMonstersToFirearmGunshot(const Entity& shooter)
 		const real_t dy = monster->y - shooter.y;
 		Entity* mutableShooter = const_cast<Entity*>(&shooter);
 		if ( dx * dx + dy * dy > radiusSquared
-			|| !monster->checkEnemy(mutableShooter) ) // mod edit: listener's native hostility is authoritative
+			|| !monster->checkEnemy(mutableShooter) ) //mod add: listener's native hostility is authoritative
 		{
 			continue;
 		}
@@ -28639,7 +28637,7 @@ bool Entity::setArrowProjectileProperties(int weaponType)
 		|| weaponType == FLINTLOCK_PISTOL || weaponType == MUSKET ) // mod add: firearms use bolt physics
 	{
 		this->vel_z = -0.2;
-		// mod edit: Fixed firearm ballistics. Crossbows and Flintlock retain the
+		//mod add: Fixed firearm ballistics. Crossbows and Flintlock retain the
 		// native speed; Musket travels three times as far horizontally per tick.
 		switch ( weaponType )
 		{
@@ -30457,15 +30455,14 @@ void Entity::setHumanoidLimbOffset(Entity* limb, Monster race, int limbType)
 				}
 			}
 			break;
-		// TODO: LEONIN PLACEHOLDER MODEL
-		// Duplicates base Salamander body proportions without sharing Salamander state logic.
+		// mod add: Leonin humanoid proportions
 		case LEONIN:
 		{
 			constexpr real_t sleepHeight = 2.5;
 			if ( limbType == LIMB_HUMANOID_LEFTLEG || limbType == LIMB_HUMANOID_RIGHTLEG )
 			{
 				limb->z += 0.75;
-				if ( limb->sprite == 2032 || limb->sprite == 2033 )
+				if ( limb->sprite == LEONIN_MODEL_LEG_LEFT || limb->sprite == LEONIN_MODEL_LEG_RIGHT )
 				{
 					limb->focalx -= .5;
 				}
@@ -30485,7 +30482,13 @@ void Entity::setHumanoidLimbOffset(Entity* limb, Monster race, int limbType)
 				limb->scalex = 1.01;
 				limb->scaley = 1.01;
 				limb->scalez = 1.01;
-				if ( limb->sprite != 2038 )
+				if ( limb->sprite == LEONIN_MODEL_TORSO )
+				{
+					// mod add: Leonin torso geometry correction.
+					limb->focalx += 0.75;
+					limb->focalz += 0.75;
+				}
+				else
 				{
 					limb->focalx += 1.0;
 					limb->focalz += 0.75;
@@ -30933,13 +30936,6 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 	{
 		player = this->skill[2];
 	}
-	// TODO: LEONIN PLACEHOLDER MODEL
-	// Route only this visual-offset helper through base Salamander proportions.
-	// The authoritative player/monster identity remains LEONIN in Stat::type/playerRace.
-	if ( player >= 0 && player < MAXPLAYERS && stats[player] && stats[player]->type == LEONIN )
-	{
-		race = SALAMANDER;
-	}
 	Entity* flameEntity = nullptr;
 	auto& shieldLimbFociAnimRotate = shieldLimb->fskill[0];
 	auto& shieldLimbFociRotateSpin = shieldLimb->fskill[1];
@@ -31352,6 +31348,7 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 		case DRYAD:
 		case MYCONID:
 		case SALAMANDER:
+		case LEONIN:
 			shieldLimb->x -= 2.5 * cos(this->yaw + PI / 2) + .20 * cos(this->yaw);
 			shieldLimb->y -= 2.5 * sin(this->yaw + PI / 2) + .20 * sin(this->yaw);
 			shieldLimb->z += 2.5;
@@ -31431,7 +31428,7 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 					}
 					shieldLimb->z -= 1.0;
 				}
-				else if ( race == SALAMANDER )
+				else if ( race == SALAMANDER || race == LEONIN )
 				{
 					shieldLimb->focalx -= 1.0;
 					shieldLimb->focalz -= 1.0;
@@ -31529,6 +31526,16 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 			shieldLimb->yaw += PI / 12;
 		}
 	}
+	else if ( shieldLimb->sprite == items[SPYGLASS].index )
+	{
+		// mod add: dedicated third-person Spyglass positioning.
+		shieldLimb->focalx += 0.0;
+		shieldLimb->focaly += 0.5;
+		shieldLimb->focalz += 0.0;
+		shieldLimb->yaw += 0.75;
+		shieldLimb->pitch += 0.0;
+		shieldLimb->roll += 0.0;
+	}
 	else if ( shieldLimb->sprite == items[TOOL_FRYING_PAN].index )
 	{
 		if ( this->fskill[8] > PI / 32 )
@@ -31600,7 +31607,7 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 			shieldLimb->focaly -= 0.75;
 			shieldLimb->focalz -= 0.5;
 		}
-		else if ( race == SALAMANDER )
+		else if ( race == SALAMANDER || race == LEONIN )
 		{
 			shieldLimb->focaly += 0.75;
 			shieldLimb->focalz -= 0.5;
@@ -32437,7 +32444,7 @@ real_t Entity::getDamageTableEquipmentMod(Stat& myStats, Item& item, real_t base
 real_t Entity::getDamageTableMultiplier(Entity* my, Stat& myStats, DamageTableType damageType,
 	int* magicResistance, int* outNumSources, real_t innateDamageMultiplierOverride)
 {
-	// mod edit: Callers may replace only the creature's innate affinity while
+	//mod add: Callers may replace only the creature's innate affinity while
 	// retaining the normal equipment/effect reductions assembled below.
 	real_t damageMultiplier = innateDamageMultiplierOverride >= 0.0
 		? innateDamageMultiplierOverride

@@ -81,6 +81,24 @@ enum Monster : int
 const int NUMMONSTERS = MAX_MONSTER;
 extern int kills[NUMMONSTERS];
 
+// mod add: dedicated Leonin player model IDs
+enum LeoninModel : Sint32
+{
+	LEONIN_MODEL_ARM_LEFT = 2446,
+	LEONIN_MODEL_ARM_RIGHT = 2447,
+	LEONIN_MODEL_ARM_BENT_LEFT = 2448,
+	LEONIN_MODEL_ARM_BENT_RIGHT = 2449,
+	LEONIN_MODEL_HEAD_MALE = 2450,
+	LEONIN_MODEL_HEAD_FEMALE = 2451,
+	LEONIN_MODEL_LEG_LEFT = 2452,
+	LEONIN_MODEL_LEG_RIGHT = 2453,
+	LEONIN_MODEL_TORSO = 2454,
+	LEONIN_MODEL_TAIL = 2455,
+	LEONIN_MODEL_MANE = 2456,
+	LEONIN_MODEL_HAND_LEFT_FP = 2457,
+	LEONIN_MODEL_HAND_RIGHT_FP = 2458
+};
+
 static std::vector<Sint32> monsterSprites[NUMMONSTERS] = {
     // NOTHING
     {
@@ -377,10 +395,13 @@ static std::vector<Sint32> monsterSprites[NUMMONSTERS] = {
         2413, 2414, 2415, 2416, 2417, 2418, 2419, 2420, 2421, 2422, 2423, 2424, //male
 		2425, 2426, 2427, 2428, 2429, 2430, 2431, 2432, 2433, 2434, 2435, 2436 //female
 	},
-	// TODO: LEONIN PLACEHOLDER MODEL
-	// Player rendering assigns base Salamander sprites explicitly. This registry stays
-	// empty because getMonsterTypeFromSprite() requires every registered sprite to be unique.
+	// LEONIN
 	{
+		LEONIN_MODEL_ARM_LEFT, LEONIN_MODEL_ARM_RIGHT,
+		LEONIN_MODEL_ARM_BENT_LEFT, LEONIN_MODEL_ARM_BENT_RIGHT,
+		LEONIN_MODEL_HEAD_MALE, LEONIN_MODEL_HEAD_FEMALE,
+		LEONIN_MODEL_LEG_LEFT, LEONIN_MODEL_LEG_RIGHT,
+		LEONIN_MODEL_TORSO, LEONIN_MODEL_TAIL, LEONIN_MODEL_MANE
 	}
 };
 

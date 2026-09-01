@@ -3545,7 +3545,7 @@ void setupSpells()   ///TODO: Verify this function.
 			}
 		}
 	}
-	// mod edit: Entrench follows Salvage's effective tier after expanded spell data.
+	//mod add: Entrench follows Salvage's effective tier after expanded spell data.
 	// Salvage remains entirely controlled by the vanilla initialization path.
 	if ( auto entrench = getSpellFromID(SPELL_ENTRENCH) )
 	{

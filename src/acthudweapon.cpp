@@ -23,6 +23,7 @@
 #include "ui/MainMenu.hpp"
 #include "prng.hpp"
 #include "mod_tools.hpp"
+#include "monster.hpp"
 
 /*-------------------------------------------------------------------------------
 
@@ -319,10 +320,8 @@ void actHudArm(Entity* my)
 			case SALAMANDER:
 				my->sprite = 2330;
 				break;
-			// TODO: LEONIN PLACEHOLDER MODEL
-			// Uses the base Salamander first-person right arm temporarily.
 			case LEONIN:
-				my->sprite = 2330;
+				my->sprite = LEONIN_MODEL_HAND_RIGHT_FP;
 				break;
 			case GNOME:
 				my->sprite = 2322;

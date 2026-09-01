@@ -98,7 +98,7 @@ extern real_t time_diff;
 extern real_t t, ot, frameval[AVERAGEFRAMES];
 extern Uint32 cycles, pingtime;
 extern real_t fps;
-static const int NUMCLASSES = 28; // mod edit: add Gunslinger
+static const int NUMCLASSES = 28; //mod add: add Gunslinger
 #define NUMRACES 20 // mod edit: include Merrow and Leonin race identities
 #define NUMPLAYABLERACES 14
 extern char address[64];

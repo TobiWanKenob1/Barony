@@ -1954,7 +1954,7 @@ Entity* findEntityInLine( Entity* my, real_t x1, real_t y1, real_t angle, int en
 				|| isEntrenchCarriedObject(entity)
 				|| ((entities & LINETRACE_ATK_IGNORE_ENTRENCH_BARRICADE) && isEntrenchDoorBarricade(entity))
 				|| ((entities & LINETRACE_ATK_CHECK_FRIENDLYFIRE) && my->behavior == &actMonster
-					&& isEntrenchDoorBarricade(entity)) // mod edit: monsters target through player-priority barricades too
+					&& isEntrenchDoorBarricade(entity)) //mod add: monsters target through player-priority barricades too
 				|| ((entities & LINETRACE_IGNORE_ENTITIES) && 
 						( (!entity->flags[BLOCKSIGHT] && entity->behavior != &actMonster) 
 							|| (entity->behavior == &actMonster && (entity->flags[INVISIBLE] 

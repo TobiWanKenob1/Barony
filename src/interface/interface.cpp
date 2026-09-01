@@ -12039,7 +12039,7 @@ bool GenericGUIMenu::tinkeringGetItemValue(const Item* item, int* metal, int* ma
 			break;
 
 		case ARTIFACT_BOW:
-		case MUSKET: // mod edit: matches Khryselakatos' magic-weapon salvage tier
+		case MUSKET: //mod add: matches Khryselakatos' magic-weapon salvage tier
 		case BOOMERANG:
 			*metal = 4;
 			*magic = 16;

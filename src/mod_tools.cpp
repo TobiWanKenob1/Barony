@@ -993,7 +993,7 @@ void ItemTooltips_t::readItemsFromFile()
 		items[i].tooltip = tmpItems[i].tooltip;
 		items[i].attributes.clear();
 		items[i].attributes = tmpItems[i].attributes;
-		// mod edit: Musket shares Khryselakatos' magic-weapon economic tier.
+		//mod add: Musket shares Khryselakatos' magic-weapon economic tier.
 		if ( i == MUSKET )
 		{
 			items[i].gold_value = items[ARTIFACT_BOW].gold_value;
@@ -1168,7 +1168,7 @@ void ItemTooltips_t::readItemsFromFile()
 		items[SPYGLASS].category = TOOL;
 		items[SPYGLASS].item_slot = ItemEquippableSlot::EQUIPPABLE_IN_SLOT_SHIELD;
 		items[SPYGLASS].tooltip = "tooltip_default";
-		// mod edit: readItemsFromFile() may run repeatedly while the mounted JSON
+		//mod add: readItemsFromFile() may run repeatedly while the mounted JSON
 		// still predates SPYGLASS. Rebuild the fallback list instead of appending
 		// duplicate glasses image nodes on every reload.
 		list_FreeAll(&items[SPYGLASS].images);
@@ -1191,7 +1191,7 @@ void ItemTooltips_t::readItemsFromFile()
 			stringCopy(copy->data, source->data, len - 1, strlen(source->data));
 		}
 	}
-	// mod edit: enforce the executable contract even when a mounted mod JSON
+	//mod add: enforce the executable contract even when a mounted mod JSON
 	// supplies item 528 with a missing or stale equip_slot/category value.
 	items[SPYGLASS].category = TOOL;
 	items[SPYGLASS].item_slot = ItemEquippableSlot::EQUIPPABLE_IN_SLOT_SHIELD;
@@ -1480,7 +1480,7 @@ void ItemTooltips_t::readItemsFromFile()
 		++spellsRead;
 	}
 
-	// mod edit: Entrench participates in the native spell-level system through
+	//mod add: Entrench participates in the native spell-level system through
 	// the definition supplied by the mod's items.json.
 	auto entrenchSpellDef = spellItems.find(SPELL_ENTRENCH);
 	if ( entrenchSpellDef != spellItems.end() )
@@ -1586,7 +1586,7 @@ void ItemTooltips_t::readItemsFromFile()
 	}*/
 }
 
-// mod add: optional fill-missing JSON overlays for item presentation data
+//mod add: optional fill-missing JSON overlays for presentation data
 static void mergeJsonMissingMembers(rapidjson::Value& destination,
 	const rapidjson::Value& additive, rapidjson::Document::AllocatorType& allocator,
 	bool topLevel)
@@ -1678,8 +1678,6 @@ void applyOptionalJsonAdditiveFile(rapidjson::Document& primary,
 	mergeJsonMissingMembers(primary, additive, primary.GetAllocator(), true);
 	printlog("[JSON]: Applied optional additive file '%s'.", virtualPath);
 }
-// mod add end
-
 void ItemTooltips_t::readItemLocalizationsFromFile(bool forceLoadBaseDirectory)
 {
 	const bool applyAdditiveOverlay = !forceLoadBaseDirectory;
@@ -8794,6 +8792,38 @@ void MonsterData_t::loadMonsterDataJSON()
 					}
 				}
 			}
+		}
+
+		// mod add: Leonin ally/player portrait data. The executable owns the new
+		// model IDs, while the PNGs remain supplied by the mounted content mod.
+		{
+			auto& entry = monsterDataEntries[LEONIN];
+			entry.monsterType = LEONIN;
+			entry.defaultIconPath = baseIconPath + "basic/Icon_LeoninM_00.png";
+
+			static constexpr int leoninModels[] =
+			{
+				LEONIN_MODEL_ARM_LEFT, LEONIN_MODEL_ARM_RIGHT,
+				LEONIN_MODEL_ARM_BENT_LEFT, LEONIN_MODEL_ARM_BENT_RIGHT,
+				LEONIN_MODEL_HEAD_MALE, LEONIN_MODEL_HEAD_FEMALE,
+				LEONIN_MODEL_LEG_LEFT, LEONIN_MODEL_LEG_RIGHT,
+				LEONIN_MODEL_TORSO, LEONIN_MODEL_TAIL, LEONIN_MODEL_MANE
+			};
+			for ( const int model : leoninModels )
+			{
+				entry.modelIndexes.insert(model);
+			}
+
+			const std::string maleIcon = baseIconPath + "basic/Icon_LeoninM_00.png";
+			const std::string femaleIcon = baseIconPath + "basic/Icon_LeoninF_00.png";
+			entry.playerModelIndexes.insert(LEONIN_MODEL_HEAD_MALE);
+			entry.playerModelIndexes.insert(LEONIN_MODEL_HEAD_FEMALE);
+			entry.iconSpritesAndPaths[LEONIN_MODEL_HEAD_MALE].key = "player male";
+			entry.iconSpritesAndPaths[LEONIN_MODEL_HEAD_MALE].iconPath = maleIcon;
+			entry.iconSpritesAndPaths[LEONIN_MODEL_HEAD_FEMALE].key = "player female";
+			entry.iconSpritesAndPaths[LEONIN_MODEL_HEAD_FEMALE].iconPath = femaleIcon;
+			entry.keyToSpriteLookup["player male"] = { LEONIN_MODEL_HEAD_MALE };
+			entry.keyToSpriteLookup["player female"] = { LEONIN_MODEL_HEAD_FEMALE };
 		}
 		// validate data
 		for ( int i = 0; i < NUMMONSTERS; ++i )

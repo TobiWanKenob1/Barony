@@ -491,7 +491,7 @@ list_t* generatePath(int x1, int y1, int x2, int y2, Entity* my, Entity* target,
 	int myPathMap = pathMap[y1 + x1 * map.height];
 	if ( !loading )
 	{
-		// mod edit: breakable colliders can divide the precomputed connectivity
+		//mod add: breakable colliders can divide the precomputed connectivity
 		// zones. Gunshot investigation adjusts those entities below, so let its
 		// per-query A* map decide whether the destination is genuinely reachable.
 		const bool gunshotInvestigationPath = pathingType == GENERATE_PATH_GUNSHOT_INVESTIGATION;

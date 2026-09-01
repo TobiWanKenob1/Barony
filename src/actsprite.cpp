@@ -559,7 +559,7 @@ Entity* spawnFirearmMuzzleFlash(Sint16 x, Sint16 y, Sint16 z, real_t scale,
 	}
 
 	Entity* entity = nullptr;
-	// mod edit: A zero scale reuses the Musket smoke replication without
+	//mod add: A zero scale reuses the Musket smoke replication without
 	// manufacturing an invisible muzzle-flash entity for the quest awakening.
 	if ( scale > 0.0 )
 	{

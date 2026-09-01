@@ -5965,10 +5965,8 @@ int playerHeadSprite(Monster race, sex_t sex, int appearance, int frame, int pla
 		}
 		return sex == FEMALE ? 2015 : 2014;
 	}
-	// TODO: LEONIN PLACEHOLDER MODEL
-	// Uses base Salamander heads temporarily; replace with dedicated Leonin assets.
 	else if ( race == LEONIN ) {
-		return sex == FEMALE ? 2015 : 2014;
+		return sex == FEMALE ? LEONIN_MODEL_HEAD_FEMALE : LEONIN_MODEL_HEAD_MALE;
 	}
 	else if ( race == GNOME )
 	{
@@ -7497,6 +7495,12 @@ void actPlayer(Entity* my)
 	my->focalx = limbs[playerRace][0][0];
 	my->focaly = limbs[playerRace][0][1];
 	my->focalz = limbs[playerRace][0][2];
+	if ( playerRace == LEONIN )
+	{
+		// mod add: Leonin male and female heads use the same geometry correction.
+		my->focalx += 0.75;
+		my->focalz += 0.25;
+	}
 
 	if ( playerRace == GOATMAN && my->sprite == 768 )
 	{
@@ -9334,8 +9338,7 @@ void actPlayer(Entity* my)
 			case SALAMANDER:
 				zOffset = -1.25;
 				break;
-			// TODO: LEONIN PLACEHOLDER MODEL
-			// Uses base Salamander body height temporarily; replace with Leonin assets.
+			// mod add: Leonin body height
 			case LEONIN:
 				zOffset = -1.25;
 				break;
@@ -9412,8 +9415,7 @@ void actPlayer(Entity* my)
 				case SALAMANDER:
 					my->z = 3.0;
 					break;
-				// TODO: LEONIN PLACEHOLDER MODEL
-				// Uses base Salamander sleeping height temporarily.
+				// mod add: Leonin sleeping height
 				case LEONIN:
 					my->z = 3.0;
 					break;
@@ -13376,8 +13378,7 @@ void actPlayer(Entity* my)
 							entity->focaly = limbs[playerRace][4][1] + 0.25;
 							entity->focalz = limbs[playerRace][4][2] - 0.75;
 						}
-						// TODO: LEONIN PLACEHOLDER MODEL
-						// Uses base Salamander right-arm equipment offsets temporarily.
+						// mod add: Leonin right-arm equipment offsets
 						else if ( playerRace == LEONIN )
 						{
 							entity->focalx = limbs[LEONIN][4][0] + 0.75;
@@ -13561,8 +13562,7 @@ void actPlayer(Entity* my)
 							entity->focaly = limbs[playerRace][5][1] - 0.25;
 							entity->focalz = limbs[playerRace][5][2] - 0.75;
 						}
-						// TODO: LEONIN PLACEHOLDER MODEL
-						// Uses base Salamander left-arm equipment offsets temporarily.
+						// mod add: Leonin left-arm equipment offsets
 						else if ( playerRace == LEONIN )
 						{
 							entity->focalx = limbs[LEONIN][5][0] + 0.75;
@@ -14442,9 +14442,7 @@ void actPlayer(Entity* my)
 						entity->pitch += 0.5 * sin(entity->fskill[0]);
 						entity->roll = dir * -0.25 * sin(entity->fskill[0]);
 					}
-					// TODO: LEONIN PLACEHOLDER MODEL
-					// Uses the base Salamander tail and generic tail animation temporarily.
-					// This is a separate Leonin block and does not evaluate Salamander Heart state.
+					// mod add: Leonin tail
 					if ( playerRace == LEONIN )
 					{
 						entity->focalx = limbs[LEONIN][11][0];
@@ -14457,12 +14455,7 @@ void actPlayer(Entity* my)
 
 						entity->flags[INVISIBLE] = my->flags[INVISIBLE];
 						entity->flags[INVISIBLE_DITHER] = entity->flags[INVISIBLE];
-						entity->sprite = stats[PLAYER_NUM]->sex == FEMALE ? 2042 : 2041;
-						if ( stats[PLAYER_NUM]->sex == FEMALE )
-						{
-							entity->focalx += 0.5;
-							entity->focalz -= 0.25;
-						}
+						entity->sprite = LEONIN_MODEL_TAIL;
 
 						bool moving = false;
 						if ( fabs(PLAYER_VELX) > 0.1 || fabs(PLAYER_VELY) > 0.1 || insectoidLevitating )
@@ -14920,7 +14913,24 @@ void actPlayer(Entity* my)
 					entity->flags[INVISIBLE] = true;
 					entity->flags[INVISIBLE_DITHER] = false;
 
-					if ( playerRace == DRYAD )
+					// mod add: male natural-form Leonin mane
+					if ( playerRace == LEONIN && stats[PLAYER_NUM]->sex == MALE
+						&& (!helmet || helmet->sprite <= 0) )
+					{
+						entity->focalx = limbs[LEONIN][13][0];
+						entity->focaly = limbs[LEONIN][13][1];
+						entity->focalz = limbs[LEONIN][13][2];
+						entity->x += limbs[LEONIN][14][0] * cos(my->yaw + PI / 2) + limbs[LEONIN][14][1] * cos(my->yaw);
+						entity->y += limbs[LEONIN][14][0] * sin(my->yaw + PI / 2) + limbs[LEONIN][14][1] * sin(my->yaw);
+						entity->z += limbs[LEONIN][14][2];
+						entity->yaw = my->yaw;
+						entity->pitch = my->pitch;
+						entity->roll = my->roll;
+						entity->flags[INVISIBLE] = my->flags[INVISIBLE];
+						entity->flags[INVISIBLE_DITHER] = entity->flags[INVISIBLE];
+						entity->sprite = LEONIN_MODEL_MANE;
+					}
+					else if ( playerRace == DRYAD )
 					{
 						entity->focalx = limbs[playerRace][13][0];
 						entity->focaly = limbs[playerRace][13][1];
@@ -15777,6 +15787,9 @@ bool Entity::isPlayerHeadSprite(const int sprite)
 		// mod add: Merrow player heads must be recognized by multiplayer clientActions()
 		case 2413:
 		case 2425:
+		// mod add: Leonin player heads
+		case LEONIN_MODEL_HEAD_MALE:
+		case LEONIN_MODEL_HEAD_FEMALE:
 			return true;
 			break;
 		default:
@@ -15981,10 +15994,8 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 						this->sprite = 2040;
 					}
 					break;
-				// TODO: LEONIN PLACEHOLDER MODEL
-				// Uses the base Salamander torso only; never selects transformed variants.
 				case LEONIN:
-					this->sprite = 2038;
+					this->sprite = LEONIN_MODEL_TORSO;
 					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2062 : 2061;
@@ -16102,10 +16113,8 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 						this->sprite = 2037;
 					}
 					break;
-				// TODO: LEONIN PLACEHOLDER MODEL
-				// Uses the base Salamander right leg only.
 				case LEONIN:
-					this->sprite = 2033;
+					this->sprite = LEONIN_MODEL_LEG_RIGHT;
 					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2060 : 2058;
@@ -16211,10 +16220,8 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 						this->sprite = 2036;
 					}
 					break;
-				// TODO: LEONIN PLACEHOLDER MODEL
-				// Uses the base Salamander left leg only.
 				case LEONIN:
-					this->sprite = 2032;
+					this->sprite = LEONIN_MODEL_LEG_LEFT;
 					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2059 : 2057;
@@ -16306,10 +16313,8 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 						this->sprite = 2029;
 					}
 					break;
-				// TODO: LEONIN PLACEHOLDER MODEL
-				// Uses the base Salamander right arm only.
 				case LEONIN:
-					this->sprite = 2021;
+					this->sprite = LEONIN_MODEL_ARM_RIGHT;
 					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2054 : 2050;
@@ -16413,10 +16418,8 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 						this->sprite = 2028;
 					}
 					break;
-				// TODO: LEONIN PLACEHOLDER MODEL
-				// Uses the base Salamander left arm only.
 				case LEONIN:
-					this->sprite = 2020;
+					this->sprite = LEONIN_MODEL_ARM_LEFT;
 					break;
 				case GREMLIN:
 					this->sprite = stats[playernum]->sex == FEMALE ? 2053 : 2049;

@@ -24,6 +24,7 @@
 #include "../prng.hpp"
 #include "../mod_tools.hpp"
 #include "../collision.hpp"
+#include "../monster.hpp"
 
 //The spellcasting animation stages:
 #define ANIM_SPELL_CIRCLE 0 //One circle
@@ -606,7 +607,7 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 
 	target_x = previousx;
 	target_y = previousy;
-	// mod edit: placement logic consumes a tile, so make the preview and packet
+	//mod add: placement logic consumes a tile, so make the preview and packet
 	// use that tile's exact center instead of an arbitrary point along the ray.
 	if ( spell->ID == SPELL_ENTRENCH && rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE )
 	{
@@ -1308,7 +1309,7 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 
 	if ( entrenchFirstStage )
 	{
-		// mod edit: remain in the native targeting pose after pickup. The next
+		//mod add: remain in the native targeting pose after pickup. The next
 		// attack release places the carried object and then ends the cast.
 		animation_manager->stage = ANIM_SPELL_TOUCH;
 		animation_manager->rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
@@ -1590,10 +1591,8 @@ void actLeftHandMagic(Entity* my)
 			case SALAMANDER:
 				my->sprite = 2329;
 				break;
-			// TODO: LEONIN PLACEHOLDER MODEL
-			// Uses the base Salamander first-person left arm temporarily.
 			case LEONIN:
-				my->sprite = 2329;
+				my->sprite = LEONIN_MODEL_HAND_LEFT_FP;
 				break;
 			case GNOME:
 				my->sprite = 2321;
@@ -2437,10 +2436,8 @@ void actRightHandMagic(Entity* my)
 			case SALAMANDER:
 				my->sprite = 2330;
 				break;
-			// TODO: LEONIN PLACEHOLDER MODEL
-			// Uses the base Salamander first-person right arm temporarily.
 			case LEONIN:
-				my->sprite = 2330;
+				my->sprite = LEONIN_MODEL_HAND_RIGHT_FP;
 				break;
 			case GNOME:
 				my->sprite = 2322;

@@ -8617,7 +8617,7 @@ bind_failed:
 	}
 
 	// number of player selectable races
-	constexpr int num_races = 16; // mod edit: add Leonin selectable race
+	constexpr int num_races = 16; //mod add: add Leonin selectable race
 
 /******************************************************************************/
 	int getLangEntryForMainMenuRaceName(int race)
@@ -13265,9 +13265,8 @@ failed:
 			printlog("[JSON]: Error: No 'version' value in json file, or JSON syntax incorrect! %s", inputPath.c_str());
 			return;
 		}
-		// mod add: optional fill-missing description overlay
+		//mod add: optional fill-missing description overlay
 		applyOptionalJsonAdditiveFile(d, "/data/class_descriptions_add.json", sizeof(buf));
-		// mod add end
 
 		data.clear();
 
@@ -13428,9 +13427,8 @@ failed:
 			printlog("[JSON]: Error: No 'version' value in json file, or JSON syntax incorrect! %s", inputPath.c_str());
 			return;
 		}
-		// mod add: optional fill-missing description overlay
+		//mod add: optional fill-missing description overlay
 		applyOptionalJsonAdditiveFile(d, "/data/race_descriptions_add.json", sizeof(buf));
-		// mod add end
 
 		data.clear();
 
@@ -16787,7 +16785,7 @@ failed:
   		    static auto class_desc_fn = [](Field& field, int index){
 			    const int i = std::min(std::max(0, client_classes[index]), (Sint32)(ClassDescriptions::data.size() - 1));
 				field.setText(ClassDescriptions::data[i].text.c_str());
-			    if (i == CLASS_GUNSLINGER || i < CLASS_CONJURER) { // mod edit: Gunslinger is a Base class
+			    if (i == CLASS_GUNSLINGER || i < CLASS_CONJURER) { //mod add: Gunslinger is a Base class
 			        field.addColorToLine(0, color_dlc0);
 			    } else if (i < CLASS_MACHINIST) {
 			        field.addColorToLine(0, color_dlc1);
@@ -17004,7 +17002,7 @@ failed:
 				{
 					field.setText(Language::get(playerClassLangEntryCapitalized(i)));
 				}
-			    if (i == CLASS_GUNSLINGER || i < CLASS_CONJURER) { // mod edit: Gunslinger is a Base class
+			    if (i == CLASS_GUNSLINGER || i < CLASS_CONJURER) { //mod add: Gunslinger is a Base class
 			        field.setColor(color_dlc0);
 			    } else if (i < CLASS_MACHINIST) {
 			        field.setColor(color_dlc1);

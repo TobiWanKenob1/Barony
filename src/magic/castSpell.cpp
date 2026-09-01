@@ -426,7 +426,7 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 	bool bridge = false;
 	if ( carried->behavior == &actDoor && swimmingtiles[map.tiles[index]] )
 	{
-		// mod edit: water placement is always valid for a carried door. Its
+		//mod add: water placement is always valid for a carried door. Its
 		// orientation follows the caster-facing placement axis; surrounding bank
 		// tiles are intentionally irrelevant.
 		bridge = true;
@@ -1078,7 +1078,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 		return NULL;
 	}
 
-	// mod edit: Entrench placement is the second click of the original cast.
+	//mod add: Entrench placement is the second click of the original cast.
 	// Reuse the staff bypass internally so multiplayer does not charge mana or
 	// roll spell failure a second time; optionalData is sent by the targeter.
 	if ( spell->ID == SPELL_ENTRENCH && castSpellProps && castSpellProps->optionalData == 1 )
@@ -1305,7 +1305,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 		}
 	}
 
-	// mod edit: Entrench remains a normal mana-costing cast, but its two-stage
+	//mod add: Entrench remains a normal mana-costing cast, but its two-stage
 	// client prediction cannot safely enter placement mode after a server fizzle.
 	// Keep the utility interaction deterministic until it has an acknowledgement path.
 	if ( spell->ID == SPELL_ENTRENCH )
