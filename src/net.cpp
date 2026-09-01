@@ -5301,6 +5301,14 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 			retainsLoadedShot, magicScrapConsumed);
 	}},
 
+	//mod add: authoritative firearm reload completion for the owning client.
+	{'FRLD', [](){
+		const ItemType type = static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4]));
+		const Uint32 appearance = SDLNet_Read32(&net_packet->data[8]);
+		const bool success = net_packet->data[12] != 0;
+		receiveFirearmReloadResult(clientnum, type, appearance, success);
+	}},
+
 	// mod add: Mirror the server-authoritative permanent Musket unlock in the
 	// owning client's inventory. Sound, smoke, and chat use their normal packets.
 	{'MUQU', [](){

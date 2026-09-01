@@ -1032,6 +1032,8 @@ real_t rangedAttackGetSpeedModifier(const Stat* myStats);
 bool rangedWeaponUseQuiverOnAttack(const Stat* myStats);
 bool tryReloadFirearm(Item& firearm, int player); // mod add: firearm scrap reload
 void updateFirearmReload(int player); // mod add: timed firearm reload completion
+void receiveFirearmReloadResult(int player, ItemType type, Uint32 appearance,
+	bool success); //mod add: authoritative remote reload completion
 bool tryJamFirearm(Item& firearm, int player); // mod add: authoritative firearm jam roll
 bool tryQuestJamMusket(Item& firearm, int player); // mod add: persistent quest-jam feedback
 bool firearmUnjamIsActive(int player); // mod add: block firearm actions during clearing

@@ -148,6 +148,22 @@ static void clearEntrenchCarrySnapshot(Player::PlayerMechanics_t& state)
 	state.entrenchOriginDeployedReward = 0;
 }
 
+static void serverSyncEntrenchEntityTransform(Entity* entity)
+{
+	if ( multiplayer != SERVER || !entity )
+	{
+		return;
+	}
+	//mod add: Entrench moves an existing normally-static world entity. Mark it
+	// for ordinary transform replication and guarantee the accepted transition
+	// immediately so remote collision and tile-list state use the server position.
+	entity->flags[UPDATENEEDED] = true;
+	for ( int c = 1; c < MAXPLAYERS; ++c )
+	{
+		sendEntityUDP(entity, c, true);
+	}
+}
+
 void restoreEntrenchCarriedObject(int player)
 {
 	if ( player < 0 || player >= MAXPLAYERS || !players[player] )
@@ -194,6 +210,7 @@ void restoreEntrenchCarriedObject(int player)
 				serverUpdateEntitySkill(entity, 3);
 				serverUpdateEntitySkill(entity, 5);
 			}
+			serverSyncEntrenchEntityTransform(entity);
 		}
 	}
 	clearEntrenchCarrySnapshot(state);
@@ -311,6 +328,50 @@ static bool entrenchDestinationOccupied(Entity* carried, int tilex, int tiley)
 	return false;
 }
 
+static real_t entrenchMaximumCastDistance(Entity* caster)
+{
+	//mod add: Match the native rangefinder distance, with its existing eight-unit
+	// touch-target allowance for entity selection and tile-centering tolerance.
+	return getSpellPropertyFromID(spell_t::SPELLPROP_MODIFIED_DISTANCE,
+		SPELL_ENTRENCH, caster, nullptr, caster) + 8.0;
+}
+
+static bool entrenchTargetHasLineOfSight(Entity* caster, Entity* target)
+{
+	if ( !caster || !target )
+	{
+		return false;
+	}
+	const real_t distance = entityDist(caster, target);
+	Entity* oldHitEntity = hit.entity;
+	const real_t tangent = atan2(target->y - caster->y, target->x - caster->x);
+	lineTraceTarget(target, target->x, target->y, tangent + PI, distance,
+		LINETRACE_TELEKINESIS, false, caster);
+	const bool hasLineOfSight = hit.entity == caster;
+	hit.entity = oldHitEntity;
+	return hasLineOfSight;
+}
+
+static bool entrenchPlacementHasLineOfSight(Entity* caster, real_t x, real_t y)
+{
+	if ( !caster )
+	{
+		return false;
+	}
+	const real_t dx = x - caster->x;
+	const real_t dy = y - caster->y;
+	const real_t distance = sqrt(dx * dx + dy * dy);
+	if ( distance <= 0.001 )
+	{
+		return true;
+	}
+	Entity* oldHitEntity = hit.entity;
+	const real_t tracedDistance = lineTrace(caster, caster->x, caster->y,
+		atan2(dy, dx), distance, LINETRACE_TELEKINESIS, false);
+	hit.entity = oldHitEntity;
+	return tracedDistance + 0.001 >= distance;
+}
+
 static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 {
 	if ( !caster || player < 0 || player >= MAXPLAYERS || !players[player] || multiplayer == CLIENT )
@@ -333,6 +394,14 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 			return;
 		}
 		if ( !isEntrenchMovableObject(target) )
+		{
+			messagePlayer(player, MESSAGE_HINT, Language::get(7008));
+			return;
+		}
+		//mod add: A remote client supplies only a requested UID. Reapply the same
+		// range and obstruction checks on the authoritative world before lifting it.
+		if ( entityDist(caster, target) > entrenchMaximumCastDistance(caster)
+			|| !entrenchTargetHasLineOfSight(caster, target) )
 		{
 			messagePlayer(player, MESSAGE_HINT, Language::get(7008));
 			return;
@@ -412,6 +481,20 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		messagePlayer(player, MESSAGE_HINT, Language::get(7012));
 		return;
 	}
+	const real_t placementX = tilex * 16 + 8;
+	const real_t placementY = tiley * 16 + 8;
+	const real_t placementDx = placementX - caster->x;
+	const real_t placementDy = placementY - caster->y;
+	const real_t placementDistance = sqrt(placementDx * placementDx
+		+ placementDy * placementDy);
+	//mod add: Placement coordinates are a client request, not authority. Reject
+	// out-of-range or through-wall destinations before changing the world entity.
+	if ( placementDistance > entrenchMaximumCastDistance(caster)
+		|| !entrenchPlacementHasLineOfSight(caster, placementX, placementY) )
+	{
+		messagePlayer(player, MESSAGE_HINT, Language::get(7012));
+		return;
+	}
 	const int index = tiley * MAPLAYERS + tilex * MAPLAYERS * map.height;
 	if ( !map.tiles[index] || map.tiles[OBSTACLELAYER + index]
 		|| entrenchDestinationOccupied(carried, tilex, tiley) )
@@ -420,8 +503,8 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		return;
 	}
 
-	const real_t dx = (tilex * 16 + 8) - caster->x;
-	const real_t dy = (tiley * 16 + 8) - caster->y;
+	const real_t dx = placementX - caster->x;
+	const real_t dy = placementY - caster->y;
 	bool alongX = fabs(dx) >= fabs(dy);
 	bool bridge = false;
 	if ( carried->behavior == &actDoor && swimmingtiles[map.tiles[index]] )
@@ -437,8 +520,8 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		return;
 	}
 
-	carried->x = tilex * 16 + 8;
-	carried->y = tiley * 16 + 8;
+	carried->x = placementX;
+	carried->y = placementY;
 	carried->flags[INVISIBLE] = false;
 	carried->flags[UNCLICKABLE] = false;
 	carried->flags[PASSABLE] = bridge ? true : state.entrenchOriginPassable;
@@ -486,6 +569,7 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		serverUpdateEntitySkill(carried, ENTRENCH_CARRIED_OWNER_SKILL);
 		serverUpdateEntitySkill(carried, 3);
 		serverUpdateEntitySkill(carried, 5);
+		serverSyncEntrenchEntityTransform(carried);
 	}
 	if ( !bridge )
 	{
@@ -1079,9 +1163,14 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 	}
 
 	//mod add: Entrench placement is the second click of the original cast.
-	// Reuse the staff bypass internally so multiplayer does not charge mana or
-	// roll spell failure a second time; optionalData is sent by the targeter.
-	if ( spell->ID == SPELL_ENTRENCH && castSpellProps && castSpellProps->optionalData == 1 )
+	// Reuse the staff bypass only when authoritative carry state confirms that
+	// stage; a client-supplied optionalData byte alone must never waive mana.
+	const int entrenchPlayer = caster->behavior == &actPlayer ? caster->skill[2] : -1;
+	if ( spell->ID == SPELL_ENTRENCH && castSpellProps
+		&& castSpellProps->optionalData == 1
+		&& entrenchPlayer >= 0 && entrenchPlayer < MAXPLAYERS
+		&& players[entrenchPlayer]
+		&& players[entrenchPlayer]->mechanics.entrenchCarriedUid != 0 )
 	{
 		using_magicstaff = true;
 	}

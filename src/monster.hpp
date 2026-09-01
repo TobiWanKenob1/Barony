@@ -589,7 +589,7 @@ static double damagetables[NUMMONSTERS][7] =
 	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }, // monster_unused_7
 	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }, // monster_unused_8
 	{ 0.5, 1.f, 0.7, 1.2, 1.1, 1.4, 1.f }, // merrow mod add
-	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }  // mod add: Leonin uses Human damage affinities
+	{ 1.2, 0.8, 1.f, 1.3, 1.f, 0.6, 0.8 }  // leonin mod add
 };
 
 enum DamageTableType : int

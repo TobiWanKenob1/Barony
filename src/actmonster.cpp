@@ -154,7 +154,9 @@ bool monsterally[NUMMONSTERS][NUMMONSTERS] =
 	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // DUCK_SMALL
 	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // MONSTER_UNUSED_6
 	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // MONSTER_UNUSED_7
-	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }  // MONSTER_UNUSED_8
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // MONSTER_UNUSED_8
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // MERROW (preserve existing zero-initialized alliances)
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }  //mod add: Leonins are friendly with Leonins
 //    N  H  R  G  S  T  B  S  G  S  S  I  C  G  D  S  M  L  M  D  S  K  S  G  I  V  S  C  I  G  A  L  L  S  S  G  D  B  D  M  S  G  R  M  A  F  H  M  E  D  U  U  U
 //    O  U  A  O  L  R  A  P  H  K  C  M  R  N  E  U  I  I  I  E  H  O  C  O  N  A  H  O  N  O  U  I  I  N  P  Y  U  U  D  M  S  G  E  I  D  L  O  T  R  U  N  N  N
 //    T  M  T  B  I  O  T  I  O  E  O  P  A  O  M  C  M  C  N  V  P  B  A  L  C  M  A  C  S  A  T  F  I  T  L  R  M  G 	D  M  S  G  V  N  O  M  L  H  F  C  6  7  8
@@ -429,7 +431,8 @@ bool ShopkeeperPlayerHostility_t::isPlayerEnemy(const int player)
 bool ShopkeeperPlayerHostility_t::playerRaceCheckHostility(const int player, const Monster type) const
 {
 	if ( player < 0 || player >= MAXPLAYERS ) { return false; }
-	if ( type != HUMAN && type != AUTOMATON && type != DRYAD && type != MYCONID && type != SALAMANDER && type != GNOME ) 
+	if ( type != HUMAN && type != AUTOMATON && type != DRYAD && type != MYCONID && type != SALAMANDER && type != GNOME
+		&& type != LEONIN ) //mod add: Leonins are welcomed by shopkeepers
 	{
 		if ( stats[player] && stats[player]->mask && stats[player]->mask->type == MONOCLE )
 		{

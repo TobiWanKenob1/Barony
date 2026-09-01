@@ -8010,6 +8010,57 @@ static bool playerConsumeFirearmReloadMaterials(const Item& firearm, int player)
 		firearm.firearmReloadMaterialType(), materialCost);
 }
 
+static void sendFirearmReloadResult(int player, ItemType type,
+	Uint32 appearance, bool success)
+{
+	if ( multiplayer != SERVER || player <= 0 || player >= MAXPLAYERS
+		|| client_disconnected[player] || !players[player]
+		|| players[player]->isLocalPlayer() )
+	{
+		return;
+	}
+	//mod add: The server owns the reload transaction. Only its final appearance
+	// and result are returned to the owning client; normal inventory objects stay local.
+	strcpy((char*)net_packet->data, "FRLD");
+	SDLNet_Write32(static_cast<Uint32>(type), &net_packet->data[4]);
+	SDLNet_Write32(appearance, &net_packet->data[8]);
+	net_packet->data[12] = success ? 1 : 0;
+	net_packet->address.host = net_clients[player - 1].host;
+	net_packet->address.port = net_clients[player - 1].port;
+	net_packet->len = 13;
+	sendPacketSafe(net_sock, -1, net_packet, player - 1);
+}
+
+void receiveFirearmReloadResult(int player, ItemType type, Uint32 appearance,
+	bool success)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !stats[player] )
+	{
+		return;
+	}
+	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
+	if ( mechanics.firearmReloadItemUid == 0
+		|| mechanics.firearmReloadItemType != type )
+	{
+		return;
+	}
+
+	Item* firearm = stats[player]->weapon;
+	if ( success && firearm && firearm->uid == mechanics.firearmReloadItemUid
+		&& firearm->type == type && firearm->isFirearm() )
+	{
+		//mod add: Mirror the server-paid cost exactly once, then accept the server's
+		// complete appearance so loaded and quest-jam bits cannot drift.
+		playerConsumeFirearmReloadMaterials(*firearm, player);
+		firearm->appearance = appearance;
+		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+			Language::get(7005), firearm->getName());
+	}
+	mechanics.firearmReloadTicks = 0;
+	mechanics.firearmReloadItemUid = 0;
+	mechanics.firearmReloadItemType = WOODEN_SHIELD;
+}
+
 bool tryReloadFirearm(Item& firearm, int player)
 {
 	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !stats[player]
@@ -8032,6 +8083,7 @@ bool tryReloadFirearm(Item& firearm, int player)
 	const Sint32 materialCost = firearm.firearmReloadMaterialCost();
 	if ( playerCountFirearmReloadMaterials(firearm, player) < materialCost )
 	{
+		sendFirearmReloadResult(player, firearm.type, firearm.appearance, false);
 		if ( players[player]->isLocalPlayer() )
 		{
 			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
@@ -8074,6 +8126,7 @@ void updateFirearmReload(int player)
 	// a reload as Panicking takes control cannot consume scrap or load the gun.
 	if ( playerIsPanicking(player) )
 	{
+		sendFirearmReloadResult(player, mechanics.firearmReloadItemType, 0, false);
 		mechanics.firearmReloadTicks = 0;
 		mechanics.firearmReloadItemUid = 0;
 		mechanics.firearmReloadItemType = WOODEN_SHIELD;
@@ -8087,12 +8140,20 @@ void updateFirearmReload(int player)
 		&& firearm->isFirearm() && !firearm->firearmIsLoaded();
 	if ( !actionStillValid )
 	{
+		sendFirearmReloadResult(player, mechanics.firearmReloadItemType,
+			firearm ? firearm->appearance : 0, false);
 		mechanics.firearmReloadTicks = 0;
 		mechanics.firearmReloadItemUid = 0;
 		mechanics.firearmReloadItemType = WOODEN_SHIELD;
 		return;
 	}
 
+	//mod add: A remote client holds the finished pose at one tick and waits for
+	// the server result instead of independently committing Scrap and loaded state.
+	if ( multiplayer == CLIENT && mechanics.firearmReloadTicks == 1 )
+	{
+		return;
+	}
 	--mechanics.firearmReloadTicks;
 	if ( mechanics.firearmReloadTicks > 0 )
 	{
@@ -8108,6 +8169,7 @@ void updateFirearmReload(int player)
 		if ( playerConsumeFirearmReloadMaterials(*firearm, player) )
 		{
 			firearm->setFirearmLoaded(true);
+			sendFirearmReloadResult(player, firearm->type, firearm->appearance, true);
 			if ( multiplayer != CLIENT )
 			{
 				// mod add: Dedicated loaded/ready report at the successful transition.
@@ -8127,13 +8189,17 @@ void updateFirearmReload(int player)
 					Language::get(7005), firearm->getName());
 			}
 		}
-		else if ( players[player]->isLocalPlayer() )
+		else
 		{
-			const ItemType materialType = firearm->firearmReloadMaterialType();
-			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
-				Language::get(7006),
-				items[materialType].getIdentifiedName(), firearm->getName());
-			playSoundPlayer(player, 90, 64);
+			sendFirearmReloadResult(player, firearm->type, firearm->appearance, false);
+			if ( players[player]->isLocalPlayer() )
+			{
+				const ItemType materialType = firearm->firearmReloadMaterialType();
+				messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+					Language::get(7006),
+					items[materialType].getIdentifiedName(), firearm->getName());
+				playSoundPlayer(player, 90, 64);
+			}
 		}
 		// mod add end
 	}

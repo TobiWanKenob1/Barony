@@ -19957,9 +19957,16 @@ bool Entity::checkFriend(Entity* your)
 			else if ( behavior == &actPlayer && myStats->type != HUMAN )
 			{
 				result = monsterally[HUMAN][yourStats->type];
-				if ( myStats->type == LEONIN ) // mod add: use Human alliances unchanged
+				if ( myStats->type == LEONIN ) //mod add: retain Human alliances, but Human itself is neutral
 				{
-					result = yourStats->type == LEONIN ? true : result;
+					if ( yourStats->type == HUMAN )
+					{
+						result = false;
+					}
+					else if ( yourStats->type == LEONIN )
+					{
+						result = monsterally[LEONIN][LEONIN];
+					}
 				}
 				else if ( (yourStats->type == HUMAN || yourStats->type == SHOPKEEPER)
 					&& !(myStats->type == AUTOMATON || myStats->type == DRYAD || myStats->type == MYCONID || myStats->type == SALAMANDER
@@ -20100,9 +20107,16 @@ bool Entity::checkFriend(Entity* your)
 			else if ( behavior == &actMonster && your->behavior == &actPlayer && yourStats->type != HUMAN )
 			{
 				result = monsterally[myStats->type][HUMAN];
-				if ( yourStats->type == LEONIN ) // mod add: use Human alliances unchanged
+				if ( yourStats->type == LEONIN ) //mod add: retain Human alliances, but Human itself is neutral
 				{
-					result = myStats->type == LEONIN ? true : result;
+					if ( myStats->type == HUMAN )
+					{
+						result = false;
+					}
+					else if ( myStats->type == LEONIN )
+					{
+						result = monsterally[LEONIN][LEONIN];
+					}
 				}
 				else if ( (myStats->type == HUMAN || myStats->type == SHOPKEEPER)
 					&& !(yourStats->type == AUTOMATON || yourStats->type == DRYAD || yourStats->type == MYCONID || yourStats->type == SALAMANDER
@@ -28789,13 +28803,23 @@ bool Entity::SetEntityOnFire(Entity* sourceOfFire)
 				}
 			}
 
+			auto finishBurnDuration = [this]()
+			{
+				if ( isNaturalLeoninPlayer() )
+				{
+					//mod add: Natural Leonins retain the completed vanilla burn duration 20% longer.
+					this->char_fire = (this->char_fire * 6) / 5;
+				}
+				return true;
+			};
+
 			// Determine decrease in time on fire based on the Entity's CON
 			const Sint32 entityCON = this->getStats()->CON;
 
 			// If the Entity's CON is <= 1 then their time is just MAX_TICKS_ON_FIRE
 			if ( entityCON <= 1 )
 			{
-				return true; // The Entity was set on fire, with maximum duration and chance
+				return finishBurnDuration(); // The Entity was set on fire, with maximum duration and chance
 			}
 
 			// If the Entity's CON is <= 4 then their chance is just MAX_CHANCE_STOP_FIRE
@@ -28831,7 +28855,7 @@ bool Entity::SetEntityOnFire(Entity* sourceOfFire)
 				}
 			}
 
-			return true; // The Entity was set on fire, with a reduced duration
+			return finishBurnDuration(); // The Entity was set on fire, with a reduced duration
 		}
 	}
 
