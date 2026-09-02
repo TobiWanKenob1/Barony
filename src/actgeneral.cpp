@@ -1361,6 +1361,35 @@ void Entity::colliderOnDestroy()
 	}
 	if ( colliderContainedEntity != 0 )
 	{
+		//mod add: Entrench moves the breakable collider, while its hidden contents
+		// remain UID-linked world entities. Release every linked item/gold entity
+		// from the collider's authoritative current position rather than its stale
+		// map-generation position.
+		for ( node_t* node = map.entities->first; node; node = node->next )
+		{
+			Entity* contained = static_cast<Entity*>(node->element);
+			if ( !contained || !contained->flags[INVISIBLE]
+				|| !((contained->behavior == &actItem && contained->itemContainer == getUID())
+					|| (contained->behavior == &actGoldBag && contained->goldInContainer == getUID())) )
+			{
+				continue;
+			}
+			if ( contained->x == x && contained->y == y )
+			{
+				continue;
+			}
+			contained->x = x;
+			contained->y = y;
+			contained->flags[UPDATENEEDED] = true;
+			TileEntityList.updateEntity(*contained);
+			if ( multiplayer == SERVER )
+			{
+				for ( int client = 1; client < MAXPLAYERS; ++client )
+				{
+					sendEntityUDP(contained, client, true);
+				}
+			}
+		}
 		if ( auto entity = uidToEntity(colliderContainedEntity) )
 		{
 			if ( entity->behavior == &actItem || entity->behavior == &actGoldBag )

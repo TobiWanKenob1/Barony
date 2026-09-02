@@ -432,7 +432,9 @@ bool itemLevelCurvePostProcess(Entity* my, Item* item, BaronyRNG& rng, int itemL
 					{
 						if ( auto spell = find->second )
 						{
-							if ( spell->ID != SPELL_NONE && !spell->hide_from_ui && itemLevel >= spell->drop_table )
+							if ( spell->ID != SPELL_NONE
+								&& spell->ID != SPELL_ENTRENCH //mod add: Entrench has explicit acquisition sources only
+								&& !spell->hide_from_ui && itemLevel >= spell->drop_table )
 							{
 								if ( (spell->difficulty / 20) <= (1 + (itemLevel / 5))
 									/*&& (spell->difficulty >= minDifficulty)*/ )

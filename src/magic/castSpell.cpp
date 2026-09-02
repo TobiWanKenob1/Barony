@@ -10148,6 +10148,11 @@ bool spellIsNaturallyLearnedByRaceOrClass(Entity* caster, Stat& stat, int spellI
 			return true;
 		}
 	}
+	else if ( client_classes[playernum] == CLASS_GUNSLINGER
+		&& (spellID == SPELL_ENTRENCH || spellID == SPELL_SALVAGE) ) //mod add: Gunslinger innate utility spells.
+	{
+		return true;
+	}
 		
 	if ( stat.getEffectActive(EFF_SHAPESHIFT) )
 	{

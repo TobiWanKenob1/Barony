@@ -23239,6 +23239,10 @@ void updateSlotFrameFromItem(Frame* slotFrame, void* itemPtr, bool forceUnusable
 		if ( auto iconLabelImg = spriteImageFrame->getImages()[SLOTFRAME_ITEMSPRITE_LABEL_IMG]/*spriteImageFrame->findImage("icon label img")*/ )
 		{
 			iconLabelImg->path = ItemTooltips.getIconLabel(*item);
+			if ( item->firearmIsLoaded() )
+			{
+				iconLabelImg->path = "images/ui/Inventory/loaded.png"; //mod add: Reuse the inventory icon-label badge for loaded firearms.
+			}
 			iconLabelImg->disabled = true;
 			const int size = 16;
 			const int padx = spriteImageFrame->getSize().w / 2 - size / 2;

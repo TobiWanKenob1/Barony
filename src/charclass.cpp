@@ -3587,14 +3587,9 @@ void initClass(const int player)
 			item2 = itemPickup(player, item);
 			free(item);
 
-			item = newItem(SPELLBOOK_ENTRENCH, EXCELLENT, 0, 1, 0, true, nullptr);
+			item = newItem(SPELLBOOK_ENTRENCH, SERVICABLE, 0, 1, 0, true, nullptr);
 			item2 = itemPickup(player, item);
 			hotbar[1].item = item2->uid;
-			free(item);
-
-			item = newItem(SPELLBOOK_SALVAGE, WORN, 0, 1, 0, true, nullptr);
-			item2 = itemPickup(player, item);
-			hotbar[2].item = item2->uid;
 			free(item);
 
 			item = newItem(SCROLL_MAGICMAPPING, EXCELLENT, 0, 5, 0, true, nullptr);
@@ -3897,6 +3892,11 @@ void initClass(const int player)
 		else if ( client_classes[player] == CLASS_PALADIN )
 		{
 			addSpell(SPELL_DIVINE_ZEAL, player, true);
+		}
+		else if ( client_classes[player] == CLASS_GUNSLINGER ) //mod add: Gunslinger innate utility spells.
+		{
+			addSpell(SPELL_ENTRENCH, player, true);
+			addSpell(SPELL_SALVAGE, player, true);
 		}
 
 		//printlog("spell size: %d", list_Size(&spellList));

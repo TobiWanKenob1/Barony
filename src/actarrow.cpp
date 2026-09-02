@@ -1241,8 +1241,11 @@ void actArrow(Entity* my)
 							}
 						}
 
-						int chance = 10;
-						if ( doSkillIncrease && (local_rng.rand() % chance == 0) && parent && parent->getStats() )
+						const bool firearmShot = my->arrowShotByFirearm();
+						const int chance = firearmShot ? 4 : 10; //mod add: Damaging firearm hits have a 25% Ranged progression chance.
+						if ( doSkillIncrease
+							&& (!firearmShot || oldHP > hitstats->HP)
+							&& (local_rng.rand() % chance == 0) && parent && parent->getStats() )
 						{
 							if ( hitstats->type != DUMMYBOT 
 								|| (hitstats->type == DUMMYBOT && parent->getStats()->getProficiency(PRO_RANGED) < SKILL_LEVEL_BASIC) )
