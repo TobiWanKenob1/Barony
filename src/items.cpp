@@ -7759,7 +7759,8 @@ static bool playerConsumeInventoryItemType(int player, ItemType type, Sint32 amo
 bool firearmUnjamIsActive(int player)
 {
 	return player >= 0 && player < MAXPLAYERS && players[player]
-		&& players[player]->mechanics.firearmUnjamTicks > 0;
+		&& (players[player]->mechanics.firearmUnjamTicks > 0
+			|| players[player]->mechanics.firearmJamAwaitingPayment);
 }
 
 void playFirearmJamSound(Entity* wielder)
@@ -7805,6 +7806,129 @@ static void beginFirearmUnjam(Item& firearm, int player, Sint32 duration,
 	}
 }
 
+// Paid jam recovery is independent of reload: payment is immediate and never refunded.
+static Uint32 firearmJamSequence = 0;
+
+static void sendFirearmJamResult(int player, ItemType type, Sint32 duration,
+	bool retained, Uint32 token)
+{
+	if ( multiplayer != SERVER || player <= 0 || player >= MAXPLAYERS
+		|| !players[player] || players[player]->isLocalPlayer() || client_disconnected[player]
+		|| !net_packet || !net_clients ) { return; }
+	strcpy((char*)net_packet->data, "FJAM");
+	SDLNet_Write32(static_cast<Uint32>(type), &net_packet->data[4]);
+	SDLNet_Write16(static_cast<Uint16>(duration), &net_packet->data[8]);
+	net_packet->data[10] = retained ? 1 : 0;
+	SDLNet_Write32(token, &net_packet->data[11]);
+	net_packet->address = net_clients[player - 1];
+	net_packet->len = 15;
+	sendPacketSafe(net_sock, -1, net_packet, player - 1);
+}
+
+static void clearFirearmJamPayment(int player)
+{
+	auto& m = players[player]->mechanics;
+	m.firearmJamToken = 0;
+	m.firearmJamAwaitingPayment = false;
+	m.firearmJamPaymentCommitted = false;
+	m.firearmJamRecoveryCost = 0;
+}
+
+void cancelFirearmJamPayment(int player, bool endSession)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( m.firearmJamAwaitingPayment )
+	{
+		// Duration zero closes the transaction without touching a replacement gun.
+		sendFirearmJamResult(player, m.firearmUnjamItemType, 0, false, m.firearmJamToken);
+		m.firearmUnjamTicks = 0;
+		m.firearmUnjamItemUid = 0;
+		m.firearmUnjamItemType = WOODEN_SHIELD;
+	}
+	clearFirearmJamPayment(player);
+	m.firearmJamAttackItemUid = 0;
+	if ( endSession ) { m.firearmJamLastToken = 0; }
+}
+
+static void sendFirearmJamPayment(int player, ItemType type, Uint32 token, bool paid)
+{
+	strcpy((char*)net_packet->data, "FJCP");
+	net_packet->data[4] = player;
+	SDLNet_Write32(static_cast<Uint32>(type), &net_packet->data[5]);
+	SDLNet_Write32(token, &net_packet->data[9]);
+	net_packet->data[13] = paid ? 1 : 0;
+	net_packet->address = net_server;
+	net_packet->len = 14;
+	sendPacketSafe(net_sock, -1, net_packet, 0);
+}
+
+void receiveFirearmJamReady(int player, ItemType type, Sint32 duration,
+	Sint32 cost, Uint32 token)
+{
+	if ( multiplayer != CLIENT || player != clientnum || player < 0 || player >= MAXPLAYERS
+		|| !players[player] || !stats[player] || !token || type != MUSKET
+		|| duration != TICKS_PER_SECOND / 2 || cost <= 0 ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( token == m.firearmJamToken && m.firearmJamAwaitingPayment )
+	{
+		// Cache failures too: newly acquired Scrap cannot change this jam's decision.
+		sendFirearmJamPayment(player, m.firearmUnjamItemType, token, m.firearmJamPaymentCommitted);
+		return;
+	}
+	if ( token <= m.firearmJamLastToken ) { return; }
+	if ( m.firearmJamAwaitingPayment )
+	{
+		sendFirearmJamPayment(player, type, token, false);
+		return;
+	}
+	Item* firearm = stats[player]->weapon;
+	// Use the maximum from the unchanged cost helper, not a second cost formula.
+	Item costProbe = {};
+	costProbe.type = MUSKET;
+	if ( cost > costProbe.firearmJamRecoveryScrapCost(0) ) { return; }
+	const bool valid = players[player]->entity && stats[player]->HP > 0
+		&& !client_disconnected[player] && firearm && firearm->type == type
+		&& firearm->uid == m.firearmJamAttackItemUid && !firearm->musketQuestJammed()
+		&& !firearm->firearmIsLoaded() && m.firearmUnjamTicks == 0;
+	m.firearmJamLastToken = token;
+	m.firearmJamToken = token;
+	m.firearmJamAwaitingPayment = true;
+	m.firearmJamRecoveryCost = cost;
+	m.firearmUnjamItemUid = valid ? firearm->uid : 0;
+	m.firearmUnjamItemType = type;
+	m.firearmUnjamTicks = duration; // held until final FJAM, never advanced while pending
+	m.firearmJamAttackItemUid = 0;
+	m.firearmJamPaymentCommitted = valid
+		&& playerConsumeInventoryItemType(player, TOOL_MAGIC_SCRAP, cost);
+	sendFirearmJamPayment(player, type, token, m.firearmJamPaymentCommitted);
+}
+
+void receiveFirearmJamPayment(int player, ItemType type, Uint32 token, bool paid)
+{
+	if ( multiplayer != SERVER || player <= 0 || player >= MAXPLAYERS
+		|| !players[player] || players[player]->isLocalPlayer() || client_disconnected[player] ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( !token || token != m.firearmJamToken || !m.firearmJamAwaitingPayment
+		|| type != m.firearmUnjamItemType ) { return; }
+	Item* firearm = stats[player] ? stats[player]->weapon : nullptr;
+	const bool valid = players[player]->entity && stats[player] && stats[player]->HP > 0
+		&& firearm && firearm->uid == m.firearmUnjamItemUid && firearm->type == type
+		&& firearm->firearmIsLoaded() && !firearm->musketQuestJammed();
+	const Sint32 duration = valid ? m.firearmUnjamTicks : 0;
+	// Disarm before callbacks; a duplicate FJCP cannot start a second clearing action.
+	m.firearmUnjamTicks = 0;
+	m.firearmUnjamItemUid = 0;
+	m.firearmUnjamItemType = WOODEN_SHIELD;
+	clearFirearmJamPayment(player);
+	if ( valid )
+	{
+		firearm->setFirearmLoaded(paid);
+		beginFirearmUnjam(*firearm, player, duration, paid);
+	}
+	sendFirearmJamResult(player, type, duration, paid, token);
+}
+
 bool tryQuestJamMusket(Item& firearm, int player)
 {
 	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS
@@ -7816,7 +7940,7 @@ bool tryQuestJamMusket(Item& firearm, int player)
 	}
 
 	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
-	if ( mechanics.firearmReloadTicks > 0 || mechanics.firearmUnjamTicks > 0 )
+	if ( mechanics.firearmReloadTicks > 0 || firearmUnjamIsActive(player) )
 	{
 		return true;
 	}
@@ -7826,17 +7950,7 @@ bool tryQuestJamMusket(Item& firearm, int player)
 	beginFirearmUnjam(firearm, player, duration, retainsLoadedShot, true);
 	if ( multiplayer == SERVER && player > 0 && !players[player]->isLocalPlayer() )
 	{
-		// Mirror presentation only. The item appearance bit remains the persistent,
-		// authoritative lock and is never cleared by this transient action.
-		strcpy((char*)net_packet->data, "FJAM");
-		SDLNet_Write32(static_cast<Uint32>(firearm.type), &net_packet->data[4]);
-		SDLNet_Write16(static_cast<Uint16>(duration), &net_packet->data[8]);
-		net_packet->data[10] = retainsLoadedShot ? 1 : 0;
-		net_packet->data[11] = 0;
-		net_packet->address.host = net_clients[player - 1].host;
-		net_packet->address.port = net_clients[player - 1].port;
-		net_packet->len = 12;
-		sendPacketSafe(net_sock, -1, net_packet, player - 1);
+		sendFirearmJamResult(player, firearm.type, duration, retainsLoadedShot, 0);
 	}
 	return true;
 }
@@ -7853,7 +7967,7 @@ bool tryJamFirearm(Item& firearm, int player)
 	}
 
 	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
-	if ( mechanics.firearmReloadTicks > 0 || mechanics.firearmUnjamTicks > 0 )
+	if ( mechanics.firearmReloadTicks > 0 || firearmUnjamIsActive(player) )
 	{
 		return false;
 	}
@@ -7866,15 +7980,32 @@ bool tryJamFirearm(Item& firearm, int player)
 	}
 
 	bool retainsLoadedShot = true;
-	Sint32 magicScrapConsumed = 0;
 	const Sint32 recoveryCost = firearm.firearmJamRecoveryScrapCost(rawTinkering);
+	if ( multiplayer == SERVER && player > 0 && !players[player]->isLocalPlayer()
+		&& firearm.type == MUSKET && recoveryCost > 0 )
+	{
+		if ( ++firearmJamSequence == 0 ) { ++firearmJamSequence; }
+		mechanics.firearmJamToken = firearmJamSequence;
+		mechanics.firearmJamAwaitingPayment = true;
+		mechanics.firearmJamRecoveryCost = recoveryCost;
+		mechanics.firearmUnjamItemUid = firearm.uid;
+		mechanics.firearmUnjamItemType = firearm.type;
+		mechanics.firearmUnjamTicks = TICKS_PER_SECOND / 2;
+		mechanics.firearmUnjamRetainsLoadedShot = true;
+		mechanics.firearmUnjamWasQuestJammed = false;
+		strcpy((char*)net_packet->data, "FJRD");
+		SDLNet_Write32(static_cast<Uint32>(firearm.type), &net_packet->data[4]);
+		SDLNet_Write16(static_cast<Uint16>(mechanics.firearmUnjamTicks), &net_packet->data[8]);
+		net_packet->data[10] = static_cast<Uint8>(recoveryCost);
+		SDLNet_Write32(mechanics.firearmJamToken, &net_packet->data[11]);
+		net_packet->address = net_clients[player - 1];
+		net_packet->len = 15;
+		sendPacketSafe(net_sock, -1, net_packet, player - 1);
+		return true; // this trigger pull jammed; never resume it as a shot
+	}
 	if ( recoveryCost > 0 )
 	{
-		if ( playerConsumeInventoryItemType(player, TOOL_MAGIC_SCRAP, recoveryCost) )
-		{
-			magicScrapConsumed = recoveryCost;
-		}
-		else
+		if ( !playerConsumeInventoryItemType(player, TOOL_MAGIC_SCRAP, recoveryCost) )
 		{
 			// The full recovery price cannot be paid: consume nothing and spoil
 			// the chambered shot while retaining the short jam-clear action.
@@ -7887,41 +8018,43 @@ bool tryJamFirearm(Item& firearm, int player)
 	beginFirearmUnjam(firearm, player, duration, retainsLoadedShot);
 	if ( multiplayer == SERVER && player > 0 && !players[player]->isLocalPlayer() )
 	{
-		// mod add: Correct client shot prediction from the authoritative result.
-		// The packet also mirrors the already-decided scrap mutation; the client
-		// never rolls the jam or independently chooses its recovery cost.
-		strcpy((char*)net_packet->data, "FJAM");
-		SDLNet_Write32(static_cast<Uint32>(firearm.type), &net_packet->data[4]);
-		SDLNet_Write16(static_cast<Uint16>(duration), &net_packet->data[8]);
-		net_packet->data[10] = retainsLoadedShot ? 1 : 0;
-		net_packet->data[11] = static_cast<Uint8>(magicScrapConsumed);
-		net_packet->address.host = net_clients[player - 1].host;
-		net_packet->address.port = net_clients[player - 1].port;
-		net_packet->len = 12;
-		sendPacketSafe(net_sock, -1, net_packet, player - 1);
+		sendFirearmJamResult(player, firearm.type, duration, retainsLoadedShot, 0);
 	}
 	return true;
 }
 
 void receiveFirearmJam(int player, ItemType type, Sint32 duration,
-	bool retainsLoadedShot, Sint32 magicScrapConsumed)
+	bool retainsLoadedShot, Uint32 token)
 {
-	if ( player < 0 || player >= MAXPLAYERS || !stats[player] || !players[player] )
-	{
-		return;
-	}
+	if ( multiplayer != CLIENT || player != clientnum || player < 0 || player >= MAXPLAYERS
+		|| !stats[player] || !players[player] ) { return; }
+	auto& m = players[player]->mechanics;
 	Item* firearm = stats[player]->weapon;
-	if ( !firearm || !firearm->isFirearm() || firearm->type != type )
+	bool matches = firearm && firearm->isFirearm() && firearm->type == type;
+	if ( token )
 	{
-		return;
+		if ( token != m.firearmJamToken || !m.firearmJamAwaitingPayment
+			|| type != m.firearmUnjamItemType )
+		{
+			// SAFE is reliable but not ordered. A cancellation can precede FJRD;
+			// remember it so the delayed request cannot charge a later interaction.
+			if ( duration == 0 && token > m.firearmJamLastToken )
+			{
+				m.firearmJamLastToken = token;
+			}
+			return;
+		}
+		matches = matches && firearm->uid == m.firearmUnjamItemUid;
+		m.firearmUnjamTicks = 0;
+		m.firearmUnjamItemUid = 0;
+		m.firearmUnjamItemType = WOODEN_SHIELD;
+		clearFirearmJamPayment(player);
 	}
-
-	// Apply only the server-provided result: paid jams restore the locally
-	// predicted loaded bit, while an unrecoverable charge remains empty.
-	if ( magicScrapConsumed > 0 )
-	{
-		playerConsumeInventoryItemType(player, TOOL_MAGIC_SCRAP, magicScrapConsumed);
-	}
+	else if ( m.firearmJamAwaitingPayment ) { return; }
+	m.firearmJamAttackItemUid = 0;
+	// Payment was already committed at FJRD. A zero-duration result only closes
+	// an invalidated transaction and must not alter a replacement firearm.
+	if ( !matches || duration <= 0 ) { return; }
 	firearm->setFirearmLoaded(retainsLoadedShot);
 	beginFirearmUnjam(*firearm, player, duration, retainsLoadedShot,
 		firearm->musketQuestJammed());
@@ -7935,6 +8068,12 @@ void updateFirearmUnjam(int player)
 	}
 
 	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
+	if ( mechanics.firearmJamAwaitingPayment )
+	{
+		if ( !players[player]->entity || !stats[player] || stats[player]->HP <= 0
+			|| client_disconnected[player] ) { cancelFirearmJamPayment(player); }
+		return; // the normal half-second clear starts only after the payment decision
+	}
 	if ( mechanics.firearmUnjamTicks <= 0 )
 	{
 		return;
@@ -8012,207 +8151,305 @@ static bool playerConsumeFirearmReloadMaterials(const Item& firearm, int player)
 		firearm.firearmReloadMaterialType(), materialCost);
 }
 
-static void sendFirearmReloadResult(int player, ItemType type,
-	Uint32 appearance, bool success)
+// Tokens are action identities, never Item UIDs. Keep the sequence across player init.
+static Uint32 firearmReloadSequence = 0;
+
+static bool remoteFirearmOwner(int player)
 {
-	if ( multiplayer != SERVER || player <= 0 || player >= MAXPLAYERS
-		|| client_disconnected[player] || !players[player]
-		|| players[player]->isLocalPlayer() )
-	{
-		return;
-	}
-	//mod add: The server owns the reload transaction. Only its final appearance
-	// and result are returned to the owning client; normal inventory objects stay local.
+	return multiplayer == SERVER && player > 0 && players[player]
+		&& !players[player]->isLocalPlayer();
+}
+
+static void sendFirearmReloadResult(int player, ItemType type,
+	Uint32 appearance, bool success, Uint32 token)
+{
+	if ( !remoteFirearmOwner(player) || client_disconnected[player] || !net_packet || !net_clients ) { return; }
 	strcpy((char*)net_packet->data, "FRLD");
 	SDLNet_Write32(static_cast<Uint32>(type), &net_packet->data[4]);
 	SDLNet_Write32(appearance, &net_packet->data[8]);
 	net_packet->data[12] = success ? 1 : 0;
-	net_packet->address.host = net_clients[player - 1].host;
-	net_packet->address.port = net_clients[player - 1].port;
-	net_packet->len = 13;
+	SDLNet_Write32(token, &net_packet->data[13]);
+	net_packet->address = net_clients[player - 1];
+	net_packet->len = 17;
 	sendPacketSafe(net_sock, -1, net_packet, player - 1);
 }
 
-void receiveFirearmReloadResult(int player, ItemType type, Uint32 appearance,
-	bool success)
+static void clearFirearmReload(int player)
 {
-	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !stats[player] )
-	{
-		return;
-	}
-	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
-	if ( mechanics.firearmReloadItemUid == 0
-		|| mechanics.firearmReloadItemType != type )
-	{
-		return;
-	}
+	auto& m = players[player]->mechanics;
+	m.firearmReloadTicks = 0;
+	m.firearmReloadItemUid = 0;
+	m.firearmReloadItemType = WOODEN_SHIELD;
+	m.firearmReloadToken = 0;
+	m.firearmReloadAwaitingPayment = false;
+	m.firearmReloadMaterialsCommitted = false;
+	m.firearmReloadCommittedMaterialType = WOODEN_SHIELD;
+	m.firearmReloadCommittedMaterialCost = 0;
+	m.firearmReloadRefundOnGround = false;
+	m.firearmReloadDeathX = 0;
+	m.firearmReloadDeathY = 0;
+}
 
-	Item* firearm = stats[player]->weapon;
-	if ( success && firearm && firearm->uid == mechanics.firearmReloadItemUid
-		&& firearm->type == type && firearm->isFirearm() )
+static bool firearmReloadValid(int player)
+{
+	auto& m = players[player]->mechanics;
+	Item* firearm = stats[player] ? stats[player]->weapon : nullptr;
+	return players[player]->entity && stats[player] && stats[player]->HP > 0
+		&& !client_disconnected[player] && !playerIsPanicking(player)
+		&& m.firearmReloadTicks > 0 && m.firearmUnjamTicks == 0
+		&& firearm && firearm->uid == m.firearmReloadItemUid
+		&& firearm->type == m.firearmReloadItemType && firearm->isFirearm()
+		&& !firearm->firearmIsLoaded() && !firearm->musketQuestJammed();
+}
+
+static void refundFirearmReload(int player)
+{
+	auto& m = players[player]->mechanics;
+	if ( !m.firearmReloadMaterialsCommitted || !stats[player] ) { return; }
+	// Clear before inventory callbacks: a repeated result must never refund twice.
+	m.firearmReloadMaterialsCommitted = false;
+	Item* material = newItem(m.firearmReloadCommittedMaterialType, DECREPIT,
+		0, m.firearmReloadCommittedMaterialCost, 0, true, nullptr);
+	if ( m.firearmReloadRefundOnGround && net_packet )
 	{
-		//mod add: Mirror the server-paid cost exactly once, then accept the server's
-		// complete appearance so loaded and quest-jam bits cannot drift.
-		playerConsumeFirearmReloadMaterials(*firearm, player);
+		// Death already sent ordinary inventory through DIEI. Add the late refund
+		// to that same death drop, instead of an inventory that respawn will erase.
+		strcpy((char*)net_packet->data, "DIEI");
+		SDLNet_Write32(static_cast<Uint32>(material->type), &net_packet->data[4]);
+		SDLNet_Write32(static_cast<Uint32>(material->status), &net_packet->data[8]);
+		SDLNet_Write32(0, &net_packet->data[12]);
+		SDLNet_Write32(material->count, &net_packet->data[16]);
+		SDLNet_Write32(0, &net_packet->data[20]);
+		net_packet->data[24] = 1;
+		net_packet->data[25] = player;
+		net_packet->data[26] = m.firearmReloadDeathX;
+		net_packet->data[27] = m.firearmReloadDeathY;
+		net_packet->address = net_server;
+		net_packet->len = 28;
+		sendPacketSafe(net_sock, -1, net_packet, 0);
+	}
+	else { itemPickup(player, material); }
+	free(material);
+}
+
+void cancelFirearmReload(int player, bool endSession)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( m.firearmReloadToken )
+	{
+		sendFirearmReloadResult(player, m.firearmReloadItemType, 0, false, m.firearmReloadToken);
+	}
+	// A paid transaction survives entity removal until the server result arrives.
+	// Refunding speculatively could refund a reload the server already completed.
+	if ( multiplayer == CLIENT && m.firearmReloadMaterialsCommitted && !endSession )
+	{
+		m.firearmReloadTicks = 0;
+		return;
+	}
+	if ( multiplayer == CLIENT ) { refundFirearmReload(player); }
+	clearFirearmReload(player);
+}
+
+void receiveFirearmReloadResult(int player, ItemType type, Uint32 appearance,
+	bool success, Uint32 token)
+{
+	if ( multiplayer != CLIENT || player < 0 || player >= MAXPLAYERS
+		|| !players[player] || !stats[player] ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( !token || token != m.firearmReloadToken || type != m.firearmReloadItemType ) { return; }
+	Item* firearm = stats[player]->weapon;
+	if ( success && m.firearmReloadMaterialsCommitted && firearm
+		&& firearm->uid == m.firearmReloadItemUid && firearm->type == type && firearm->isFirearm() )
+	{
 		firearm->appearance = appearance;
 		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
 			Language::get(7005), firearm->getName());
 	}
-	mechanics.firearmReloadTicks = 0;
-	mechanics.firearmReloadItemUid = 0;
-	mechanics.firearmReloadItemType = WOODEN_SHIELD;
+	if ( !success ) { refundFirearmReload(player); }
+	clearFirearmReload(player);
+}
+
+static void sendFirearmReloadPayment(int player, ItemType type, Uint32 token, bool success)
+{
+	strcpy((char*)net_packet->data, "FRCP");
+	net_packet->data[4] = player;
+	SDLNet_Write32(static_cast<Uint32>(type), &net_packet->data[5]);
+	SDLNet_Write32(token, &net_packet->data[9]);
+	net_packet->data[13] = success ? 1 : 0;
+	net_packet->address = net_server;
+	net_packet->len = 14;
+	sendPacketSafe(net_sock, -1, net_packet, 0);
+}
+
+void receiveFirearmReloadReady(int player, ItemType type, Uint32 token)
+{
+	if ( multiplayer != CLIENT || player < 0 || player >= MAXPLAYERS || !players[player] ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( !token || m.firearmReloadToken != token || m.firearmReloadItemType != type )
+	{
+		sendFirearmReloadPayment(player, type, token, false);
+		return;
+	}
+	if ( m.firearmReloadMaterialsCommitted ) { return; } // reliable payment already queued
+	bool paid = false;
+	if ( firearmReloadValid(player) )
+	{
+		Item& firearm = *stats[player]->weapon;
+		// Reload materials are committed only at completion, from the owning inventory.
+		paid = playerConsumeFirearmReloadMaterials(firearm, player);
+		if ( paid )
+		{
+			m.firearmReloadMaterialsCommitted = true;
+			m.firearmReloadCommittedMaterialType = firearm.firearmReloadMaterialType();
+			m.firearmReloadCommittedMaterialCost = firearm.firearmReloadMaterialCost();
+		}
+		else
+		{
+			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT, Language::get(7006),
+				items[firearm.firearmReloadMaterialType()].getIdentifiedName(), firearm.getName());
+			playSoundPlayer(player, 90, 64);
+		}
+	}
+	sendFirearmReloadPayment(player, type, token, paid);
+	if ( !paid ) { clearFirearmReload(player); }
+}
+
+static void completeFirearmReload(int player)
+{
+	auto& mechanics = players[player]->mechanics;
+	Item* firearm = stats[player]->weapon;
+	firearm->setFirearmLoaded(true);
+	sendFirearmReloadResult(player, firearm->type, firearm->appearance, true, mechanics.firearmReloadToken);
+	clearFirearmReload(player); // disarm before sound/training callbacks
+	if ( multiplayer != CLIENT )
+	{
+		// mod add: Dedicated loaded/ready report at the successful transition.
+		playSoundEntity(players[player]->entity, 861, 255);
+	}
+	// mod add: Only a completed, paid reload may train raw Tinkering.
+	// The authoritative side owns both the 20% roll and skill award.
+	const Sint32 rawTinkering = stats[player]->getProficiency(PRO_LOCKPICKING);
+	if ( multiplayer != CLIENT && rawTinkering < firearm->firearmReloadTrainingCap()
+		&& local_rng.rand() % 100 < 20 && players[player]->entity )
+	{
+		players[player]->entity->increaseSkill(PRO_LOCKPICKING);
+	}
+	if ( players[player]->isLocalPlayer() )
+	{
+		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
+			Language::get(7005), firearm->getName());
+	}
+}
+
+void receiveFirearmReloadPayment(int player, ItemType type, Uint32 token, bool success)
+{
+	if ( player <= 0 || player >= MAXPLAYERS || !remoteFirearmOwner(player) ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( !token || token != m.firearmReloadToken || type != m.firearmReloadItemType
+		|| !m.firearmReloadAwaitingPayment ) { return; }
+	if ( success && firearmReloadValid(player) )
+	{
+		// Disarm before sound/training callbacks; payment cannot commit twice.
+		m.firearmReloadAwaitingPayment = false;
+		completeFirearmReload(player);
+	}
+	else { cancelFirearmReload(player); }
 }
 
 bool tryReloadFirearm(Item& firearm, int player)
 {
 	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !stats[player]
-		|| playerIsPanicking(player)
-		|| !firearm.isFirearm() || firearm.musketQuestJammed()
-		|| firearm.firearmIsLoaded() )
-	{
-		return false;
-	}
-	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
-	if ( mechanics.firearmReloadTicks > 0 || mechanics.firearmUnjamTicks > 0 )
-	{
-		//mod add: attack input may be evaluated repeatedly while held and once
-		// again through client/server prediction. An active reload silently owns
-		// the action until completion; do not emit a misleading duplicate warning.
-		return false;
-	}
-
+		|| !players[player]->entity || stats[player]->HP <= 0 || stats[player]->weapon != &firearm
+		|| (playerIsUsingSpyglass(players[player]->entity) && firearm.type != MUSKET)
+		|| playerIsPanicking(player) || !firearm.isFirearm() || firearm.musketQuestJammed()
+		|| firearm.firearmIsLoaded() ) { return false; }
+	auto& m = players[player]->mechanics;
+	if ( m.firearmReloadTicks > 0 || m.firearmUnjamTicks > 0
+		|| m.firearmReloadMaterialsCommitted ) { return false; }
 	const ItemType materialType = firearm.firearmReloadMaterialType();
 	const Sint32 materialCost = firearm.firearmReloadMaterialCost();
-	if ( playerCountFirearmReloadMaterials(firearm, player) < materialCost )
+	if ( !remoteFirearmOwner(player) && playerCountFirearmReloadMaterials(firearm, player) < materialCost )
 	{
-		sendFirearmReloadResult(player, firearm.type, firearm.appearance, false);
 		if ( players[player]->isLocalPlayer() )
 		{
-			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
-				Language::get(7003), materialCost,
-				items[materialType].getIdentifiedName(), firearm.getName());
+			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT, Language::get(7003),
+				materialCost, items[materialType].getIdentifiedName(), firearm.getName());
 			playSoundPlayer(player, 90, 64);
 		}
 		return false;
 	}
-
-	mechanics.firearmReloadTicks = firearm.firearmReloadDuration();
-	mechanics.firearmReloadItemUid = firearm.uid;
-	mechanics.firearmReloadItemType = firearm.type;
-	if ( multiplayer != CLIENT )
+	m.firearmReloadTicks = firearm.firearmReloadDuration();
+	m.firearmReloadItemUid = firearm.uid;
+	m.firearmReloadItemType = firearm.type;
+	if ( multiplayer == CLIENT )
 	{
-		// mod add: A real reload start reuses the native Tinkering disassembly SFX.
-		playFirearmJamSound(players[player]->entity);
+		if ( ++firearmReloadSequence == 0 ) { ++firearmReloadSequence; }
+		m.firearmReloadToken = firearmReloadSequence;
+		strcpy((char*)net_packet->data, "FRST");
+		net_packet->data[4] = player;
+		SDLNet_Write32(static_cast<Uint32>(firearm.type), &net_packet->data[5]);
+		SDLNet_Write32(m.firearmReloadToken, &net_packet->data[9]);
+		net_packet->address = net_server;
+		net_packet->len = 13;
+		sendPacketSafe(net_sock, -1, net_packet, 0);
 	}
+	else { playFirearmJamSound(players[player]->entity); }
 	if ( players[player]->isLocalPlayer() )
 	{
-		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
-			Language::get(7004), firearm.getName());
+		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT, Language::get(7004), firearm.getName());
 	}
 	return true;
 }
 
+void receiveFirearmReloadStart(int player, ItemType type, Uint32 token)
+{
+	if ( player <= 0 || player >= MAXPLAYERS || !remoteFirearmOwner(player)
+		|| client_disconnected[player] || !token ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( token <= m.firearmReloadLastToken ) { return; }
+	m.firearmReloadLastToken = token;
+	Item* firearm = stats[player] ? stats[player]->weapon : nullptr;
+	if ( firearm && firearm->type == type && tryReloadFirearm(*firearm, player) )
+	{
+		m.firearmReloadToken = token;
+	}
+	else { sendFirearmReloadResult(player, type, 0, false, token); }
+}
+
 void updateFirearmReload(int player)
 {
-	if ( player < 0 || player >= MAXPLAYERS || !players[player] )
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] ) { return; }
+	auto& m = players[player]->mechanics;
+	if ( m.firearmReloadTicks <= 0 ) { return; }
+	if ( !firearmReloadValid(player) ) { cancelFirearmReload(player); return; }
+	if ( m.firearmReloadAwaitingPayment || (multiplayer == CLIENT && m.firearmReloadTicks == 1) ) { return; }
+	if ( --m.firearmReloadTicks > 0 ) { return; }
+	Item* firearm = stats[player]->weapon;
+	if ( remoteFirearmOwner(player) )
 	{
+		m.firearmReloadTicks = 1; // retain action/weapon lock until payment or cancellation
+		m.firearmReloadAwaitingPayment = true;
+		strcpy((char*)net_packet->data, "FRDY");
+		SDLNet_Write32(static_cast<Uint32>(firearm->type), &net_packet->data[4]);
+		SDLNet_Write32(m.firearmReloadToken, &net_packet->data[8]);
+		net_packet->address = net_clients[player - 1];
+		net_packet->len = 12;
+		sendPacketSafe(net_sock, -1, net_packet, player - 1);
 		return;
 	}
-
-	Player::PlayerMechanics_t& mechanics = players[player]->mechanics;
-	if ( mechanics.firearmReloadTicks <= 0 )
+	// Host/singleplayer inventory is authoritative; preserve completion-time payment.
+	if ( playerConsumeFirearmReloadMaterials(*firearm, player) ) { completeFirearmReload(player); }
+	else
 	{
-		return;
-	}
-	// mod add: Reload materials are committed only at completion, so cancelling
-	// a reload as Panicking takes control cannot consume scrap or load the gun.
-	if ( playerIsPanicking(player) )
-	{
-		sendFirearmReloadResult(player, mechanics.firearmReloadItemType, 0, false);
-		mechanics.firearmReloadTicks = 0;
-		mechanics.firearmReloadItemUid = 0;
-		mechanics.firearmReloadItemType = WOODEN_SHIELD;
-		return;
-	}
-
-	Item* firearm = stats[player] ? stats[player]->weapon : nullptr;
-	const bool actionStillValid = players[player]->entity && stats[player] && stats[player]->HP > 0
-		&& firearm && firearm->uid == mechanics.firearmReloadItemUid
-		&& firearm->type == mechanics.firearmReloadItemType
-		&& firearm->isFirearm() && !firearm->firearmIsLoaded();
-	if ( !actionStillValid )
-	{
-		sendFirearmReloadResult(player, mechanics.firearmReloadItemType,
-			firearm ? firearm->appearance : 0, false);
-		mechanics.firearmReloadTicks = 0;
-		mechanics.firearmReloadItemUid = 0;
-		mechanics.firearmReloadItemType = WOODEN_SHIELD;
-		return;
-	}
-
-	//mod add: A remote client holds the finished pose at one tick and waits for
-	// the server result instead of independently committing Scrap and loaded state.
-	if ( multiplayer == CLIENT && mechanics.firearmReloadTicks == 1 )
-	{
-		return;
-	}
-	--mechanics.firearmReloadTicks;
-	if ( mechanics.firearmReloadTicks > 0 )
-	{
-		return;
-	}
-
-	if ( firearm && firearm->uid == mechanics.firearmReloadItemUid
-		&& firearm->type == mechanics.firearmReloadItemType
-		&& firearm->isFirearm() && !firearm->firearmIsLoaded() )
-	{
-		// mod add: Scrap is committed only when the timed reload completes.
-		// Revalidate in case the player spent or moved it during the timer.
-		if ( playerConsumeFirearmReloadMaterials(*firearm, player) )
+		if ( players[player]->isLocalPlayer() )
 		{
-			firearm->setFirearmLoaded(true);
-			sendFirearmReloadResult(player, firearm->type, firearm->appearance, true);
-			if ( multiplayer != CLIENT )
-			{
-				// mod add: Dedicated loaded/ready report at the successful transition.
-				playSoundEntity(players[player]->entity, 861, 255);
-			}
-			// mod add: Only a completed, paid reload may train raw Tinkering.
-			// The authoritative side owns both the 20% roll and skill award.
-			const Sint32 rawTinkering = stats[player]->getProficiency(PRO_LOCKPICKING);
-			if ( multiplayer != CLIENT && rawTinkering < firearm->firearmReloadTrainingCap()
-				&& local_rng.rand() % 100 < 20 && players[player]->entity )
-			{
-				players[player]->entity->increaseSkill(PRO_LOCKPICKING);
-			}
-			if ( players[player]->isLocalPlayer() )
-			{
-				messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
-					Language::get(7005), firearm->getName());
-			}
+			messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT, Language::get(7006),
+				items[firearm->firearmReloadMaterialType()].getIdentifiedName(), firearm->getName());
+			playSoundPlayer(player, 90, 64);
 		}
-		else
-		{
-			sendFirearmReloadResult(player, firearm->type, firearm->appearance, false);
-			if ( players[player]->isLocalPlayer() )
-			{
-				const ItemType materialType = firearm->firearmReloadMaterialType();
-				messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
-					Language::get(7006),
-					items[materialType].getIdentifiedName(), firearm->getName());
-				playSoundPlayer(player, 90, 64);
-			}
-		}
-		// mod add end
+		clearFirearmReload(player);
 	}
-	else if ( players[player]->isLocalPlayer() )
-	{
-		messagePlayer(player, MESSAGE_HINT | MESSAGE_EQUIPMENT,
-			Language::get(7007));
-	}
-
-	mechanics.firearmReloadItemUid = 0;
-	mechanics.firearmReloadItemType = WOODEN_SHIELD;
 }
 // mod add end
 

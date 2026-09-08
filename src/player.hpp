@@ -2420,8 +2420,23 @@ public:
 		Sint32 firearmReloadTicks = 0;
 		Uint32 firearmReloadItemUid = 0;
 		ItemType firearmReloadItemType = WOODEN_SHIELD;
+		Uint32 firearmReloadToken = 0;
+		Uint32 firearmReloadLastToken = 0; // replay guard, retained across entity removal
+		bool firearmReloadAwaitingPayment = false;
+		bool firearmReloadMaterialsCommitted = false;
+		ItemType firearmReloadCommittedMaterialType = WOODEN_SHIELD;
+		Sint32 firearmReloadCommittedMaterialCost = 0;
+		bool firearmReloadRefundOnGround = false;
+		Uint8 firearmReloadDeathX = 0;
+		Uint8 firearmReloadDeathY = 0;
 		// mod add: Firearm jams are a transient, per-player action. Keeping the
 		// equipped UID prevents completion after swapping or crossing a lifecycle.
+		Uint32 firearmJamToken = 0;
+		Uint32 firearmJamLastToken = 0; // client replay guard, retained across entity removal
+		bool firearmJamAwaitingPayment = false;
+		bool firearmJamPaymentCommitted = false; // cached decision, including failure
+		Sint32 firearmJamRecoveryCost = 0;
+		Uint32 firearmJamAttackItemUid = 0; // client-local firearm used for predicted ATAK
 		Sint32 firearmUnjamTicks = 0;
 		Uint32 firearmUnjamItemUid = 0;
 		ItemType firearmUnjamItemType = WOODEN_SHIELD;

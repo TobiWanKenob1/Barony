@@ -3241,9 +3241,9 @@ void Player::init() // for use on new/restart game, UI related
 	skillUpAnimation[playernum].skillUps.clear();
 	mechanics.itemDegradeRng.clear();
 	// mod add: Clear any firearm action left over from the previous run.
-	mechanics.firearmReloadTicks = 0;
-	mechanics.firearmReloadItemUid = 0;
-	mechanics.firearmReloadItemType = WOODEN_SHIELD;
+	cancelFirearmReload(playernum, true);
+	mechanics.firearmReloadLastToken = 0;
+	cancelFirearmJamPayment(playernum, true);
 	mechanics.firearmUnjamTicks = 0;
 	mechanics.firearmUnjamItemUid = 0;
 	mechanics.firearmUnjamItemType = WOODEN_SHIELD;
@@ -3311,9 +3311,8 @@ void Player::cleanUpOnEntityRemoval()
 	// mod add: carried scenery cannot cross death/disconnect/map boundaries.
 	restoreEntrenchCarriedObject(playernum);
 	// mod add: A removed player cannot finish a pending firearm action.
-	mechanics.firearmReloadTicks = 0;
-	mechanics.firearmReloadItemUid = 0;
-	mechanics.firearmReloadItemType = WOODEN_SHIELD;
+	cancelFirearmReload(playernum);
+	cancelFirearmJamPayment(playernum);
 	mechanics.firearmUnjamTicks = 0;
 	mechanics.firearmUnjamItemUid = 0;
 	mechanics.firearmUnjamItemType = WOODEN_SHIELD;

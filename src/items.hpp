@@ -1033,13 +1033,20 @@ bool rangedWeaponUseQuiverOnAttack(const Stat* myStats);
 bool tryReloadFirearm(Item& firearm, int player); // mod add: firearm scrap reload
 void updateFirearmReload(int player); // mod add: timed firearm reload completion
 void receiveFirearmReloadResult(int player, ItemType type, Uint32 appearance,
-	bool success); //mod add: authoritative remote reload completion
+	bool success, Uint32 token); // authoritative remote reload completion
+void receiveFirearmReloadStart(int player, ItemType type, Uint32 token);
+void receiveFirearmReloadReady(int player, ItemType type, Uint32 token);
+void receiveFirearmReloadPayment(int player, ItemType type, Uint32 token, bool success);
+void cancelFirearmReload(int player, bool endSession = false);
 bool tryJamFirearm(Item& firearm, int player); // mod add: authoritative firearm jam roll
 bool tryQuestJamMusket(Item& firearm, int player); // mod add: persistent quest-jam feedback
 bool firearmUnjamIsActive(int player); // mod add: block firearm actions during clearing
 void playFirearmJamSound(Entity* wielder); // mod add: native Tinkering disassembly feedback
 void receiveFirearmJam(int player, ItemType type, Sint32 duration,
-	bool retainsLoadedShot, Sint32 magicScrapConsumed); // mod add: server correction/presentation
+	bool retainsLoadedShot, Uint32 token); // server correction/presentation only
+void receiveFirearmJamReady(int player, ItemType type, Sint32 duration, Sint32 cost, Uint32 token);
+void receiveFirearmJamPayment(int player, ItemType type, Uint32 token, bool paid);
+void cancelFirearmJamPayment(int player, bool endSession = false);
 void updateFirearmUnjam(int player); // mod add: timed firearm jam clearing
 bool unlockLibraryMusketFromGnomeDeath(); // mod add: authoritative one-time quest unlock
 void receiveLibraryMusketUnlock(); // mod add: mirror the unlock in local client inventory

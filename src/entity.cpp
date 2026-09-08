@@ -10249,8 +10249,8 @@ void Entity::attack(int pose, int charge, Entity* target)
 	}
 
 	// mod add: An empty firearm uses this attack action to reload
-	// from scrap instead of firing. Clients continue to ATAK below so the
-	// authoritative server performs the same inventory/state transition.
+	// from scrap instead of firing. Remote reloads use FRST for their action
+	// token; firing and quest-jam feedback retain the normal ATAK path.
 	if ( myStats->weapon && myStats->weapon->isFirearm() )
 	{
 		// mod add: Clearing a jam exclusively owns firearm input. This guard runs
@@ -10290,9 +10290,11 @@ void Entity::attack(int pose, int charge, Entity* target)
 			if ( !myStats->weapon->firearmIsLoaded() )
 			{
 				tryReloadFirearm(*myStats->weapon, player);
+				return; // FRST carries the reload action token.
 			}
 			else
 			{
+				players[player]->mechanics.firearmJamAttackItemUid = myStats->weapon->uid;
 				myStats->weapon->setFirearmLoaded(false);
 			}
 			strcpy((char*)net_packet->data, "ATAK");
@@ -10309,7 +10311,10 @@ void Entity::attack(int pose, int charge, Entity* target)
 		}
 		if ( !myStats->weapon->firearmIsLoaded() )
 		{
-			tryReloadFirearm(*myStats->weapon, player);
+			if ( multiplayer != SERVER || players[player]->isLocalPlayer() )
+			{
+				tryReloadFirearm(*myStats->weapon, player);
+			}
 			return;
 		}
 		else if ( tryJamFirearm(*myStats->weapon, player) )

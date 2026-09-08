@@ -4939,6 +4939,18 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		assailant[clientnum] = false;
 		assailantTimer[clientnum] = 0;
 
+		// A payment may still be awaiting FRLD when ordinary death drops are sent.
+		// Remember their destination so a late rejection refunds into that drop.
+		if ( players[clientnum]->mechanics.firearmReloadMaterialsCommitted && !keepInventoryGlobal )
+		{
+			auto& reload = players[clientnum]->mechanics;
+			reload.firearmReloadRefundOnGround = true;
+			reload.firearmReloadDeathX = static_cast<Uint8>(cameras[clientnum].x);
+			reload.firearmReloadDeathY = static_cast<Uint8>(cameras[clientnum].y);
+		}
+		cancelFirearmReload(clientnum);
+		cancelFirearmJamPayment(clientnum);
+
 		if ( !keepInventoryGlobal )
 		{
 		    node_t* nextnode;
@@ -5290,23 +5302,39 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 	}},
 
 	// mod add: authoritative firearm jam correction for the owning client.
-	// Mirror the server-decided loaded state and paid recovery cost, then begin
+	// Mirror the server-decided loaded state without charging Scrap, then begin
 	// the matching transient clearing action.
+	{'FJRD', [](){
+		if ( net_packet->len != 15 ) { return; }
+		receiveFirearmJamReady(clientnum,
+			static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4])),
+			SDLNet_Read16(&net_packet->data[8]), net_packet->data[10],
+			SDLNet_Read32(&net_packet->data[11]));
+	}},
 	{'FJAM', [](){
+		if ( net_packet->len != 15 ) { return; }
 		const ItemType type = static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4]));
 		const Sint32 duration = static_cast<Sint32>(SDLNet_Read16(&net_packet->data[8]));
 		const bool retainsLoadedShot = net_packet->data[10] != 0;
-		const Sint32 magicScrapConsumed = static_cast<Sint32>(net_packet->data[11]);
+		const Uint32 token = SDLNet_Read32(&net_packet->data[11]);
 		receiveFirearmJam(clientnum, type, duration,
-			retainsLoadedShot, magicScrapConsumed);
+			retainsLoadedShot, token);
 	}},
 
 	//mod add: authoritative firearm reload completion for the owning client.
+	{'FRDY', [](){
+		if ( net_packet->len != 12 ) { return; }
+		receiveFirearmReloadReady(clientnum,
+			static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4])),
+			SDLNet_Read32(&net_packet->data[8]));
+	}},
 	{'FRLD', [](){
+		if ( net_packet->len != 17 ) { return; }
 		const ItemType type = static_cast<ItemType>(SDLNet_Read32(&net_packet->data[4]));
 		const Uint32 appearance = SDLNet_Read32(&net_packet->data[8]);
 		const bool success = net_packet->data[12] != 0;
-		receiveFirearmReloadResult(clientnum, type, appearance, success);
+		receiveFirearmReloadResult(clientnum, type, appearance, success,
+			SDLNet_Read32(&net_packet->data[13]));
 	}},
 
 	// mod add: Mirror the server-authoritative permanent Musket unlock in the
@@ -8641,6 +8669,26 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		free(item);
 	}},
 
+	// Remote inventory payment protocol. serverHandlePacket checks the SAFE sender.
+	{'FRST', [](){
+		if ( net_packet->len != 13 ) { return; }
+		receiveFirearmReloadStart(net_packet->data[4],
+			static_cast<ItemType>(SDLNet_Read32(&net_packet->data[5])),
+			SDLNet_Read32(&net_packet->data[9]));
+	}},
+	{'FJCP', [](){
+		if ( net_packet->len != 14 || net_packet->data[13] > 1 ) { return; }
+		receiveFirearmJamPayment(net_packet->data[4],
+			static_cast<ItemType>(SDLNet_Read32(&net_packet->data[5])),
+			SDLNet_Read32(&net_packet->data[9]), net_packet->data[13] != 0);
+	}},
+	{'FRCP', [](){
+		if ( net_packet->len != 14 ) { return; }
+		receiveFirearmReloadPayment(net_packet->data[4],
+			static_cast<ItemType>(SDLNet_Read32(&net_packet->data[5])),
+			SDLNet_Read32(&net_packet->data[9]), net_packet->data[13] != 0);
+	}},
+
 	// attacking
 	{'ATAK', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
@@ -9595,6 +9643,27 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 
 void serverHandlePacket()
 {
+	// Validate these dedicated client messages against their reliable envelope
+	// before handleSafePacket rewrites the buffer/address to acknowledge it.
+	if ( net_packet->len >= 4 )
+	{
+		const Uint32 outer = SDLNet_Read32(net_packet->data);
+		const bool safe = outer == 'SAFE';
+		const int offset = safe ? 9 : 0;
+		if ( net_packet->len >= offset + 4 )
+		{
+			const Uint32 command = SDLNet_Read32(&net_packet->data[offset]);
+			if ( command == 'FRST' || command == 'FRCP' || command == 'FJCP' )
+			{
+				if ( !safe || net_packet->len != offset + (command == 'FRST' ? 13 : 14) ) { return; }
+				const int player = net_packet->data[offset + 4];
+				if ( player <= 0 || player >= MAXPLAYERS || net_packet->data[4] != player
+					|| !players[player] || players[player]->isLocalPlayer() || client_disconnected[player] ) { return; }
+				if ( directConnect && (net_packet->address.host != net_clients[player - 1].host
+					|| net_packet->address.port != net_clients[player - 1].port) ) { return; }
+			}
+		}
+	}
 	if (handleSafePacket())
 	{
 		return;
@@ -9867,6 +9936,15 @@ bool handleSafePacket()
 
 void closeNetworkInterfaces()
 {
+	for ( int player = 0; player < MAXPLAYERS; ++player )
+	{
+		if ( !players[player] ) { continue; }
+		// No further authoritative results can arrive after transport teardown.
+		players[player]->mechanics.firearmReloadRefundOnGround = false;
+		cancelFirearmReload(player, true);
+		cancelFirearmJamPayment(player, true);
+		players[player]->mechanics.firearmReloadLastToken = 0;
+	}
 	printlog("closing network interfaces...\n");
 
 	receivedclientnum = false;
