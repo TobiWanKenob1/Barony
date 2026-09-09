@@ -4545,7 +4545,9 @@ std::set<ItemType> AchievementObserver::PlayerAchievements::startingClassItems =
 	HOOD_TEAL,
 	MASK_PIPE,
 	HAT_PLUMED_CAP,
-	CHAIN_COIF
+	CHAIN_COIF,
+	MASK_STEEL_VISOR, // Runesmith starting mask
+	IRON_HELM // Runesmith starting helmet
 	/*,
 	HAT_CIRCLET_WISDOM*/
 };
@@ -5551,6 +5553,8 @@ void SaveGameInfo::Player::stat_t::item_t::computeHash(Uint32& hash, Uint32& shi
 	hash += (Uint32)((Uint32)identified << (shift % 32)); ++shift;
 	hash += (Uint32)((Uint32)x << (shift % 32)); ++shift;
 	hash += (Uint32)((Uint32)y << (shift % 32)); ++shift;
+	hash += (Uint32)((Uint32)runeStoredPWR << (shift % 32)); ++shift;
+	hash += (Uint32)((Uint32)runeCreatorPlayer << (shift % 32)); ++shift;
 }
 
 int SaveGameInfo::populateFromSession(const int playernum)
@@ -5850,7 +5854,9 @@ int SaveGameInfo::populateFromSession(const int playernum)
 						item.count,
 						item.identified,
 						0,
-						0));
+						0,
+						item.runeGetStoredPWRRaw(),
+						static_cast<Sint8>(item.runeGetCreatorPlayer())));
 				}
 			}
 
@@ -5891,6 +5897,8 @@ int SaveGameInfo::populateFromSession(const int playernum)
 								slot.second->identified,
 								slot.second->x,
 								slot.second->y,
+								slot.second->runeGetStoredPWRRaw(),
+								static_cast<Sint8>(slot.second->runeGetCreatorPlayer()),
 							}));
 					}
 				}
@@ -5916,6 +5924,8 @@ int SaveGameInfo::populateFromSession(const int playernum)
 					item->identified,
 					item->x,
 					item->y,
+					item->runeGetStoredPWRRaw(),
+					static_cast<Sint8>(item->runeGetCreatorPlayer()),
 					});
 			}
 
@@ -5933,6 +5943,8 @@ int SaveGameInfo::populateFromSession(const int playernum)
 					item->identified,
 					item->x,
 					item->y,
+					item->runeGetStoredPWRRaw(),
+					static_cast<Sint8>(item->runeGetCreatorPlayer()),
 					});
 			}
 
@@ -6006,6 +6018,8 @@ int SaveGameInfo::populateFromSession(const int playernum)
 									slot.second->identified,
 									slot.second->x,
 									slot.second->y,
+									slot.second->runeGetStoredPWRRaw(),
+									static_cast<Sint8>(slot.second->runeGetCreatorPlayer()),
 								}));
 						}
 					}
@@ -6024,6 +6038,8 @@ int SaveGameInfo::populateFromSession(const int playernum)
 							item->identified,
 							item->x,
 							item->y,
+							item->runeGetStoredPWRRaw(),
+							static_cast<Sint8>(item->runeGetCreatorPlayer()),
 							});
 					}
 
@@ -6577,6 +6593,8 @@ int loadGame(int player, const SaveGameInfo& info) {
 			item.count = _item.count;
 			item.appearance = _item.appearance;
 			item.identified = _item.identified;
+			item.runeSetStoredPWRRaw(_item.runeStoredPWR);
+			item.runeSetCreatorPlayer(_item.runeCreatorPlayer);
 		}
 	}
 
@@ -6603,6 +6621,8 @@ int loadGame(int player, const SaveGameInfo& info) {
 		bool identified = item.identified;
 		Item* i = newItem(type, status, beatitude, count,
 			appearance, identified, &stats[statsPlayer]->inventory);
+		i->runeSetStoredPWRRaw(item.runeStoredPWR);
+		i->runeSetCreatorPlayer(item.runeCreatorPlayer);
 		i->x = item.x;
 		i->y = item.y;
 
@@ -6622,6 +6642,8 @@ int loadGame(int player, const SaveGameInfo& info) {
 		bool identified = item.identified;
 		Item* i = newItem(type, status, beatitude, count,
 			appearance, identified, &stats[statsPlayer]->void_chest_inventory);
+		i->runeSetStoredPWRRaw(item.runeStoredPWR);
+		i->runeSetCreatorPlayer(item.runeCreatorPlayer);
 		i->x = item.x;
 		i->y = item.y;
 	}
@@ -6670,6 +6692,8 @@ int loadGame(int player, const SaveGameInfo& info) {
 				bool identified = item.second.identified;
 				Item* i = newItem(type, status, beatitude, count,
 					appearance, identified, nullptr);
+				i->runeSetStoredPWRRaw(item.second.runeStoredPWR);
+				i->runeSetCreatorPlayer(item.second.runeCreatorPlayer);
 				i->x = item.second.x;
 				i->y = item.second.y;
 				slot = i;
@@ -6965,6 +6989,8 @@ list_t* loadGameFollowers(const SaveGameInfo& info) {
 				bool identified = item.identified;
 				Item* i = newItem(type, status, beatitude, count,
 					appearance, identified, &stats->inventory);
+				i->runeSetStoredPWRRaw(item.runeStoredPWR);
+				i->runeSetCreatorPlayer(item.runeCreatorPlayer);
 				i->x = item.x;
 				i->y = item.y;
 			}
@@ -6994,6 +7020,8 @@ list_t* loadGameFollowers(const SaveGameInfo& info) {
 					bool identified = item.second.identified;
 					Item* i = newItem(type, status, beatitude, count,
 						appearance, identified, nullptr);
+					i->runeSetStoredPWRRaw(item.second.runeStoredPWR);
+					i->runeSetCreatorPlayer(item.second.runeCreatorPlayer);
 					i->x = item.second.x;
 					i->y = item.second.y;
 					slot = i;
@@ -7115,7 +7143,7 @@ int SaveGameInfo::Player::isCharacterValidFromDLC()
 	{
 		return VALID_OK_CHARACTER; // aesthetic only option.
 	}
-	if ( this->char_class <= CLASS_MONK )
+	if ( this->char_class <= CLASS_MONK || this->char_class == CLASS_RUNESMITH )
 	{
 		return VALID_OK_CHARACTER;
 	}

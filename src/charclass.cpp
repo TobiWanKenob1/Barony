@@ -676,6 +676,30 @@ void initClassStats(const int classnum, void* myStats)
 		stat->setProficiency(PRO_UNARMED, 20);
 		stat->setProficiency(PRO_SORCERY, 10);
 	} //mod add end
+	//mod add runesmith
+	else if ( classnum == CLASS_RUNESMITH )
+	{
+		// attributes
+		stat->CON += 0;
+		stat->STR += 1;
+		stat->DEX -= 1;
+		stat->INT += 1;
+		stat->PER -= 1;
+		stat->CHR += 0;
+
+		stat->MAXHP -= 10;
+		stat->HP -= 10;
+
+		stat->MAXMP += 15;
+		stat->MP += 15;
+
+		// skills
+		stat->setProficiency(PRO_SORCERY, 20);
+		stat->setProficiency(PRO_MYSTICISM, 20);
+		stat->setProficiency(PRO_THAUMATURGY, 20);
+		stat->setProficiency(PRO_POLEARM, 15);
+		stat->setProficiency(PRO_APPRAISAL, 30);
+	} //mod add end
 	if ( gameModeManager.currentSession.challengeRun.isActive() )
 	{
 		if ( gameModeManager.currentSession.challengeRun.customBaseStats )
@@ -3613,6 +3637,73 @@ void initClass(const int player)
 			free(item);
 		}
 	}
+	else if ( client_classes[player] == CLASS_RUNESMITH )
+	{
+		initClassStats(client_classes[player], stats[player]);
+
+		if ( !isLocalPlayer && multiplayer == CLIENT && intro == false )
+		{
+			// Do not construct inventory for players this client does not own.
+			return;
+		}
+
+		auto equipRunesmithItem = [&](ItemType type, Status status, Sint16 beatitude, Uint32 appearance, int hotbarSlot)
+		{
+			item = newItem(type, status, beatitude, 1, appearance, true, nullptr);
+			if ( isLocalPlayer )
+			{
+				item2 = itemPickup(player, item);
+				useItem(item2, player);
+				if ( hotbarSlot >= 0 )
+				{
+					hotbar[hotbarSlot].item = item2->uid;
+				}
+				free(item);
+			}
+			else
+			{
+				useItem(item, player);
+			}
+		};
+
+		// Deliberately cursed/binding for normal races; inverted races use +1.
+		equipRunesmithItem(RUNE_HAMMER, DECREPIT, curseItems ? 1 : -1, 0, 0);
+		equipRunesmithItem(MASK_STEEL_VISOR, WORN, 0, 0, -1);
+		equipRunesmithItem(IRON_HELM, DECREPIT, 0, 0, -1);
+		equipRunesmithItem(IRON_BREASTPIECE, DECREPIT, 0, 0, -1);
+		equipRunesmithItem(IRON_BOOTS, DECREPIT, 0, 0, -1);
+		equipRunesmithItem(BRACERS, DECREPIT, 0, 0, -1);
+		equipRunesmithItem(CLOAK_PROTECTION, DECREPIT, 0, 0, -1);
+
+		if ( isLocalPlayer )
+		{
+			item = newItem(SCROLL_IDENTIFY, EXCELLENT, 0, 3, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			item = newItem(GEM_OPAL, EXCELLENT, 0, 1, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			// Appearance 8 is the existing convention for DECREPIT starting spellbooks.
+			item = newItem(SPELLBOOK_TURN_UNDEAD, DECREPIT, 0, 1, 8, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			item = newItem(SPELLBOOK_COWARDICE, DECREPIT, 0, 1, 8, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			item = newItem(SPELLBOOK_DISRUPT_EARTH, DECREPIT, 0, 1, 8, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			// Appearance 1 matches the established starting POTION_RESTOREMAGIC convention.
+			item = newItem(POTION_RESTOREMAGIC, EXCELLENT, 0, 1, 1, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+		}
+	}
 	//mod add end
 	stats[player]->OLDHP = stats[player]->HP;
 
@@ -3691,7 +3782,8 @@ void initClass(const int player)
 		&& ((client_classes[player] >= CLASS_CONJURER 
 			&& client_classes[player] <= CLASS_PALADIN)
 			|| client_classes[player] == CLASS_WHALER
-			|| client_classes[player] == CLASS_GUNSLINGER) // mod add: Whaler/Gunslinger
+			|| client_classes[player] == CLASS_GUNSLINGER
+			|| client_classes[player] == CLASS_RUNESMITH) // mod add: custom extended classes
 		&& stats[player]->playerRace != RACE_HUMAN )
 	{
 		if ( isLocalPlayer )

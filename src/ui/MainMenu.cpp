@@ -13385,6 +13385,16 @@ failed:
 				data[CLASS_GUNSLINGER].text = "A resourceful marksman armed with a flintlock pistol and fieldcraft spellbooks.";
 			}
 		}
+		// TODO RUNESMITH: replace temporary Paladin class description/stat ratings.
+		if ( data.find(CLASS_RUNESMITH) == data.end() )
+		{
+			auto paladin = data.find(CLASS_PALADIN);
+			if ( paladin != data.end() )
+			{
+				data[CLASS_RUNESMITH] = paladin->second;
+				data[CLASS_RUNESMITH].internal_name = "runesmith";
+			}
+		}
 		init = true;
 		printlog("[JSON]: Successfully read json file %s", inputPath.c_str());
 	}
@@ -14095,7 +14105,7 @@ failed:
 		bool fixedRace = gameModeManager.currentSession.challengeRun.isActive()
 			&& gameModeManager.currentSession.challengeRun.race >= 0 && gameModeManager.currentSession.challengeRun.race <= RACE_INSECTOID;
 		bool fixedClass = gameModeManager.currentSession.challengeRun.isActive()
-			&& gameModeManager.currentSession.challengeRun.classnum >= 0 && gameModeManager.currentSession.challengeRun.classnum <= NUMCLASSES;
+			&& gameModeManager.currentSession.challengeRun.classnum >= 0 && gameModeManager.currentSession.challengeRun.classnum < NUMCLASSES;
 
 		for (int c = 0; c < num_races; ++c) {
 			auto race = getMainMenuRaceName(c); //mod add extra races
@@ -16783,9 +16793,9 @@ failed:
 
         if (details) {
   		    static auto class_desc_fn = [](Field& field, int index){
-			    const int i = std::min(std::max(0, client_classes[index]), (Sint32)(ClassDescriptions::data.size() - 1));
+			    const int i = std::min(std::max(0, client_classes[index]), NUMCLASSES - 1);
 				field.setText(ClassDescriptions::data[i].text.c_str());
-			    if (i == CLASS_GUNSLINGER || i < CLASS_CONJURER) { //mod add: Gunslinger is a Base class
+			    if (i == CLASS_GUNSLINGER || i == CLASS_RUNESMITH || i < CLASS_CONJURER) { // mod add: custom Base classes
 			        field.addColorToLine(0, color_dlc0);
 			    } else if (i < CLASS_MACHINIST) {
 			        field.addColorToLine(0, color_dlc1);
@@ -16825,7 +16835,7 @@ failed:
 
 		    for (int c = 0; c < num_class_stats; ++c) {
 		        static auto class_stat_fn = [](Field& field, int index){
-			        const int i = std::min(std::max(0, client_classes[index]), (Sint32)(ClassDescriptions::data.size() - 1));
+			        const int i = std::min(std::max(0, client_classes[index]), NUMCLASSES - 1);
 			        const int s = (int)strtol(field.getName(), nullptr, 10);
 			        field.setColor(ClassDescriptions::data[i].statRatings[s]);
 
@@ -16929,7 +16939,7 @@ failed:
 
 				static constexpr int hpmp_buf_size = 32;
 				static auto hpmp_fn = [](Field& field, int index) {
-					const int i = std::min(std::max(0, client_classes[index]), (Sint32)(ClassDescriptions::data.size() - 1));
+					const int i = std::min(std::max(0, client_classes[index]), NUMCLASSES - 1);
 					char buf[hpmp_buf_size];
 					snprintf(buf, sizeof(buf), "%d\n%d",
 						ClassDescriptions::data[i].hp,
@@ -16968,7 +16978,7 @@ failed:
 		    // difficulty stars
 		    static constexpr int star_buf_size = 32;
 	        static auto stars_fn = [](Field& field, int index){
-		        const int i = std::min(std::max(0, client_classes[index]), (Sint32)(ClassDescriptions::data.size() - 1));
+			        const int i = std::min(std::max(0, client_classes[index]), NUMCLASSES - 1);
 		        for (int c = 0; c < 2; ++c) {
 					field.addColorToLine(c, std::get<2>(ClassDescriptions::data[i].survivalComplexity[c]));
 		        }
@@ -16998,11 +17008,15 @@ failed:
 				{
 					field.setText("Gunslinger");
 				}
+				else if ( i == CLASS_RUNESMITH )
+				{
+					field.setText("Runesmith");
+				}
 				else
 				{
 					field.setText(Language::get(playerClassLangEntryCapitalized(i)));
 				}
-			    if (i == CLASS_GUNSLINGER || i < CLASS_CONJURER) { //mod add: Gunslinger is a Base class
+			    if (i == CLASS_GUNSLINGER || i == CLASS_RUNESMITH || i < CLASS_CONJURER) { // mod add: custom Base classes
 			        field.setColor(color_dlc0);
 			    } else if (i < CLASS_MACHINIST) {
 			        field.setColor(color_dlc1);
@@ -18081,6 +18095,10 @@ failed:
 			else if ( i == CLASS_GUNSLINGER ) // mod add: hardcoded like Whaler
 			{
 				field.setText("Gunslinger");
+			}
+			else if ( i == CLASS_RUNESMITH )
+			{
+				field.setText("Runesmith");
 			}
 			else
 			{
@@ -28574,7 +28592,7 @@ failed:
 	}
 
 	// mod add: executable version check
-	static constexpr const char* KNIGHTLY_EXE_VERSION = "2.03";
+	static constexpr const char* KNIGHTLY_EXE_VERSION = "3.00";
 
 	static int knightlyVersionNumber(const std::string& version)
 	{
@@ -33286,7 +33304,8 @@ failed:
 						camelCaseString(s);
 						txt->setText(s.c_str());
 						if ( e.scenarioInfo.classnum <= CLASS_MONK
-							|| e.scenarioInfo.classnum == CLASS_GUNSLINGER )
+							|| e.scenarioInfo.classnum == CLASS_GUNSLINGER
+							|| e.scenarioInfo.classnum == CLASS_RUNESMITH )
 						{
 							txt->setColor(hudColors.characterBaseClassText);
 						}

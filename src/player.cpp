@@ -4771,7 +4771,10 @@ void Player::WorldUI_t::handleTooltips()
 		{
 			bDoingActionHideTooltips = true;
 		}
-		else if ( (players[player]->hud.weapon && players[player]->hud.weapon->skill[0] != 0) && !selectInteract && players[player]->entity )
+		else if ( (players[player]->hud.weapon && players[player]->hud.weapon->skill[0] != 0)
+			&& !(stats[player] && stats[player]->weapon && stats[player]->weapon->type == RUNE_HAMMER
+				&& players[player]->hud.weapon->skill[3] > 0)
+			&& !selectInteract && players[player]->entity )
 		{
 			// hudweapon chop
 			bDoingActionHideTooltips = true;
@@ -7662,6 +7665,21 @@ void Player::PlayerMechanics_t::sustainedSpellClearMP(int skillID)
 bool Player::PlayerMechanics_t::updateSustainedSpellEvent(int spellID, real_t value, real_t scaleValue, Entity* hitentity)
 {
 	if ( value < 0.05 ) { return false; }
+	spell_t* sourceSpell = players[player.playernum] && players[player.playernum]->entity
+		? players[player.playernum]->entity->getActiveMagicEffect(spellID) : nullptr;
+	if ( !sourceSpell )
+	{
+		for ( node_t* node = channeledSpells[player.playernum].first; node; node = node->next )
+		{
+			spell_t* channeledSpell = static_cast<spell_t*>(node->element);
+			if ( channeledSpell && channeledSpell->ID == spellID )
+			{
+				sourceSpell = channeledSpell;
+				break;
+			}
+		}
+	}
+	ScopedSpellPowerOverride spellSourceScope(sourceSpell, sourceSpell != nullptr);
 
 	if ( hitentity && multiplayer != CLIENT )
 	{

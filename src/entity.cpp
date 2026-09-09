@@ -128,7 +128,8 @@ const std::vector<ClassBaseGrowths::ClassHPMPValues> ClassBaseGrowths::classBase
 	{3,		4,		3,		3}, //CLASS_HERMIT,
 	{3,		3,		3,		3},  //CLASS_PALADIN,
 	{3,		1,		4,		1}, //CLASS_WHALER ------ mod add
-	{3,		4,		2,		4}  //CLASS_GUNSLINGER mod add
+	{3,		4,		2,		4}, //CLASS_GUNSLINGER mod add
+	{3,		3,		3,		3}  //CLASS_RUNESMITH mod add
 };
 
 Entity::~Entity()
@@ -696,6 +697,7 @@ void sustainedSpellProcess(Entity& entity, Stat& myStats, int effectID, std::map
 {
 	if ( sustainedSpell_hijacked.find(effectID) != sustainedSpell_hijacked.end() )
 	{
+		ScopedSpellPowerOverride spellPowerScope(sustainedSpell_hijacked[effectID], true);
 		bool sustained = false;
 		Entity* caster = uidToEntity(sustainedSpell_hijacked[effectID]->caster);
 		if ( caster == &entity )
@@ -732,7 +734,7 @@ void sustainedSpellProcess(Entity& entity, Stat& myStats, int effectID, std::map
 					sustainCost *= sustainedSpell_hijacked[effectID]->channel_effectStrength - currentStrength;
 				}
 			}
-			bool deducted = caster->safeConsumeMP(sustainCost); //Consume X mana ever duration / mana seconds
+			bool deducted = consumeSustainedSpellResource(caster, sustainedSpell_hijacked[effectID], sustainCost);
 			if ( deducted )
 			{
 				sustained = true;
@@ -1693,7 +1695,8 @@ void Entity::effectTimes()
 							{
 								//Deduct mana from caster. Cancel spell if not enough mana (simply leave sustained at false).
 								int oldMP = caster->getMP();
-								bool deducted = caster->safeConsumeMP(getSustainCostOfSpell(invisibility_hijacked, this)); //Consume 1 mana ever duration / mana seconds
+								const int sustainCost = getSustainCostOfSpell(invisibility_hijacked, this);
+								bool deducted = consumeSustainedSpellResource(caster, invisibility_hijacked, sustainCost);
 								if ( deducted )
 								{
 									sustained = true;
@@ -1778,7 +1781,8 @@ void Entity::effectTimes()
 							{
 								//Deduct mana from caster. Cancel spell if not enough mana (simply leave sustained at false).
 								int oldMP = caster->getMP();
-								bool deducted = caster->safeConsumeMP(getSustainCostOfSpell(levitation_hijacked, this)); //Consume 1 mana ever duration / mana seconds
+								const int sustainCost = getSustainCostOfSpell(levitation_hijacked, this);
+								bool deducted = consumeSustainedSpellResource(caster, levitation_hijacked, sustainCost);
 								if ( deducted )
 								{
 									sustained = true;
@@ -1921,7 +1925,8 @@ void Entity::effectTimes()
 							{
 								//Deduct mana from caster. Cancel spell if not enough mana (simply leave sustained at false).
 								int oldMP = caster->getMP();
-								bool deducted = caster->safeConsumeMP(getSustainCostOfSpell(reflectMagic_hijacked, this)); //Consume 1 mana ever duration / mana seconds
+								const int sustainCost = getSustainCostOfSpell(reflectMagic_hijacked, this);
+								bool deducted = consumeSustainedSpellResource(caster, reflectMagic_hijacked, sustainCost);
 								if ( deducted )
 								{
 									sustained = true;
@@ -1969,7 +1974,8 @@ void Entity::effectTimes()
 							{
 								//Deduct mana from caster. Cancel spell if not enough mana (simply leave sustained at false).
 								int oldMP = caster->getMP();
-								bool deducted = caster->safeConsumeMP(getSustainCostOfSpell(amplifyMagic_hijacked, this)); //Consume 1 mana ever duration / mana seconds
+								const int sustainCost = getSustainCostOfSpell(amplifyMagic_hijacked, this);
+								bool deducted = consumeSustainedSpellResource(caster, amplifyMagic_hijacked, sustainCost);
 								if ( deducted )
 								{
 									sustained = true;
@@ -2217,7 +2223,8 @@ void Entity::effectTimes()
 							{
 								//Deduct mana from caster. Cancel spell if not enough mana (simply leave sustained at false).
 								int oldMP = caster->getMP();
-								bool deducted = caster->safeConsumeMP(getSustainCostOfSpell(vampiricAura_hijacked, this)); //Consume 3 mana ever duration / mana seconds
+								const int sustainCost = getSustainCostOfSpell(vampiricAura_hijacked, this);
+								bool deducted = consumeSustainedSpellResource(caster, vampiricAura_hijacked, sustainCost);
 								if ( deducted )
 								{
 									sustained = true;
@@ -6564,7 +6571,7 @@ void Entity::handleEffects(Stat* myStats)
 				if ( behavior == &actPlayer )
 				{
 					players[skill[2]]->mechanics.updateSustainedSpellEvent(SPELL_BLOOD_WARD, 128.0, 1.0, nullptr);
-					this->safeConsumeMP(1);
+					consumeSustainedSpellResource(this, getActiveMagicEffect(SPELL_BLOOD_WARD), 1);
 				}
 			}
 		}
@@ -6689,7 +6696,7 @@ void Entity::handleEffects(Stat* myStats)
 				if ( behavior == &actPlayer )
 				{
 					players[skill[2]]->mechanics.updateSustainedSpellEvent(SPELL_BLOOD_WARD, 128.0, 1.0, nullptr);
-					this->safeConsumeMP(1);
+					consumeSustainedSpellResource(this, getActiveMagicEffect(SPELL_BLOOD_WARD), 1);
 				}
 			}
 			else if ( myStats->HP > 5 + (std::max(0, getCON())) ) // CON increases when bleeding stops.
@@ -12905,6 +12912,8 @@ void Entity::attack(int pose, int charge, Entity* target)
 						{
 							if ( myStats->getEffectActive(EFF_DIVINE_ZEAL) )
 							{
+								spell_t* activeSpell = getActiveMagicEffect(SPELL_DIVINE_ZEAL);
+								ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 								zealSmite = true;
 								particle = true;
 								effect = true;
@@ -13340,6 +13349,8 @@ void Entity::attack(int pose, int charge, Entity* target)
 					bool thornsAllowZeroDmg = false;
 					if ( hitstats->getEffectActive(EFF_THORNS) )
 					{
+						spell_t* activeSpell = hit.entity->getActiveMagicEffect(SPELL_THORNS);
+						ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 						int thorn = getSpellDamageFromID(SPELL_THORNS, hit.entity, nullptr, hit.entity);
 						int extraThorn = std::min(damage, getSpellDamageSecondaryFromID(SPELL_THORNS, hit.entity, nullptr, hit.entity));
 						thorn += extraThorn;
@@ -13347,13 +13358,15 @@ void Entity::attack(int pose, int charge, Entity* target)
 						thornsAllowZeroDmg = true;
 						if ( playerhit >= 0 )
 						{
-							hit.entity->safeConsumeMP(1);
+							consumeSustainedSpellResource(hit.entity, activeSpell, 1);
 							players[playerhit]->mechanics.updateSustainedSpellEvent(SPELL_THORNS, 50.0 + thorn * 5.0, 1.0, this);
 						}
 						thornsEffect += thorn;
 					}
 					if ( hitstats->getEffectActive(EFF_BLADEVINES) )
 					{
+						spell_t* activeSpell = hit.entity->getActiveMagicEffect(SPELL_BLADEVINES);
+						ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 						int thorn = getSpellDamageFromID(SPELL_BLADEVINES, hit.entity, nullptr, hit.entity);
 						int extraThorn = std::min(damage, getSpellDamageSecondaryFromID(SPELL_BLADEVINES, hit.entity, nullptr, hit.entity));
 						thorn += extraThorn;
@@ -13361,7 +13374,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 						thornsAllowZeroDmg = true;
 						if ( playerhit >= 0 )
 						{
-							hit.entity->safeConsumeMP(1);
+							consumeSustainedSpellResource(hit.entity, activeSpell, 1);
 							players[playerhit]->mechanics.updateSustainedSpellEvent(SPELL_BLADEVINES, 50.0 + thorn * 5.0, 1.0, this);
 						}
 						thornsEffect += thorn;
@@ -14257,6 +14270,45 @@ void Entity::attack(int pose, int charge, Entity* target)
 					}
 
 					// player weapon skills
+					// Rune Hammer: the normal full-charge threshold drives both effects.
+					if ( damage > 0 && behavior == &actPlayer && myStats->weapon
+						&& myStats->weapon->type == RUNE_HAMMER
+						&& charge >= Stat::getMaxAttackCharge(myStats) - 3 && hitstats->HP > 0 )
+					{
+						static constexpr int RUNE_HAMMER_SLOW_DURATION = TICKS_PER_SECOND / 2;
+						static constexpr real_t RUNE_HAMMER_KNOCKBACK = 1.0;
+						static constexpr real_t RUNE_HAMMER_MONSTER_KNOCKBACK_ACCELERATION = 0.10;
+						if ( !hitstats->getEffectActive(EFF_KNOCKBACK)
+							&& hit.entity->setEffect(EFF_KNOCKBACK, true, 20, false) )
+						{
+							real_t tangent = atan2(hit.entity->y - this->y, hit.entity->x - this->x);
+							if ( hit.entity->behavior == &actMonster )
+							{
+								hit.entity->vel_x = cos(tangent) * RUNE_HAMMER_KNOCKBACK;
+								hit.entity->vel_y = sin(tangent) * RUNE_HAMMER_KNOCKBACK;
+								hit.entity->monsterKnockbackVelocity = RUNE_HAMMER_MONSTER_KNOCKBACK_ACCELERATION;
+								hit.entity->monsterKnockbackUID = getUID();
+								hit.entity->monsterKnockbackTangentDir = tangent;
+								hit.entity->lookAtEntity(*this);
+							}
+							else if ( hit.entity->behavior == &actPlayer )
+							{
+								hit.entity->monsterKnockbackVelocity = RUNE_HAMMER_KNOCKBACK;
+								hit.entity->monsterKnockbackTangentDir = tangent;
+								if ( !players[hit.entity->skill[2]]->isLocalPlayer() )
+								{
+									serverUpdateEntityFSkill(hit.entity, 11);
+									serverUpdateEntityFSkill(hit.entity, 9);
+								}
+							}
+							knockbackInflicted = true;
+						}
+						if ( hit.entity->setEffect(EFF_SLOW, true, RUNE_HAMMER_SLOW_DURATION, true) )
+						{
+							slowStatusInflicted = true;
+						}
+					}
+
 					if ( damage > 0 && weaponskill == PRO_UNARMED && behavior == &actPlayer && (charge >= Stat::getMaxAttackCharge(myStats) - 3) )
 					{
 						int chance = 0;
@@ -14510,6 +14562,8 @@ void Entity::attack(int pose, int charge, Entity* target)
 
 					if ( damage > 0 && myStats->getEffectActive(EFF_ENVENOM_WEAPON) )
 					{
+						spell_t* activeSpell = getActiveMagicEffect(SPELL_ENVENOM_WEAPON);
+						ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 						if ( local_rng.rand() % 2 == 0 )
 						{
 							int envenomDamage = std::min(
@@ -20639,6 +20693,7 @@ int checkEquipType(const Item *item)
 		case TOOL_LANTERN:
 		case TOOL_CRYSTALSHARD:
 		case SPYGLASS: // mod add: Spyglass occupies the normal offhand slot.
+		case MAGIC_RUNE:
 			return TYPE_OFFHAND;
 			break;
 
@@ -21204,7 +21259,7 @@ int getWeaponSkill(const Item* weapon)
 		return PRO_UNARMED;
 	}
 
-	if ( weapon->type == QUARTERSTAFF || weapon->type == IRON_SPEAR 
+	if ( weapon->type == QUARTERSTAFF || weapon->type == RUNE_HAMMER || weapon->type == IRON_SPEAR
 		|| weapon->type == STEEL_HALBERD || weapon->type == ARTIFACT_SPEAR 
 		|| weapon->type == CRYSTAL_SPEAR
 		|| weapon->type == HARPOON //mod addon
@@ -29072,7 +29127,11 @@ get text string for the different player chosen classes.
 
 char const * playerClassLangEntry(int classnum, int playernum)
 {
-	if ( classnum == CLASS_GUNSLINGER ) // mod add
+	if ( classnum == CLASS_RUNESMITH ) // mod add
+	{
+		return "Runesmith";
+	}
+	else if ( classnum == CLASS_GUNSLINGER ) // mod add
 	{
 		return "Gunslinger";
 	}
@@ -33944,6 +34003,8 @@ bool Entity::modifyDamageMultipliersFromEffects(Entity* hitentity, Entity* attac
 	bool result = false;
 	if ( hitstats->getEffectActive(EFF_BLOOD_WARD) )
 	{
+		spell_t* activeSpell = hitentity->getActiveMagicEffect(SPELL_BLOOD_WARD);
+		ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 		real_t reduction = std::min(getSpellDamageSecondaryFromID(SPELL_BLOOD_WARD, hitentity, nullptr, hitentity) / 100.0, std::max(0.0, getSpellDamageFromID(SPELL_BLOOD_WARD, hitentity, nullptr, hitentity) / 100.0));
 		if ( attackerStats )
 		{
@@ -33968,7 +34029,7 @@ bool Entity::modifyDamageMultipliersFromEffects(Entity* hitentity, Entity* attac
 				if ( hitentity->behavior == &actPlayer )
 				{
 					players[hitentity->skill[2]]->mechanics.updateSustainedSpellEvent(SPELL_BLOOD_WARD, 30.0, 1.0, attacker);
-					hitentity->safeConsumeMP(1);
+					consumeSustainedSpellResource(hitentity, activeSpell, 1);
 				}
 				result = true;
 			}
@@ -33993,16 +34054,38 @@ bool Entity::modifyDamageMultipliersFromEffects(Entity* hitentity, Entity* attac
 	}
 	if ( hitstats->getEffectActive(EFF_SANCTUARY) )
 	{
-		real_t reduction = std::min(0.8, std::max(0.0, 0.1 + (0.15 * (int)(hitstats->getEffectActive(EFF_SANCTUARY) & 0xF))));
+		const Uint8 sanctuaryEffect = hitstats->getEffectActive(EFF_SANCTUARY);
+		real_t reduction = std::min(0.8, std::max(0.0, 0.1 + (0.15 * (int)(sanctuaryEffect & 0xF))));
 		damageMultiplier = std::max(0.1, damageMultiplier * (1.0 - reduction));
 
-		int caster = ((hitstats->getEffectActive(EFF_SANCTUARY) >> 4) & 0xF) - 1;
+		int caster = ((sanctuaryEffect >> 4) & 0x7) - 1;
 		if ( caster >= 0 && caster < MAXPLAYERS )
 		{
 			if ( players[caster]->entity )
 			{
 				players[caster]->mechanics.updateSustainedSpellEvent(SPELL_SANCTUARY, 30.0, 1.0, hitentity);
-				players[caster]->entity->safeConsumeMP(1);
+				if ( sanctuaryEffect & 0x80 )
+				{
+					Uint32 runeItemUid = 0;
+					for ( node_t* node = map.entities->first; node; node = node->next )
+					{
+						Entity* area = static_cast<Entity*>(node->element);
+						if ( area && area->behavior == &actRadiusMagic
+							&& area->actRadiusMagicID == SPELL_SANCTUARY
+							&& area->parent == players[caster]->entity->getUID()
+							&& area->actRadiusMagicRuneUid != 0
+							&& entityDist(area, hitentity) <= area->actRadiusMagicDist + 4.0 )
+						{
+							runeItemUid = static_cast<Uint32>(area->actRadiusMagicRuneUid);
+							break;
+						}
+					}
+					if ( runeItemUid != 0 ) { applyMagicRuneCastStress(runeItemUid, 1); }
+				}
+				else
+				{
+					players[caster]->entity->safeConsumeMP(1);
+				}
 			}
 		}
 		result = true;

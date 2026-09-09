@@ -1775,6 +1775,8 @@ bool Stat::emptyLootingBag(const int player, Uint32 key)
 						item_loot.beatitude, item_loot.count, item_loot.appearance, item_loot.identified, nullptr);
 					if ( item2 )
 					{
+						item2->runeSetStoredPWRRaw(item_loot.runeGetStoredPWRRaw());
+						item2->runeSetCreatorPlayer(item_loot.runeGetCreatorPlayer());
 						int pickedUpCount = item2->count;
 						Item* item = itemPickup(player, item2);
 						if ( item )

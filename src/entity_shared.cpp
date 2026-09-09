@@ -1297,6 +1297,8 @@ char itemNameStrings[NUM_ITEM_STRINGS][32] =
 	// mod add end
 	"spellbook_entrench", // mod add: Entrench spellbook
 	"spyglass", // mod add: offhand telescope
+	"magic_rune", // mod add: instance-configured magic rune
+	"rune_hammer", // mod add: Rune Hammer
 	""
 };
 

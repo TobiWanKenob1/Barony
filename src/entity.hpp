@@ -361,6 +361,11 @@ public:
 	Sint32& playerAutomatonDeathCounter; //skill[15] - 0 if unused, > 0 if counting to death
 	Sint32& playerCreatedDeathCam; //skill[16] - if we triggered actDeathCam already.
 	Sint32& playerCastTimeAnim = skill[17]; // how many ticks we're casting for in the current animation
+	// Transient presentation state replicated by SANM; never drives spell or attack gameplay.
+	bool runeHammerCastVisualActive = false;
+	Uint32 runeHammerCastVisualStartTick = 0;
+	Uint32 runeHammerCastVisualReleaseTick = 0;
+	Sint32 runeHammerCastVisualDuration = 0;
 
 	//--PUBLIC MONSTER ANIMATION SKILLS--
 	Sint32& monsterAnimationLimbDirection;  //skill[20]
@@ -627,6 +632,12 @@ public:
 	Sint32& itemFollowUID = skill[30];
 	Sint32& itemReturnUID = skill[31];
 	Sint32& itemGerminateResult = skill[32];
+	// Item-only transport fields. The validity flag keeps legacy floor Runes
+	// distinguishable from a valid, exactly-zero stored PWR value.
+	Sint32& itemRuneStoredPWR = skill[33];
+	Sint32& itemRuneStoredPWRValid = skill[34];
+	Sint32& itemRuneCreatorPlayer = skill[35];
+	Sint32& itemRuneCreatorPlayerValid = skill[36];
 	real_t& itemWaterBob; //fskill[2]
 	real_t& itemLevitate = fskill[3];
 	real_t& itemLevitateStartZ = fskill[4];
@@ -670,6 +681,12 @@ public:
 	Sint32& actmagicUpdateOLDHPOnHit = skill[34];
 	Sint32& actmagicAllowFriendlyFireHit = skill[35];
 	Sint32& actmagicAdditionalDamage = skill[38]; // extra damage bonus from external sources like windgate
+	// A derived spell entity snapshots its PWR and Rune-cast provenance. All
+	// direct caster/target-stat reads remain live through the normal entity paths.
+	bool hasSpellPowerOverride = false;
+	real_t spellPowerOverride = 0.0;
+	bool magicCastFromRune = false;
+	Sint8 magicRuneCreatorPlayer = -1;
 
 	Sint32& actfloorMagicType = skill[3];
 	Sint32& actfloorMagicClientReceived = skill[4];
@@ -681,6 +698,7 @@ public:
 	Sint32& actRadiusMagicDoPulseTick = skill[6];
 	Sint32& actRadiusMagicAutoPulseTick = skill[7];
 	Sint32& actRadiusMagicEffectPower = skill[8];
+	Sint32& actRadiusMagicRuneUid = skill[9];
 
 	Sint32& actParticleWaveStartFrame = skill[4];
 	Sint32& actParticleWaveLight = skill[7];

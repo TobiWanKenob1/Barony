@@ -5635,7 +5635,7 @@ bool GenericGUIMenu::isItemRepairable(const Item* item, int repairScroll)
 			}
 			return true;
 		}
-		else if ( cat == MAGICSTAFF )
+		else if ( cat == MAGICSTAFF || item->type == MAGIC_RUNE )
 		{
 			if ( item->status == EXCELLENT )
 			{
@@ -6566,8 +6566,11 @@ bool GenericGUIMenu::ItemEffectGUI_t::consumeResourcesForTransmute()
 {
 	if ( modeHasCostEffect != COST_EFFECT_NONE && players[parentGUI.gui_player] && players[parentGUI.gui_player]->entity )
 	{
+		Item* rune = parentGUI.itemEffectScrollItem && parentGUI.itemEffectScrollItem->isMagicRune()
+			? parentGUI.itemEffectScrollItem : nullptr;
 		bool hasGold = costEffectGoldAmount <= 0 || stats[parentGUI.gui_player]->GOLD >= costEffectGoldAmount;
-		bool hasMana = costEffectMPAmount == 0 || (stats[parentGUI.gui_player]->MP >= costEffectMPAmount || stats[parentGUI.gui_player]->type == VAMPIRE);
+		bool hasMana = rune || costEffectMPAmount == 0
+			|| stats[parentGUI.gui_player]->MP >= costEffectMPAmount || stats[parentGUI.gui_player]->type == VAMPIRE;
 		if ( hasGold && hasMana )
 		{
 			if ( costEffectGoldAmount != 0 )
@@ -6595,21 +6598,28 @@ bool GenericGUIMenu::ItemEffectGUI_t::consumeResourcesForTransmute()
 				{
 					if ( players[parentGUI.gui_player]->isLocalPlayer() )
 					{
-						if ( costEffectMPAmount > stats[parentGUI.gui_player]->MP )
+						if ( rune )
 						{
-							cameravars[parentGUI.gui_player].shakex += 0.1;
-							cameravars[parentGUI.gui_player].shakey += 10;
-							playSoundPlayer(parentGUI.gui_player, 28, 92);
+							applyMagicRuneCastStress(rune->uid, costEffectMPAmount);
 						}
-						Sint32 prevMP = stats[parentGUI.gui_player]->MP;
-						players[parentGUI.gui_player]->entity->drainMP(costEffectMPAmount);
-
-						if ( parentGUI.itemEffectScrollItem && parentGUI.itemEffectScrollItem->type == SPELL_ITEM )
+						else
 						{
-							if ( auto spell = getSpellFromItem(parentGUI.gui_player, parentGUI.itemEffectScrollItem, false) )
+							if ( costEffectMPAmount > stats[parentGUI.gui_player]->MP )
 							{
-								players[parentGUI.gui_player]->mechanics.baseSpellIncrementMP(
-									prevMP - stats[parentGUI.gui_player]->MP, spell->skillID);
+								cameravars[parentGUI.gui_player].shakex += 0.1;
+								cameravars[parentGUI.gui_player].shakey += 10;
+								playSoundPlayer(parentGUI.gui_player, 28, 92);
+							}
+							Sint32 prevMP = stats[parentGUI.gui_player]->MP;
+							players[parentGUI.gui_player]->entity->drainMP(costEffectMPAmount);
+
+							if ( parentGUI.itemEffectScrollItem && parentGUI.itemEffectScrollItem->type == SPELL_ITEM )
+							{
+								if ( auto spell = getSpellFromItem(parentGUI.gui_player, parentGUI.itemEffectScrollItem, false) )
+								{
+									players[parentGUI.gui_player]->mechanics.baseSpellIncrementMP(
+										prevMP - stats[parentGUI.gui_player]->MP, spell->skillID);
+								}
 							}
 						}
 					}
@@ -6623,7 +6633,8 @@ bool GenericGUIMenu::ItemEffectGUI_t::consumeResourcesForTransmute()
 				SDLNet_Write32((Uint32)costEffectMPAmount, &net_packet->data[9]);
 
 				Uint16 spellID = 0;
-				if ( parentGUI.itemEffectScrollItem && parentGUI.itemEffectScrollItem->type == SPELL_ITEM )
+				if ( parentGUI.itemEffectScrollItem
+					&& (parentGUI.itemEffectScrollItem->type == SPELL_ITEM || rune) )
 				{
 					if ( auto spell = getSpellFromItem(parentGUI.gui_player, parentGUI.itemEffectScrollItem, false) )
 					{
@@ -6631,9 +6642,10 @@ bool GenericGUIMenu::ItemEffectGUI_t::consumeResourcesForTransmute()
 					}
 				}
 				SDLNet_Write16(spellID, &net_packet->data[13]);
+				SDLNet_Write32(rune ? rune->uid : 0, &net_packet->data[15]);
 				net_packet->address.host = net_server.host;
 				net_packet->address.port = net_server.port;
-				net_packet->len = 15;
+				net_packet->len = 19;
 				sendPacketSafe(net_sock, -1, net_packet, 0);
 			}
 			return true;
@@ -7236,7 +7248,7 @@ void GenericGUIMenu::repairItem(Item* item)
 
 	if ( itemEffectItemType == SCROLL_CHARGING )
 	{
-		if ( itemCategory(item) == MAGICSTAFF )
+		if ( itemCategory(item) == MAGICSTAFF || item->type == MAGIC_RUNE )
 		{
 			Compendium_t::Events_t::eventUpdate(gui_player, Compendium_t::CPDM_MAGICSTAFF_RECHARGED, item->type, 1);
 			if ( item->type == MAGICSTAFF_SCEPTER )
@@ -7541,7 +7553,8 @@ void GenericGUIMenu::openGUI(int type, Item* effectItem, int effectBeatitude, in
 {
 	this->closeGUI();
 
-	if ( !effectItem && usingSpellID != SPELL_NONE && effectItemType == SPELL_ITEM )
+	if ( !effectItem && usingSpellID != SPELL_NONE
+		&& (effectItemType == SPELL_ITEM || effectItemType == MAGIC_RUNE) )
 	{
 		for ( node_t* node = stats[gui_player]->inventory.first; node; node = node->next )
 		{
@@ -7551,7 +7564,7 @@ void GenericGUIMenu::openGUI(int type, Item* effectItem, int effectBeatitude, in
 				continue;
 			}
 			//Search player's inventory for the special spell item.
-			if ( itemCategory(item) != SPELL_CAT )
+			if ( itemCategory(item) != SPELL_CAT && !item->isMagicRune() )
 			{
 				continue;
 			}
@@ -7597,7 +7610,7 @@ void GenericGUIMenu::openGUI(int type, Item* effectItem, int effectBeatitude, in
 		{
 			itemEffectUsingSpellbook = true;
 		}
-		else if ( itemEffectItemType == SPELL_ITEM )
+		else if ( itemEffectItemType == SPELL_ITEM || itemEffectItemType == MAGIC_RUNE )
 		{
 			itemEffectUsingSpell = true;
 		}
@@ -8001,6 +8014,8 @@ void GenericGUIMenu::sendItemToVoid(Item* item)
 	}
 
 	Item* newitem = newItem(item->type, item->status, item->beatitude, item->count, item->appearance, item->identified, nullptr);
+	newitem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+	newitem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
 	if ( Item* insertedItem = Entity::addItemToVoidChest(gui_player, newitem, false, nullptr) )
 	{
 		if ( insertedItem != newitem )
@@ -8170,9 +8185,11 @@ bool GenericGUIMenu::executeOnItemClick(Item* item)
 	{
 		return false;
 	}
-
 	if ( guiType == GUI_TYPE_ITEMFX )
 	{
+		// Item-targeting Rune spells outlive castSpell() while the player chooses a
+		// target. Snapshot the authoritative Rune source for the eventual event.
+		ScopedSpellPowerOverride runeSourceScope(itemEffectScrollItem, true);
 		if ( itemfxGUI.currentMode == ItemEffectGUI_t::ITEMFX_MODE_SCROLL_REPAIR
 			|| itemfxGUI.currentMode == ItemEffectGUI_t::ITEMFX_MODE_SCROLL_CHARGING )
 		{
@@ -24213,6 +24230,11 @@ void GenericGUIMenu::ItemEffectGUI_t::getItemEffectCost(Item* itemUsedWith, int&
 		return;
 	}
 
+	Item* sourceRune = parentGUI.itemEffectScrollItem;
+	ScopedSpellPowerOverride runePowerScope(
+		sourceRune && sourceRune->isMagicRune() && sourceRune->runeHasStoredPWR(),
+		sourceRune ? sourceRune->runeGetStoredPWR() : 0.0);
+
 	if ( currentMode == ITEMFX_MODE_RESTORE )
 	{
 		if ( parentGUI.isItemRepairable(itemUsedWith, SCROLL_REPAIR) )
@@ -24564,6 +24586,8 @@ bool GenericGUIMenu::ItemEffectGUI_t::modeHasTransmuteMenu()
 GenericGUIMenu::ItemEffectGUI_t::ItemEffectActions_t GenericGUIMenu::ItemEffectGUI_t::setItemDisplayNameAndPrice(Item* item, bool checkResultOnly)
 {
 	auto result = ITEMFX_ACTION_NONE;
+	const bool usingRune = parentGUI.itemEffectScrollItem
+		&& parentGUI.itemEffectScrollItem->isMagicRune();
 	if ( !checkResultOnly )
 	{
 		costEffectMPAmount = 0;
@@ -24791,7 +24815,7 @@ GenericGUIMenu::ItemEffectGUI_t::ItemEffectActions_t GenericGUIMenu::ItemEffectG
 					{
 						result = ITEMFX_ACTION_CANT_AFFORD_GOLD;
 					}
-					else if ( manaCost > 0 && manaCost > stats[parentGUI.gui_player]->MP && stats[parentGUI.gui_player]->type != VAMPIRE )
+					else if ( !usingRune && manaCost > 0 && manaCost > stats[parentGUI.gui_player]->MP && stats[parentGUI.gui_player]->type != VAMPIRE )
 					{
 						result = ITEMFX_ACTION_CANT_AFFORD_MANA;
 					}
@@ -24859,7 +24883,7 @@ GenericGUIMenu::ItemEffectGUI_t::ItemEffectActions_t GenericGUIMenu::ItemEffectG
 						costEffectMPAmount = manaCost;
 					}
 
-					if ( manaCost > 0 && manaCost > stats[parentGUI.gui_player]->MP && stats[parentGUI.gui_player]->type != VAMPIRE )
+					if ( !usingRune && manaCost > 0 && manaCost > stats[parentGUI.gui_player]->MP && stats[parentGUI.gui_player]->type != VAMPIRE )
 					{
 						result = ITEMFX_ACTION_CANT_AFFORD_MANA;
 					}
@@ -25033,7 +25057,7 @@ GenericGUIMenu::ItemEffectGUI_t::ItemEffectActions_t GenericGUIMenu::ItemEffectG
 						{
 							result = ITEMFX_ACTION_CANT_AFFORD_GOLD;
 						}
-						if ( manaCost > 0 && manaCost > stats[parentGUI.gui_player]->MP && stats[parentGUI.gui_player]->type != VAMPIRE )
+						if ( !usingRune && manaCost > 0 && manaCost > stats[parentGUI.gui_player]->MP && stats[parentGUI.gui_player]->type != VAMPIRE )
 						{
 							if ( result == ITEMFX_ACTION_CANT_AFFORD_GOLD )
 							{
@@ -25625,7 +25649,7 @@ void GenericGUIMenu::ItemEffectGUI_t::updateItemEffectMenu()
 			spell_t* spell = nullptr;
 			int spellID = SPELL_NONE;
 			char buf[128];
-			if ( item && item->type == SPELL_ITEM )
+			if ( item && (item->type == SPELL_ITEM || item->isMagicRune()) )
 			{
 				isSpell = true;
 				spell = getSpellFromItem(parentGUI.getPlayer(), item, false);
@@ -25755,7 +25779,9 @@ void GenericGUIMenu::ItemEffectGUI_t::updateItemEffectMenu()
 		{
 			if ( parentGUI.itemEffectUsingSpell )
 			{
-				if ( parentGUI.itemEffectScrollItem && parentGUI.itemEffectScrollItem->type == SPELL_ITEM )
+				if ( parentGUI.itemEffectScrollItem
+					&& (parentGUI.itemEffectScrollItem->type == SPELL_ITEM
+						|| parentGUI.itemEffectScrollItem->isMagicRune()) )
 				{
 					if ( spell_t* spell = getSpellFromItem(parentGUI.gui_player, parentGUI.itemEffectScrollItem, false) )
 					{
@@ -37556,7 +37582,7 @@ void GenericGUIMenu::AssistShrineGUI_t::updateAssistShrine()
 								// hp/mp
 								{
 									auto hpmp_values = classTooltip->findField("hpmp_values");
-									const int i = std::min((Sint32)itemType, (Sint32)(MainMenu::ClassDescriptions::data.size() - 1));
+									const int i = std::min((Sint32)itemType, (Sint32)(NUMCLASSES - 1));
 									char buf[32];
 									snprintf(buf, sizeof(buf), "%d\n%d",
 										MainMenu::ClassDescriptions::data[i].hp,
@@ -37567,7 +37593,7 @@ void GenericGUIMenu::AssistShrineGUI_t::updateAssistShrine()
 								// difficulty stars
 								auto difficulty_stars = classTooltip->findField("difficulty_stars");
 								{
-									const int i = std::min((Sint32)itemType, (Sint32)(MainMenu::ClassDescriptions::data.size() - 1));
+									const int i = std::min((Sint32)itemType, (Sint32)(NUMCLASSES - 1));
 									for ( int c = 0; c < 2; ++c ) {
 										difficulty_stars->addColorToLine(c, std::get<2>(MainMenu::ClassDescriptions::data[i].survivalComplexity[c]));
 									}

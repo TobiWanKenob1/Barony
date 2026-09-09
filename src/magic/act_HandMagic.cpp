@@ -104,7 +104,8 @@ void spellcasting_animation_manager_t::executeAttackSpell(bool swingweapon)
 	{
 		if ( !swingweapon )
 		{
-			if ( rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE )
+			if ( rangefinder == RANGEFINDER_TARGET
+				|| rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE )
 			{
 				stage = ANIM_SPELL_TOUCH_THROW;
 				throw_count = 0;
@@ -146,7 +147,8 @@ void spellcasting_animation_manager_t::executeAttackSpell(bool swingweapon)
 	{
 		if ( !swingweapon )
 		{
-			if ( rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE )
+			if ( rangefinder == RANGEFINDER_TARGET
+				|| rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE )
 			{
 				stage = ANIM_SPELL_OVERCHARGE_THROW;
 				throw_count = 0;
@@ -386,6 +388,7 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 	{
 		return;
 	}
+	ScopedSpellPowerOverride spellPowerScope(hasSpellPowerOverride, spellPowerOverride);
 
 	rangefinder = spell->rangefinder;
 	// mod add: Entrench's second stage targets a cardinal floor tile.
@@ -852,7 +855,7 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 	}
 }
 
-void spellcastAnimationUpdate(int player, int attackPose, int castTime)
+void spellcastAnimationUpdate(int player, int attackPose, int castTime, bool runeHammerCastVisual)
 {
 	if ( multiplayer == CLIENT )
 	{
@@ -861,16 +864,17 @@ void spellcastAnimationUpdate(int player, int attackPose, int castTime)
 		net_packet->data[4] = player;
 		net_packet->data[5] = attackPose;
 		SDLNet_Write16(castTime, &net_packet->data[6]);
-		net_packet->len = 8;
+		net_packet->data[8] = runeHammerCastVisual ? 1 : 0;
+		net_packet->len = 9;
 		net_packet->address.host = net_server.host;
 		net_packet->address.port = net_server.port;
 		sendPacketSafe(net_sock, -1, net_packet, 0);
 	}
 
-	spellcastAnimationUpdateReceive(player, attackPose, castTime);
+	spellcastAnimationUpdateReceive(player, attackPose, castTime, runeHammerCastVisual);
 }
 
-void spellcastAnimationUpdateReceive(int player, int attackPose, int castTime)
+void spellcastAnimationUpdateReceive(int player, int attackPose, int castTime, bool runeHammerCastVisual)
 {
 	if ( player < 0 || player >= MAXPLAYERS )
 	{
@@ -890,7 +894,8 @@ void spellcastAnimationUpdateReceive(int player, int attackPose, int castTime)
 					net_packet->data[4] = player;
 					net_packet->data[5] = attackPose;
 					SDLNet_Write16(castTime, &net_packet->data[6]);
-					net_packet->len = 8;
+					net_packet->data[8] = runeHammerCastVisual ? 1 : 0;
+					net_packet->len = 9;
 					net_packet->address.host = net_clients[i - 1].host;
 					net_packet->address.port = net_clients[i - 1].port;
 					sendPacketSafe(net_sock, -1, net_packet, i - 1);
@@ -901,6 +906,28 @@ void spellcastAnimationUpdateReceive(int player, int attackPose, int castTime)
 
 	if ( players[player]->entity )
 	{
+		Entity* playerEntity = players[player]->entity;
+		if ( runeHammerCastVisual )
+		{
+			playerEntity->runeHammerCastVisualActive = true;
+			if ( attackPose == MONSTER_POSE_MAGIC_WINDUP1 )
+			{
+				playerEntity->runeHammerCastVisualStartTick = ticks;
+				playerEntity->runeHammerCastVisualReleaseTick = 0;
+				playerEntity->runeHammerCastVisualDuration = std::max(1, castTime);
+			}
+			else
+			{
+				playerEntity->runeHammerCastVisualReleaseTick = ticks;
+			}
+		}
+		else if ( attackPose == MONSTER_POSE_MAGIC_CAST2
+			&& playerEntity->runeHammerCastVisualActive
+			&& playerEntity->runeHammerCastVisualReleaseTick == 0 )
+		{
+			// Mirror a pre-release cancellation to remote players.
+			playerEntity->runeHammerCastVisualActive = false;
+		}
 		if ( attackPose == MONSTER_POSE_MAGIC_WINDUP1 )
 		{
 			players[player]->entity->playerCastTimeAnim = castTime;
@@ -933,7 +960,8 @@ void spellcastAnimationUpdateReceive(int player, int attackPose, int castTime)
 		}
 		else if ( attackPose == MONSTER_POSE_MAGIC_CAST2 || attackPose == 1 )
 		{
-			if ( attackPose == MONSTER_POSE_MAGIC_CAST2 && !players[player]->isLocalPlayer() )
+			if ( attackPose == MONSTER_POSE_MAGIC_CAST2 && !runeHammerCastVisual
+				&& !players[player]->isLocalPlayer() )
 			{
 				if ( players[player]->entity->skill[9] == MONSTER_POSE_MAGIC_WINDUP2 )
 				{
@@ -944,6 +972,47 @@ void spellcastAnimationUpdateReceive(int player, int attackPose, int castTime)
 			players[player]->entity->skill[10] = 0;
 		}
 	}
+}
+
+RuneHammerCastVisualPhase getRuneHammerCastVisualPhase(Entity& playerEntity, real_t& progress)
+{
+	progress = 0.0;
+	if ( !playerEntity.runeHammerCastVisualActive )
+	{
+		return RuneHammerCastVisualPhase::NONE;
+	}
+
+	if ( playerEntity.runeHammerCastVisualReleaseTick == 0 )
+	{
+		// The normal first-swing windup reaches its held pose in roughly ten ticks.
+		// Faster Runes scale that approach down; slower/targeted Runes hold it until release.
+		const Uint32 elapsed = ticks >= playerEntity.runeHammerCastVisualStartTick
+			? ticks - playerEntity.runeHammerCastVisualStartTick : 0;
+		const int windupTicks = std::max(1,
+			std::min(10, playerEntity.runeHammerCastVisualDuration));
+		progress = std::min<real_t>(1.0,
+			elapsed / static_cast<real_t>(windupTicks));
+		return RuneHammerCastVisualPhase::CHARGE;
+	}
+
+	// These visual-only phases mirror the normal Hammer's first-swing and return timing.
+	static constexpr Uint32 SWING_TICKS = 11;
+	static constexpr Uint32 RECOVERY_TICKS = 16;
+	const Uint32 elapsed = ticks >= playerEntity.runeHammerCastVisualReleaseTick
+		? ticks - playerEntity.runeHammerCastVisualReleaseTick : 0;
+	if ( elapsed <= SWING_TICKS )
+	{
+		progress = elapsed / static_cast<real_t>(SWING_TICKS);
+		return RuneHammerCastVisualPhase::SWING;
+	}
+	if ( elapsed <= SWING_TICKS + RECOVERY_TICKS )
+	{
+		progress = (elapsed - SWING_TICKS) / static_cast<real_t>(RECOVERY_TICKS);
+		return RuneHammerCastVisualPhase::RECOVERY;
+	}
+
+	playerEntity.runeHammerCastVisualActive = false;
+	return RuneHammerCastVisualPhase::NONE;
 }
 
 void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool usingTome)
@@ -989,6 +1058,8 @@ void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, 
 	animation_manager->player = caster->skill[2];
 	animation_manager->caster = caster->getUID();
 	animation_manager->spell = spell;
+	animation_manager->hasSpellPowerOverride = false;
+	animation_manager->spellPowerOverride = 0.0;
 
 	if ( !usingSpellbook )
 	{
@@ -1130,6 +1201,14 @@ void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, 
 
 void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* animation_manager)
 {
+	if ( animation_manager->usingRune && animation_manager->player >= 0
+		&& animation_manager->player < MAXPLAYERS && players[animation_manager->player]
+		&& players[animation_manager->player]->entity
+		&& players[animation_manager->player]->entity->runeHammerCastVisualReleaseTick == 0 )
+	{
+		// Cancellation before the authoritative release abandons the visual windup.
+		players[animation_manager->player]->entity->runeHammerCastVisualActive = false;
+	}
 	if ( animation_manager->stage == ANIM_SPELL_TOUCH
 		|| animation_manager->stage == ANIM_SPELL_TOUCH_CHARGE
 		|| animation_manager->stage == ANIM_SPELL_OVERCHARGE_READY
@@ -1146,6 +1225,10 @@ void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* a
 	animation_manager->circle_count = 0;
 	animation_manager->active_count = 0;
 	animation_manager->overcharge = 0;
+	animation_manager->usingRune = false;
+	animation_manager->runeItemUid = 0;
+	animation_manager->hasSpellPowerOverride = false;
+	animation_manager->spellPowerOverride = 0.0;
 	//animation_manager->overcharge_init = 0;
 	animation_manager->resetRangefinder();
 
@@ -1170,6 +1253,60 @@ void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* a
 		players[animation_manager->player]->hud.magicRangefinder->flags[INVISIBLE] = true;
 		players[animation_manager->player]->hud.magicRangefinder->flags[INVISIBLE_DITHER] = false;
 	}
+}
+
+bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeItemUid)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !players[player]->entity
+		|| !players[player]->isLocalPlayer() || !spell
+		|| cast_animation[player].active || cast_animation[player].active_spellbook )
+	{
+		return false;
+	}
+	auto& animation = cast_animation[player];
+	Item* rune = stats[player] ? stats[player]->shield : nullptr;
+	if ( !rune || !rune->isMagicRune() || rune->uid != runeItemUid || !rune->runeHasStoredPWR() )
+	{
+		return false;
+	}
+	if ( tryToggleExistingChanneledSpell(player, spell) )
+	{
+		return true;
+	}
+	animation.player = player;
+	animation.caster = players[player]->entity->getUID();
+	animation.spell = spell;
+	animation.active = true;
+	animation.active_spellbook = false;
+	animation.usingRune = true;
+	animation.runeItemUid = runeItemUid;
+	animation.hasSpellPowerOverride = true;
+	animation.spellPowerOverride = rune->runeGetStoredPWR();
+	animation.stage = ANIM_SPELL_CIRCLE;
+	animation.circle_count = 0;
+	animation.throw_count = 0;
+	animation.active_count = 0;
+	animation.overcharge = 0;
+	animation.consumeMana = false;
+	animation.mana_left = 0;
+	animation.mana_cost = 0;
+	const real_t minimumCastTime = spell->cast_time <= 1.0 ? 0.5 : 1.0;
+	const real_t runeCastTime = std::max<real_t>(minimumCastTime, spell->cast_time * 0.5);
+	animation.times_to_circle = static_cast<int>(ceil(runeCastTime * HANDMAGIC_TICKS_PER_CIRCLE));
+	animation.consume_interval = animation.times_to_circle;
+	animation.consume_timer = animation.consume_interval;
+	animation.resetRangefinder();
+	animation.setRangeFinderLocation();
+	animation.lefthand_angle = 0;
+	animation.lefthand_movex = 0;
+	animation.lefthand_movey = 0;
+	if ( players[player]->hud.magicLeftHand ) { players[player]->hud.magicLeftHand->flags[INVISIBLE] = true; }
+	if ( players[player]->hud.magicRightHand ) { players[player]->hud.magicRightHand->flags[INVISIBLE] = true; }
+	const bool hasRuneHammer = stats[player] && stats[player]->weapon
+		&& stats[player]->weapon->type == RUNE_HAMMER;
+	spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_WINDUP1,
+		animation.times_to_circle, hasRuneHammer);
+	return true;
 }
 
 // mod add: Panicking owns only casts it interrupts. Track and restore the
@@ -1218,6 +1355,53 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 	}
 
 	int overcharge = (animation_manager->overcharge > 0 && animation_manager->stage == ANIM_SPELL_OVERCHARGE_THROW) ? animation_manager->overcharge : 0;
+	auto completeCast = [&](CastSpellProps_t* props)
+	{
+		// Entrench placement is the second half of an already-paid cast. Route that
+		// half through its existing carried-object bypass so Rune stress occurs only
+		// on the initial release and placement still works if that roll broke it.
+		if ( animation_manager->usingRune && !entrenchPlacementStage )
+		{
+			Item* equippedRune = stats[player] ? stats[player]->shield : nullptr;
+			if ( !equippedRune || !equippedRune->isMagicRune()
+				|| equippedRune->uid != animation_manager->runeItemUid
+				|| !equippedRune->runeCanCast()
+				|| equippedRune->runeGetSpellID() != animation_manager->spell->ID )
+			{
+				return;
+			}
+			spell_t* runeSpell = copySpell(animation_manager->spell);
+			if ( !runeSpell ) { return; }
+			runeSpell->runeItemUid = animation_manager->runeItemUid;
+			if ( !applyMagicRuneStoredPWR(*runeSpell, *equippedRune) )
+			{
+				spellDeconstructor(runeSpell);
+				return;
+			}
+			const int runeResource = runeSpell->ID == SPELL_LEAD_BOLT
+				? getGoldCostOfSpell(runeSpell, player)
+				: getCostOfSpell(runeSpell, players[player]->entity);
+			CastSpellProps_t networkProps;
+			CastSpellProps_t* runeProps = (multiplayer == CLIENT && !props) ? &networkProps : props;
+			castSpell(animation_manager->caster, runeSpell, false, false, false, runeProps, false, true);
+			if ( multiplayer != CLIENT )
+			{
+				applyMagicRuneCastStress(animation_manager->runeItemUid, runeResource);
+			}
+			spellDeconstructor(runeSpell);
+		}
+		else
+		{
+			castSpell(animation_manager->caster, animation_manager->spell, false, false,
+				animation_manager->active_spellbook, props);
+		}
+	};
+	if ( animation_manager->usingRune && players[player] && players[player]->entity
+		&& players[player]->entity->runeHammerCastVisualActive
+		&& players[player]->entity->runeHammerCastVisualReleaseTick == 0 )
+	{
+		spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_CAST2, 0, true);
+	}
 
 	if ( animation_manager->rangefinder == SpellRangefinderType::RANGEFINDER_TARGET
 		|| animation_manager->rangefinder == SpellRangefinderType::RANGEFINDER_TOUCH_FLOOR_TILE
@@ -1260,7 +1444,7 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 				}
 			}
 		}
-		castSpell(animation_manager->caster, animation_manager->spell, false, false, animation_manager->active_spellbook, &castSpellProps); //Actually cast the spell.
+		completeCast(&castSpellProps);
 	}
 	else if ( animation_manager->rangefinder == SpellRangefinderType::RANGEFINDER_TOUCH
 		|| animation_manager->rangefinder == SpellRangefinderType::RANGEFINDER_TOUCH_INTERACT )
@@ -1269,7 +1453,7 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 		castSpellProps.targetUID = animation_manager->targetUid;
 		castSpellProps.wallDir = animation_manager->wallDir;
 		castSpellProps.overcharge = overcharge;
-		castSpell(animation_manager->caster, animation_manager->spell, false, false, animation_manager->active_spellbook, &castSpellProps); //Actually cast the spell.
+		completeCast(&castSpellProps);
 	}
 	else if ( animation_manager->spell 
 		&& (animation_manager->spell->ID == SPELL_BASTION_MUSHROOM 
@@ -1300,11 +1484,11 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 			}
 		}
 		castSpellProps.overcharge = overcharge;
-		castSpell(animation_manager->caster, animation_manager->spell, false, false, animation_manager->active_spellbook, &castSpellProps); //Actually cast the spell.
+		completeCast(&castSpellProps);
 	}
 	else
 	{
-		castSpell(animation_manager->caster, animation_manager->spell, false, false, animation_manager->active_spellbook); //Actually cast the spell.
+		completeCast(nullptr);
 	}
 
 	if ( entrenchFirstStage )
@@ -1778,7 +1962,9 @@ void actLeftHandMagic(Entity* my)
 						|| cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == SpellRangefinderType::RANGEFINDER_TOUCH_INTERACT
 						|| cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == SpellRangefinderType::RANGEFINDER_TOUCH_INTERACT_TEST
 						|| cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == SpellRangefinderType::RANGEFINDER_TOUCH_FLOOR_TILE
-						|| cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == SpellRangefinderType::RANGEFINDER_TOUCH_WALL_TILE )
+						|| cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == SpellRangefinderType::RANGEFINDER_TOUCH_WALL_TILE
+						|| (cast_animation[HANDMAGIC_PLAYERNUM].usingRune
+							&& cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == SpellRangefinderType::RANGEFINDER_TARGET) )
 					{
 						cast_animation[HANDMAGIC_PLAYERNUM].stage = ANIM_SPELL_TOUCH;
 						if ( cast_animation[HANDMAGIC_PLAYERNUM].overcharge > 0 )
@@ -2107,6 +2293,7 @@ void actLeftHandMagic(Entity* my)
 	//my->z = (camera.z*.5-players[HANDMAGIC_PLAYERNUM]->z)+7+HUDWEAPON_MOVEZ; //TODO: NOT a PLAYERSWAP
 	my->x += cast_animation[HANDMAGIC_PLAYERNUM].lefthand_movex;
 	my->y += cast_animation[HANDMAGIC_PLAYERNUM].lefthand_movey;
+	if ( cast_animation[HANDMAGIC_PLAYERNUM].usingRune ) { my->flags[INVISIBLE] = true; }
 
 	if ( cast_animation[HANDMAGIC_PLAYERNUM].active || cast_animation[HANDMAGIC_PLAYERNUM].active_spellbook )
 	{
@@ -2627,6 +2814,7 @@ void actRightHandMagic(Entity* my)
 
 	my->x += cast_animation[HANDMAGIC_PLAYERNUM].lefthand_movex;
 	my->y -= cast_animation[HANDMAGIC_PLAYERNUM].lefthand_movey;
+	if ( cast_animation[HANDMAGIC_PLAYERNUM].usingRune ) { my->flags[INVISIBLE] = true; }
 }
 
 #define HANDMAGIC_RANGEFINDER_ALPHA my->fskill[0]

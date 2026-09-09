@@ -3587,6 +3587,31 @@ struct EquipmentModelOffsets_t
 };
 extern EquipmentModelOffsets_t EquipmentModelOffsets;
 
+struct RuneHammerModelPositions_t
+{
+	struct Transform_t
+	{
+		real_t x = 0.0, y = 0.0, z = 0.0;
+		real_t focalx = 0.0, focaly = 0.0, focalz = 0.0;
+		real_t yaw = 0.0, pitch = 0.0, roll = 0.0;
+		real_t scalex = 1.0, scaley = 1.0, scalez = 1.0;
+	};
+	struct View_t
+	{
+		Transform_t normal;
+		Transform_t twoHanded;
+		Transform_t attachedOffhand;
+	};
+	View_t firstPerson;
+	View_t thirdPerson;
+	void readFromFile();
+	const Transform_t& hammerTransform(bool firstPersonView, bool twoHanded) const;
+	const Transform_t& attachmentTransform(bool firstPersonView) const;
+	void applyOffset(Entity& entity, const Transform_t& transform) const;
+	void attachTo(Entity& entity, const Entity& hammer, const Transform_t& transform) const;
+};
+extern RuneHammerModelPositions_t RuneHammerModelPositions;
+
 struct Compendium_t
 {
 	struct CompendiumView_t

@@ -108,8 +108,9 @@ void spell_summonFamiliar(int player)
     // deprecated
 }
 
-bool spellEffectDominate(Entity& my, spellElement_t& element, Entity& caster, Entity* parent)
+bool spellEffectDominate(Entity& my, spellElement_t& element, Entity& caster, Entity* parent, spell_t* spell)
 {
+	ScopedSpellPowerOverride spellPowerScope(spell, true);
 	if ( !hit.entity )
 	{
 		return false;
@@ -171,6 +172,19 @@ bool spellEffectDominate(Entity& my, spellElement_t& element, Entity& caster, En
 		{
 			messagePlayerColor(caster.isEntityPlayer(), MESSAGE_COMBAT, makeColorRGB(255, 0, 0), Language::get(6962));
 			playSoundEntity(hit.entity, 163, 128);
+			return false;
+		}
+	}
+
+	if ( spell && spell->runeItemUid != 0 )
+	{
+		Item* rune = findMagicRuneByUid(spell->runeItemUid);
+		const int initialCost = std::max(0, getCostOfSpell(getSpellFromID(SPELL_DOMINATE), &caster));
+		const int requiredCapacity = initialCost + std::max(0, hitstats->HP);
+		if ( !rune || rune->runeGetDominateCapacity() < requiredCapacity )
+		{
+			breakMagicRune(spell->runeItemUid,
+				"The Dominate rune cannot contain the required power and breaks apart.");
 			return false;
 		}
 	}
@@ -237,7 +251,16 @@ bool spellEffectDominate(Entity& my, spellElement_t& element, Entity& caster, En
 			}
 		}
 
-		caster.drainMP(hitstats->HP); //Drain additional MP equal to health of monster.
+		if ( spell && spell->runeItemUid != 0 )
+		{
+			// Initial cast stress is applied by the Rune cast completion path. This
+			// represents Dominate's distinct successful-target resource event once.
+			applyMagicRuneCastStress(spell->runeItemUid, std::max(0, hitstats->HP));
+		}
+		else
+		{
+			caster.drainMP(hitstats->HP); //Drain additional MP equal to health of monster.
+		}
 		Stat* casterStats = caster.getStats();
 		if ( casterStats && casterStats->HP <= 0 )
 		{
@@ -2134,6 +2157,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 				{
 					summonedStats->weapon = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 						(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+					summonedStats->weapon->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+					summonedStats->weapon->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 				}
 			}
 
@@ -2143,6 +2168,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 			{
 				summonedStats->shield = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+				summonedStats->shield->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+				summonedStats->shield->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 			}
 
 			// breastplate
@@ -2162,6 +2189,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 				{
 					summonedStats->breastplate = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 						(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+					summonedStats->breastplate->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+					summonedStats->breastplate->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 				}
 			}
 
@@ -2171,6 +2200,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 			{
 				summonedStats->shoes = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+				summonedStats->shoes->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+				summonedStats->shoes->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 			}
 
 			// helm
@@ -2189,6 +2220,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 					{
 						summonedStats->helmet = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 							(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+						summonedStats->helmet->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+						summonedStats->helmet->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 					}
 					else
 					{
@@ -2203,6 +2236,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 				{
 					summonedStats->helmet = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 						(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+					summonedStats->helmet->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+					summonedStats->helmet->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 				}
 			}
 
@@ -2212,6 +2247,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 			{
 				summonedStats->amulet = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+				summonedStats->amulet->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+				summonedStats->amulet->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 			}
 
 			// ring
@@ -2220,6 +2257,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 			{
 				summonedStats->ring = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+				summonedStats->ring->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+				summonedStats->ring->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 			}
 
 			// cloak
@@ -2228,6 +2267,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 			{
 				summonedStats->cloak = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+				summonedStats->cloak->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+				summonedStats->cloak->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 			}
 
 			// gloves
@@ -2247,6 +2288,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 				{
 					summonedStats->gloves = newItem((*slot)->type, (*slot)->status, (*slot)->beatitude,
 						(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
+					summonedStats->gloves->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
+					summonedStats->gloves->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
 				}
 			}
 		}
@@ -2328,6 +2371,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 				if ( targetStats->type != SHOPKEEPER || (targetStats->type == SHOPKEEPER && local_rng.rand() % 2) )
 				{
 					Item* copiedItem = newItem(item->type, item->status, item->beatitude, item->count, item->appearance, item->identified, &summonedStats->inventory);
+					copiedItem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+					copiedItem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
 				}
 				if ( item->node )
 				{
@@ -3447,6 +3492,7 @@ bool Entity::spellEffectPreserveItem(Item* item)
 		{
 			if ( spell_t* preserveSpell = getActiveMagicEffect(SPELL_PRESERVE) )
 			{
+				ScopedSpellPowerOverride spellPowerScope(preserveSpell, true);
 				int cost = getSpellDamageFromID(SPELL_PRESERVE, this, nullptr, this);
 				cost = std::max(1, std::max(getSpellDamageSecondaryFromID(SPELL_PRESERVE, this, nullptr, this), cost));
 				if ( item->type == AMULET_LIFESAVING )
@@ -3457,9 +3503,9 @@ bool Entity::spellEffectPreserveItem(Item* item)
 				{
 					cost *= 2;
 				}
-				if ( !safeConsumeMP(cost) )
+				if ( !consumeSustainedSpellResource(this, preserveSpell, cost) )
 				{
-					if ( myStats->MP > 0 )
+					if ( preserveSpell->runeItemUid == 0 && myStats->MP > 0 )
 					{
 						modMP(-myStats->MP);
 					}
@@ -3732,14 +3778,15 @@ bool Entity::mistFormDodge(bool checkEffectActiveOnly, Entity* attacker)
 			{
 				if ( spell_t* spell = getActiveMagicEffect(SPELL_MIST_FORM) )
 				{
+					ScopedSpellPowerOverride spellPowerScope(spell, true);
 					int chance = getSpellEffectDurationSecondaryFromID(SPELL_MIST_FORM, this, nullptr, this);
 					if ( local_rng.rand() % 100 < chance )
 					{
 						int cost = getSpellDamageFromID(SPELL_MIST_FORM, this, nullptr, this);
 						cost = std::max(1, std::max(cost, getSpellDamageSecondaryFromID(SPELL_MIST_FORM, this, nullptr, this)));
-						if ( !safeConsumeMP(cost) )
+						if ( !consumeSustainedSpellResource(this, spell, cost) )
 						{
-							if ( myStats->MP > 0 )
+							if ( spell->runeItemUid == 0 && myStats->MP > 0 )
 							{
 								modMP(-myStats->MP);
 							}
@@ -4114,6 +4161,7 @@ Entity* spellEffectDemesneDoor(Entity& caster, Entity& target)
 
 int getSpellDamageFromID(int spellID, Entity* parent, Stat* parentStats, Entity* magicSourceParticle, real_t addSpellBonus, bool applyingDamageOnCast)
 {
+	ScopedSpellPowerOverride sourcePowerScope(magicSourceParticle);
 	int damage = 0;
 	spellElement_t* element = nullptr;
 	int skillID = NUMPROFICIENCIES;
@@ -4165,6 +4213,7 @@ int getSpellDamageFromID(int spellID, Entity* parent, Stat* parentStats, Entity*
 
 int getSpellDamageSecondaryFromID(int spellID, Entity* parent, Stat* parentStats, Entity* magicSourceParticle, real_t addSpellBonus, bool applyingDamageOnCast)
 {
+	ScopedSpellPowerOverride sourcePowerScope(magicSourceParticle);
 	int damage = 0;
 	spellElement_t* element = nullptr;
 	int skillID = NUMPROFICIENCIES;
@@ -4214,6 +4263,7 @@ int getSpellDamageSecondaryFromID(int spellID, Entity* parent, Stat* parentStats
 }
 int getSpellEffectDurationFromID(int spellID, Entity* parent, Stat* parentStats, Entity* magicSourceParticle, real_t addSpellBonus)
 {
+	ScopedSpellPowerOverride sourcePowerScope(magicSourceParticle);
 	int duration = 0;
 	spellElement_t* element = nullptr;
 	if ( auto spell = getSpellFromID(spellID) )
@@ -4241,6 +4291,7 @@ int getSpellEffectDurationFromID(int spellID, Entity* parent, Stat* parentStats,
 
 int getSpellEffectDurationSecondaryFromID(int spellID, Entity* parent, Stat* parentStats, Entity* magicSourceParticle, real_t addSpellBonus)
 {
+	ScopedSpellPowerOverride sourcePowerScope(magicSourceParticle);
 	int duration = 0;
 	spellElement_t* element = nullptr;
 	if ( auto spell = getSpellFromID(spellID) )
@@ -4268,6 +4319,7 @@ int getSpellEffectDurationSecondaryFromID(int spellID, Entity* parent, Stat* par
 
 real_t getSpellPropertyFromID(spell_t::SpellBasePropertiesFloat prop, int spellID, Entity* parent, Stat* parentStats, Entity* magicSourceParticle, real_t addSpellBonus)
 {
+	ScopedSpellPowerOverride sourcePowerScope(magicSourceParticle);
 	spellElement_t* element = nullptr;
 	spell_t* spell = nullptr;
 	real_t result = 1.0;
@@ -4432,6 +4484,7 @@ real_t getSpellPropertyFromID(spell_t::SpellBasePropertiesFloat prop, int spellI
 
 int getSpellPropertyFromID(spell_t::SpellBasePropertiesInt prop, int spellID, Entity* parent, Stat* parentStats, Entity* magicSourceParticle, real_t addSpellBonus)
 {
+	ScopedSpellPowerOverride sourcePowerScope(magicSourceParticle);
 	spellElement_t* element = nullptr;
 	spell_t* spell = nullptr;
 	int result = 1.0;

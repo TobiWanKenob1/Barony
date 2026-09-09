@@ -1196,6 +1196,79 @@ void ItemTooltips_t::readItemsFromFile()
 	items[SPYGLASS].category = TOOL;
 	items[SPYGLASS].item_slot = ItemEquippableSlot::EQUIPPABLE_IN_SLOT_SHIELD;
 
+	// MAGIC_RUNE presentation is resolved per instance from its encoded gem.
+	// Keep an obsidian fallback only for mounted item data that predates it.
+	if ( itemsRead <= static_cast<int>(MAGIC_RUNE) )
+	{
+		items[MAGIC_RUNE].level = -1;
+		items[MAGIC_RUNE].gold_value = 0;
+		items[MAGIC_RUNE].weight = 1;
+		items[MAGIC_RUNE].fpindex = items[GEM_OBSIDIAN].fpindex;
+		items[MAGIC_RUNE].index = items[GEM_OBSIDIAN].index;
+		items[MAGIC_RUNE].indexShort = items[GEM_OBSIDIAN].indexShort;
+		items[MAGIC_RUNE].variations = 1;
+		items[MAGIC_RUNE].category = TOOL;
+		items[MAGIC_RUNE].item_slot = ItemEquippableSlot::EQUIPPABLE_IN_SLOT_SHIELD;
+		items[MAGIC_RUNE].tooltip = "tooltip_default";
+		list_FreeAll(&items[MAGIC_RUNE].images);
+		items[MAGIC_RUNE].images.first = NULL;
+		items[MAGIC_RUNE].images.last = NULL;
+		for ( node_t* imageNode = items[GEM_OBSIDIAN].images.first; imageNode; imageNode = imageNode->next )
+		{
+			const string_t* source = static_cast<const string_t*>(imageNode->element);
+			if ( !source || !source->data ) { continue; }
+			string_t* copy = static_cast<string_t*>(malloc(sizeof(string_t)));
+			const size_t len = 64;
+			copy->data = static_cast<char*>(malloc(len));
+			memset(copy->data, 0, len);
+			copy->lines = 1;
+			node_t* node = list_AddNodeLast(&items[MAGIC_RUNE].images);
+			node->element = copy;
+			node->deconstructor = &stringDeconstructor;
+			node->size = sizeof(string_t);
+			copy->node = node;
+			stringCopy(copy->data, source->data, len - 1, strlen(source->data));
+		}
+	}
+	// A Rune remains a TOOL for equipment/gameplay, but presents the centrally
+	// resolved spell encoded in its per-instance metadata.
+	items[MAGIC_RUNE].tooltip = "tooltip_spell_item";
+
+	// Older mounted item data receives a Quarterstaff fallback. A real item 530
+	// definition remains authoritative, including its dedicated model indices.
+	if ( itemsRead <= static_cast<int>(RUNE_HAMMER) )
+	{
+		items[RUNE_HAMMER].level = -1;
+		items[RUNE_HAMMER].gold_value = 0;
+		items[RUNE_HAMMER].weight = items[QUARTERSTAFF].weight;
+		items[RUNE_HAMMER].fpindex = items[QUARTERSTAFF].fpindex;
+		items[RUNE_HAMMER].index = items[QUARTERSTAFF].index;
+		items[RUNE_HAMMER].indexShort = items[QUARTERSTAFF].indexShort;
+		items[RUNE_HAMMER].variations = 1;
+		items[RUNE_HAMMER].category = WEAPON;
+		items[RUNE_HAMMER].item_slot = ItemEquippableSlot::EQUIPPABLE_IN_SLOT_WEAPON;
+		items[RUNE_HAMMER].tooltip = "tooltip_default";
+		list_FreeAll(&items[RUNE_HAMMER].images);
+		items[RUNE_HAMMER].images.first = NULL;
+		items[RUNE_HAMMER].images.last = NULL;
+		for ( node_t* imageNode = items[QUARTERSTAFF].images.first; imageNode; imageNode = imageNode->next )
+		{
+			const string_t* source = static_cast<const string_t*>(imageNode->element);
+			if ( !source || !source->data ) { continue; }
+			string_t* copy = static_cast<string_t*>(malloc(sizeof(string_t)));
+			const size_t len = 64;
+			copy->data = static_cast<char*>(malloc(len));
+			memset(copy->data, 0, len);
+			copy->lines = 1;
+			node_t* node = list_AddNodeLast(&items[RUNE_HAMMER].images);
+			node->element = copy;
+			node->deconstructor = &stringDeconstructor;
+			node->size = sizeof(string_t);
+			copy->node = node;
+			stringCopy(copy->data, source->data, len - 1, strlen(source->data));
+		}
+	}
+
 	// mod add: Keep spell icon indexing aligned with SPELL_ENTRENCH even when
 	// the mounted items.json still ends at spell 224. Every registered path is
 	// consumed by the fatal startup image preloader, so resolve the optional mod
@@ -1815,6 +1888,16 @@ void ItemTooltips_t::readItemLocalizationsFromFile(bool forceLoadBaseDirectory)
 			items[item.itemId].setIdentifiedName(itemNameLocalizations[item.internalName].name_identified);
 			items[item.itemId].setUnidentifiedName(itemNameLocalizations[item.internalName].name_unidentified);
 		}
+	}
+	if ( itemNameLocalizations.find("magic_rune") != itemNameLocalizations.end() )
+	{
+		items[MAGIC_RUNE].setIdentifiedName(itemNameLocalizations["magic_rune"].name_identified);
+		items[MAGIC_RUNE].setUnidentifiedName(itemNameLocalizations["magic_rune"].name_unidentified);
+	}
+	if ( itemNameLocalizations.find("rune_hammer") != itemNameLocalizations.end() )
+	{
+		items[RUNE_HAMMER].setIdentifiedName(itemNameLocalizations["rune_hammer"].name_identified);
+		items[RUNE_HAMMER].setUnidentifiedName(itemNameLocalizations["rune_hammer"].name_unidentified);
 	}
 	for ( auto& spell : spellItems )
 	{
@@ -2665,7 +2748,25 @@ std::string ItemTooltips_t::getSpellDescriptionText(const int player, Item& item
 		return defaultString;
 	}
 
+	static constexpr const char* kRuneStoredPwrFormat = "Stored PWR: %s";
+	static constexpr const char* kRuneStoredPwrUnavailable = "unavailable";
 	std::string str;
+	if ( item.isMagicRune() )
+	{
+		char pwrValue[64] = "";
+		if ( item.runeHasStoredPWR() )
+		{
+			snprintf(pwrValue, sizeof(pwrValue), "%.f%%", item.runeGetStoredPWRDisplayPercent());
+		}
+		else
+		{
+			snprintf(pwrValue, sizeof(pwrValue), "%s", kRuneStoredPwrUnavailable);
+		}
+		char pwrLine[128] = "";
+		snprintf(pwrLine, sizeof(pwrLine), kRuneStoredPwrFormat, pwrValue);
+		str += pwrLine;
+		str += "\n\n";
+	}
 	for ( auto it = templates[templateName].begin();
 		it != templates[templateName].end(); ++it )
 	{
@@ -3177,6 +3278,7 @@ std::string ItemTooltips_t::getCostOfSpellString(const int player, Item& item)
 	}
 	char buf[64];
 	memset(buf, 0, sizeof(buf));
+	const bool runeCostsNoMP = item.isMagicRune();
 	if ( spell->ID == SPELL_DOMINATE )
 	{
 		std::string templateName = "template_spell_cost_dominate";
@@ -3190,7 +3292,7 @@ std::string ItemTooltips_t::getCostOfSpellString(const int player, Item& item)
 				str += '\n';
 			}
 		}
-		snprintf(buf, sizeof(buf), str.c_str(), getCostOfSpell(spell));
+		snprintf(buf, sizeof(buf), str.c_str(), runeCostsNoMP ? 0 : getCostOfSpell(spell));
 	}
 	else if ( spell->ID == SPELL_DEMON_ILLUSION )
 	{
@@ -3205,7 +3307,7 @@ std::string ItemTooltips_t::getCostOfSpellString(const int player, Item& item)
 				str += '\n';
 			}
 		}
-		snprintf(buf, sizeof(buf), str.c_str(), getCostOfSpell(spell));
+		snprintf(buf, sizeof(buf), str.c_str(), runeCostsNoMP ? 0 : getCostOfSpell(spell));
 	}
 	else if ( spell->ID == SPELL_LEAD_BOLT || spell->ID == SPELL_MERCURY_BOLT
 		|| spell->ID == SPELL_FORGE_METAL_SCRAP || spell->ID == SPELL_FORGE_MAGIC_SCRAP )
@@ -3221,13 +3323,14 @@ std::string ItemTooltips_t::getCostOfSpellString(const int player, Item& item)
 				str += '\n';
 			}
 		}
-		snprintf(buf, sizeof(buf), str.c_str(), getCostOfSpell(spell), getGoldCostOfSpell(spell, player));
+		snprintf(buf, sizeof(buf), str.c_str(), runeCostsNoMP ? 0 : getCostOfSpell(spell), getGoldCostOfSpell(spell, player));
 	}
 	else
 	{
 		std::string templateName = "template_spell_cost";
-		real_t sustainCostPerSecond = getSpellSustainCostPerSecond(spell->ID);
-		if ( sustainCostPerSecond > 0.01 )
+		const real_t sustainCostPerSecond = getSpellSustainCostPerSecond(spell->ID);
+		const bool sustainedSpell = sustainCostPerSecond > 0.01;
+		if ( sustainedSpell )
 		{
 			templateName = "template_spell_cost_sustained";
 		}
@@ -3242,28 +3345,44 @@ std::string ItemTooltips_t::getCostOfSpellString(const int player, Item& item)
 				str += '\n';
 			}
 		}
-		snprintf(buf, sizeof(buf), str.c_str(), getCostOfSpell(spell));
+		real_t displayedSustainCost = runeCostsNoMP ? 0.0 : sustainCostPerSecond;
+		if ( runeCostsNoMP && sustainedSpell )
+		{
+			// The current localized template expresses sustain as "1 MP/<interval>"
+			// and hard-codes the 1. Preserve that interval while zeroing the actual
+			// MP amount; future two-placeholder MP/sec templates receive 0 below.
+			const size_t hardcodedMana = str.find("1 MP/");
+			if ( hardcodedMana != std::string::npos )
+			{
+				str[hardcodedMana] = '0';
+				displayedSustainCost = sustainCostPerSecond;
+			}
+		}
+		snprintf(buf, sizeof(buf), str.c_str(), runeCostsNoMP ? 0 : getCostOfSpell(spell));
 		if ( players[player] && players[player]->entity )
 		{
-			if ( sustainCostPerSecond > 0.01 )
+			if ( sustainedSpell )
 			{
 				snprintf(buf, sizeof(buf), str.c_str(), 
-					getCostOfSpell(spell, players[player]->entity), sustainCostPerSecond);
+					runeCostsNoMP ? 0 : getCostOfSpell(spell, players[player]->entity),
+					displayedSustainCost);
 			}
 			else
 			{
-				snprintf(buf, sizeof(buf), str.c_str(), getCostOfSpell(spell, players[player]->entity));
+				snprintf(buf, sizeof(buf), str.c_str(),
+					runeCostsNoMP ? 0 : getCostOfSpell(spell, players[player]->entity));
 			}
 		}
 		else
 		{
-			if ( sustainCostPerSecond > 0.01 )
+			if ( sustainedSpell )
 			{
-				snprintf(buf, sizeof(buf), str.c_str(), getCostOfSpell(spell), sustainCostPerSecond);
+				snprintf(buf, sizeof(buf), str.c_str(), runeCostsNoMP ? 0 : getCostOfSpell(spell),
+					displayedSustainCost);
 			}
 			else
 			{
-				snprintf(buf, sizeof(buf), str.c_str(), getCostOfSpell(spell));
+				snprintf(buf, sizeof(buf), str.c_str(), runeCostsNoMP ? 0 : getCostOfSpell(spell));
 			}
 		}
 	}
@@ -3339,7 +3458,7 @@ std::string ItemTooltips_t::getSpellIconPath(const int player, Item& item, int s
 	{
 		spellImageNode = list_Node(&items[SPELL_ITEM].images, item.status < EXCELLENT ? SPELL_FORCEBOLT : SPELL_MAGICMISSILE);
 	}
-	else if ( item.type == SPELL_ITEM )
+	else if ( item.type == SPELL_ITEM || item.isMagicRune() )
 	{
 		if ( spellID > SPELL_NONE )
 		{
@@ -3595,6 +3714,7 @@ Sint32 getStatAttributeBonusFromItem(const int player, Item& item, std::string& 
 
 void ItemTooltips_t::formatItemIcon(const int player, std::string tooltipType, Item& item, std::string& str, int iconIndex, std::string& conditionalAttribute, Frame* parentFrame)
 {
+	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(), item.runeGetStoredPWR());
 #ifndef EDITOR
 	//auto itemTooltip = tooltips[tooltipType];
 	static Stat itemDummyStat(0);
@@ -3632,7 +3752,7 @@ void ItemTooltips_t::formatItemIcon(const int player, std::string tooltipType, I
 		}
 		return;
 	}
-	else if ( item.type == SPELL_ITEM && conditionalAttribute.find("spell_") != std::string::npos )
+	else if ( (item.type == SPELL_ITEM || item.isMagicRune()) && conditionalAttribute.find("spell_") != std::string::npos )
 	{
 		if ( auto spell = getSpellFromItem(player, &item, false) )
 		{
@@ -5076,6 +5196,7 @@ void ItemTooltips_t::formatItemIcon(const int player, std::string tooltipType, I
 
 void ItemTooltips_t::formatItemDescription(const int player, std::string tooltipType, Item& item, std::string& str)
 {
+	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(), item.runeGetStoredPWR());
 	if ( tooltipType.find("tooltip_spell_") != std::string::npos )
 	{
 		str = getSpellDescriptionText(player, item);
@@ -5102,6 +5223,7 @@ void ItemTooltips_t::formatItemDescription(const int player, std::string tooltip
 
 void ItemTooltips_t::formatItemDetails(const int player, std::string tooltipType, Item& item, std::string& str, std::string detailTag, Frame* parentFrame)
 {
+	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(), item.runeGetStoredPWR());
 #ifndef EDITOR
 	if ( !stats[player] )
 	{
@@ -6464,7 +6586,21 @@ void ItemTooltips_t::formatItemDetails(const int player, std::string tooltipType
 			Entity* caster = compendiumTooltipIntro ? nullptr : players[player]->entity;
 			Stat* casterStats = compendiumTooltipIntro ? nullptr : stats[player];
 			real_t baseCastTime = spell->cast_time * 20;
-			real_t modifiedCastTime = getSpellPropertyFromID(spell_t::SPELLPROP_MODIFIED_SPELL_CAST_TIME, spell->ID, caster, casterStats, nullptr) * 20;
+			real_t modifiedCastTime = baseCastTime;
+			if ( item.isMagicRune() )
+			{
+				const real_t minimumCastTime = spell->cast_time <= 1.0 ? 0.5 : 1.0;
+				const real_t runeCastTime = std::max<real_t>(minimumCastTime, spell->cast_time * 0.5);
+				// The tooltip template divides its first argument by TICKS_PER_SECOND.
+				// Feed it Rune cast-time units directly, with no wielder modifier.
+				baseCastTime = runeCastTime * TICKS_PER_SECOND;
+				modifiedCastTime = baseCastTime;
+			}
+			else
+			{
+				modifiedCastTime = getSpellPropertyFromID(spell_t::SPELLPROP_MODIFIED_SPELL_CAST_TIME,
+					spell->ID, caster, casterStats, nullptr) * 20;
+			}
 			real_t diff = -(baseCastTime - modifiedCastTime);
 			if ( abs(diff) < 0.001 )
 			{
@@ -10129,15 +10265,13 @@ void ClassHotbarConfig_t::readFromFile(ClassHotbarConfig_t::HotbarConfigType fil
 
 	for ( auto classes = d["classes"].MemberBegin(); classes != d["classes"].MemberEnd(); ++classes )
 	{
-		int classIndex = -1;
-		for ( auto& s : playerClassInternalNames )
+		const auto className = std::find(playerClassInternalNames.begin(),
+			playerClassInternalNames.end(), classes->name.GetString());
+		if ( className == playerClassInternalNames.end() )
 		{
-			++classIndex;
-			if ( s == classes->name.GetString() )
-			{
-				break;
-			}
+			continue;
 		}
+		const int classIndex = static_cast<int>(std::distance(playerClassInternalNames.begin(), className));
 		if ( !(classIndex >= CLASS_BARBARIAN && classIndex < NUMCLASSES) )
 		{
 			continue;
@@ -10257,6 +10391,18 @@ void ClassHotbarConfig_t::init()
 	}
 
 	readFromFile(HOTBAR_LAYOUT_DEFAULT_CONFIG);
+	// Keep the class playable before data/class_hotbars.json gains a Runesmith row.
+	// User custom hotbar data, loaded below, still takes precedence normally.
+	auto addRunesmithDefaultWeapon = [](ClassHotbar_t::ClassHotbarLayout_t& layout)
+	{
+		if ( !layout.hasData && !layout.hotbar.empty() )
+		{
+			layout.hotbar[0].itemTypes.push_back(RUNE_HAMMER);
+			layout.hasData = true;
+		}
+	};
+	addRunesmithDefaultWeapon(ClassHotbarsDefault[CLASS_RUNESMITH].layoutClassic);
+	addRunesmithDefaultWeapon(ClassHotbarsDefault[CLASS_RUNESMITH].layoutModern);
 	readFromFile(HOTBAR_LAYOUT_CUSTOM_CONFIG);
 }
 
@@ -12431,6 +12577,109 @@ int Mods::createBlankModDirectory(std::string foldername)
 }
 
 EquipmentModelOffsets_t EquipmentModelOffsets;
+RuneHammerModelPositions_t RuneHammerModelPositions;
+
+const RuneHammerModelPositions_t::Transform_t& RuneHammerModelPositions_t::hammerTransform(
+	bool firstPersonView, bool twoHanded) const
+{
+	const auto& view = firstPersonView ? firstPerson : thirdPerson;
+	return twoHanded ? view.twoHanded : view.normal;
+}
+
+const RuneHammerModelPositions_t::Transform_t& RuneHammerModelPositions_t::attachmentTransform(
+	bool firstPersonView) const
+{
+	return firstPersonView ? firstPerson.attachedOffhand : thirdPerson.attachedOffhand;
+}
+
+void RuneHammerModelPositions_t::applyOffset(Entity& entity, const Transform_t& t) const
+{
+	entity.x += t.x; entity.y += t.y; entity.z += t.z;
+	entity.focalx += t.focalx; entity.focaly += t.focaly; entity.focalz += t.focalz;
+	entity.yaw += t.yaw; entity.pitch += t.pitch; entity.roll += t.roll;
+	entity.scalex *= t.scalex; entity.scaley *= t.scaley; entity.scalez *= t.scalez;
+}
+
+void RuneHammerModelPositions_t::attachTo(Entity& entity, const Entity& hammer, const Transform_t& t) const
+{
+	// Rz(yaw) * Ry(pitch) * Rx(roll): position is authored in Hammer-local space.
+	const real_t cr = cos(hammer.roll), sr = sin(hammer.roll);
+	const real_t cp = cos(hammer.pitch), sp = sin(hammer.pitch);
+	const real_t cy = cos(hammer.yaw), sy = sin(hammer.yaw);
+	const real_t rx = t.x;
+	const real_t ry = t.y * cr - t.z * sr;
+	const real_t rz = t.y * sr + t.z * cr;
+	const real_t px = rx * cp + rz * sp;
+	const real_t py = ry;
+	const real_t pz = -rx * sp + rz * cp;
+	entity.x = hammer.x + px * cy - py * sy;
+	entity.y = hammer.y + px * sy + py * cy;
+	entity.z = hammer.z + pz;
+	entity.yaw = hammer.yaw + t.yaw;
+	entity.pitch = hammer.pitch + t.pitch;
+	entity.roll = hammer.roll + t.roll;
+	// The mounted model inherits the Hammer's complete final transform. Values in
+	// attached_offhand are additional local adjustments, not replacement values.
+	entity.focalx = hammer.focalx + t.focalx;
+	entity.focaly = hammer.focaly + t.focaly;
+	entity.focalz = hammer.focalz + t.focalz;
+	entity.scalex = hammer.scalex * t.scalex;
+	entity.scaley = hammer.scaley * t.scaley;
+	entity.scalez = hammer.scalez * t.scalez;
+}
+
+void RuneHammerModelPositions_t::readFromFile()
+{
+	// Reset on every data/mod reload so a removed or bad override cannot leave stale values.
+	*this = RuneHammerModelPositions_t{};
+	const char* filename = "models/items/rune_hammer_positions.json";
+	const char* realDir = PHYSFS_getRealDir(filename);
+	if ( !realDir )
+	{
+		return;
+	}
+	std::string inputPath = realDir;
+	inputPath.append(PHYSFS_getDirSeparator()).append(filename);
+	File* fp = FileIO::open(inputPath.c_str(), "rb");
+	if ( !fp )
+	{
+		printlog("[JSON]: Error: Could not open Rune Hammer positions file %s", inputPath.c_str());
+		return;
+	}
+	static char buf[32000];
+	const int count = fp->read(buf, sizeof(buf[0]), sizeof(buf) - 1);
+	buf[std::max(0, count)] = '\0';
+	FileIO::close(fp);
+	rapidjson::Document d;
+	d.Parse(buf);
+	if ( d.HasParseError() || !d.IsObject() )
+	{
+		printlog("[JSON]: Error: Malformed Rune Hammer positions file %s", inputPath.c_str());
+		return;
+	}
+	auto readTransform = [](const rapidjson::Value& value, Transform_t& out)
+	{
+		if ( !value.IsObject() ) { return; }
+		auto number = [&](const char* key, real_t& dst)
+		{
+			if ( value.HasMember(key) && value[key].IsNumber() ) { dst = value[key].GetDouble(); }
+		};
+		number("x", out.x); number("y", out.y); number("z", out.z);
+		number("focalx", out.focalx); number("focaly", out.focaly); number("focalz", out.focalz);
+		number("yaw", out.yaw); number("pitch", out.pitch); number("roll", out.roll);
+		number("scalex", out.scalex); number("scaley", out.scaley); number("scalez", out.scalez);
+	};
+	auto readView = [&](const char* key, View_t& view)
+	{
+		if ( !d.HasMember(key) || !d[key].IsObject() ) { return; }
+		const auto& value = d[key];
+		if ( value.HasMember("normal") ) { readTransform(value["normal"], view.normal); }
+		if ( value.HasMember("two_handed") ) { readTransform(value["two_handed"], view.twoHanded); }
+		if ( value.HasMember("attached_offhand") ) { readTransform(value["attached_offhand"], view.attachedOffhand); }
+	};
+	readView("first_person", firstPerson);
+	readView("third_person", thirdPerson);
+}
 
 int EquipmentModelOffsets_t::modelOffsetExists(int monster, int sprite, int monsterSprite)
 {
@@ -16679,7 +16928,7 @@ void Compendium_t::Events_t::readEventsFromFile()
 				{
 					for ( int skillnum = 0; skillnum < 16; ++skillnum )
 					{
-						for ( int i = 0; i <= CLASS_PALADIN; ++i )
+						for ( int i = 0; i < NUMCLASSES; ++i )
 						{
 							int index = i + skillnum * kEventClassesMax;
 							eventClassIds[id][index] = (classIdIndex + index);
@@ -16689,7 +16938,7 @@ void Compendium_t::Events_t::readEventsFromFile()
 				}
 				else
 				{
-					for ( int i = 0; i <= CLASS_PALADIN; ++i )
+					for ( int i = 0; i < NUMCLASSES; ++i )
 					{
 						eventClassIds[id][i] = (classIdIndex + i);
 					}

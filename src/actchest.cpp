@@ -1097,9 +1097,11 @@ void Entity::actChest()
 							net_packet->data[25] = 1; //forceNewStack ? 1 : 0;
 							net_packet->data[26] = (Sint8)item->x;
 							net_packet->data[27] = (Sint8)item->y;
+							SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
+							net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
 							net_packet->address.host = net_clients[chestclicked - 1].host;
 							net_packet->address.port = net_clients[chestclicked - 1].port;
-							net_packet->len = 28;
+							net_packet->len = 33;
 							sendPacketSafe(net_sock, -1, net_packet, chestclicked - 1);
 						}
 					}
@@ -1337,7 +1339,9 @@ Item* Entity::addItemToVoidChest(int player, Item* item, bool forceNewStack, Ite
 			net_packet->data[25] = item->identified;
 			net_packet->data[26] = forceNewStack ? 1 : 0;
 			net_packet->data[27] = 1;
-			net_packet->len = 28;
+			SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
+			net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
+			net_packet->len = 33;
 			sendPacketSafe(net_sock, -1, net_packet, 0);
 
 			return item;
@@ -1374,7 +1378,9 @@ Item* Entity::addItemToChest(Item* item, bool forceNewStack, Item* specificDesti
 		net_packet->data[25] = item->identified;
 		net_packet->data[26] = forceNewStack ? 1 : 0;
 		net_packet->data[27] = players[player]->inventoryUI.chestGUI.voidChest ? 1 : 0;
-		net_packet->len = 28;
+		SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
+		net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
+		net_packet->len = 33;
 		sendPacketSafe(net_sock, -1, net_packet, 0);
 
 		return addItemToChestClientside(player, item, forceNewStack, specificDestinationStack);
@@ -1427,9 +1433,11 @@ Item* Entity::addItemToChest(Item* item, bool forceNewStack, Item* specificDesti
 		net_packet->data[25] = forceNewStack ? 1 : 0;
 		net_packet->data[26] = (Sint8)item->x;
 		net_packet->data[27] = (Sint8)item->y;
+		SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
+		net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
 		net_packet->address.host = net_clients[chestOpener - 1].host;
 		net_packet->address.port = net_clients[chestOpener - 1].port;
-		net_packet->len = 28;
+		net_packet->len = 33;
 		sendPacketSafe(net_sock, -1, net_packet, chestOpener - 1);
 	}
 	return item;
@@ -1486,6 +1494,8 @@ Item* Entity::addItemToChestFromInventory(int player, Item* item, int amount, bo
 	playSoundPlayer(player, 47 + local_rng.rand() % 3, 64);
 
 	Item* newitem = newItem(item->type, item->status, item->beatitude, amount, item->appearance, item->identified, nullptr);
+	newitem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+	newitem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
 	Item** slot = itemSlot(stats[player], item);
 	if ( multiplayer == CLIENT )
 	{
@@ -1622,6 +1632,8 @@ Item* Entity::getItemFromChest(Item* item, int amount, bool getInfoOnly)
 		}
 
 		newitem = newItem(item->type, item->status, item->beatitude, 1, item->appearance, item->identified, nullptr);
+		newitem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+		newitem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
 
 		//Tell the server.
 		if ( !getInfoOnly )
@@ -1639,7 +1651,9 @@ Item* Entity::getItemFromChest(Item* item, int amount, bool getInfoOnly)
 			net_packet->data[25] = item->identified;
 			net_packet->data[26] = 0;
 			net_packet->data[27] = players[player]->inventoryUI.chestGUI.voidChest ? 1 : 0;
-			net_packet->len = 28;
+			SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
+			net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
+			net_packet->len = 33;
 			sendPacketSafe(net_sock, -1, net_packet, 0);
 		}
 	}
@@ -1659,6 +1673,8 @@ Item* Entity::getItemFromChest(Item* item, int amount, bool getInfoOnly)
 		}
 
 		newitem = newItem(item->type, item->status, item->beatitude, 1, item->appearance, item->identified, nullptr);
+		newitem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+		newitem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
 	}
 
 	if ( getInfoOnly )
@@ -1811,6 +1827,8 @@ Item* Entity::addItemToVoidChestServer(int player, Item* item, bool forceNewStac
 					item->appearance,
 					item->identified,
 					&stats[player]->inventory);
+				item2->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+				item2->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
 				dropped = dropItem(item2, player, true, true);
 			}
 			
@@ -1835,6 +1853,10 @@ Item* Entity::addItemToVoidChestServer(int player, Item* item, bool forceNewStac
 				entity->skill[13] = item->count;
 				entity->skill[14] = item->appearance;
 				entity->skill[15] = item->identified;
+				entity->itemRuneStoredPWR = item->runeGetStoredPWRRaw();
+				entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
+				entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
+				entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
 				entity->parent = 0;
 				entity->itemOriginalOwner = 0;
 
@@ -1911,6 +1933,8 @@ Item* Entity::addItemToVoidChestServer(int player, Item* item, bool forceNewStac
 				item->appearance,
 				item->identified,
 				&stats[player]->inventory);
+			item2->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+			item2->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
 			dropped = dropItem(item2, player, true, true);
 
 			if ( !dropped )
@@ -1934,6 +1958,10 @@ Item* Entity::addItemToVoidChestServer(int player, Item* item, bool forceNewStac
 				entity->skill[13] = item->count;
 				entity->skill[14] = item->appearance;
 				entity->skill[15] = item->identified;
+				entity->itemRuneStoredPWR = item->runeGetStoredPWRRaw();
+				entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
+				entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
+				entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
 				entity->parent = 0;
 				entity->itemOriginalOwner = 0;
 

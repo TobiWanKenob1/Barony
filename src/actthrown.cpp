@@ -1340,6 +1340,8 @@ void actThrown(Entity* my)
 					Stat* parentStats = parent->getStats();
 					if ( parentStats && parentStats->getEffectActive(EFF_ENVENOM_WEAPON) && hitstats )
 					{
+						spell_t* activeSpell = parent->getActiveMagicEffect(SPELL_ENVENOM_WEAPON);
+						ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 						if ( local_rng.rand() % 2 == 0 )
 						{
 							int envenomDamage = std::min(

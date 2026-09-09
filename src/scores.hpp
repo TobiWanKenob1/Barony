@@ -582,7 +582,9 @@ struct SaveGameInfo {
 					int _count,
 					bool _identified,
 					int _x,
-					int _y)
+					int _y,
+					Sint32 _runeStoredPWR = (-2147483647 - 1),
+					int _runeCreatorPlayer = -1)
 				{
 					type = _type;
 					status = _status;
@@ -592,6 +594,8 @@ struct SaveGameInfo {
 					identified = _identified;
 					x = _x;
 					y = _y;
+					runeStoredPWR = _runeStoredPWR;
+					runeCreatorPlayer = _runeCreatorPlayer;
 				}
 
 				Uint32 type = 0;
@@ -602,6 +606,8 @@ struct SaveGameInfo {
 				bool identified = false;
 				int x = 0;
 				int y = 0;
+				Sint32 runeStoredPWR = (-2147483647 - 1);
+				int runeCreatorPlayer = -1;
 				bool serialize(FileInterface* fp) {
 					fp->property("type", type);
 					fp->property("status", status);
@@ -611,6 +617,8 @@ struct SaveGameInfo {
 					fp->property("identified", identified);
 					fp->property("x", x);
 					fp->property("y", y);
+					fp->property("rune_stored_pwr", runeStoredPWR);
+					fp->property("rune_creator_player", runeCreatorPlayer);
 					return true;
 				}
 				void computeHash(Uint32& hash, Uint32& shift);

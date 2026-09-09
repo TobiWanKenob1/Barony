@@ -764,7 +764,7 @@ int isCharacterValidFromDLC(Stat& myStats, int characterClass)
 	{
 		return VALID_OK_CHARACTER; // aesthetic only option.
 	}
-	if ( characterClass <= CLASS_MONK )
+	if ( characterClass <= CLASS_MONK || characterClass == CLASS_RUNESMITH )
 	{
 		return VALID_OK_CHARACTER;
 	}
@@ -11991,7 +11991,8 @@ bool replayLastCharacter(const int index, int multiplayer)
 				{
 					stats[index]->playerRace = RACE_HUMAN;
 				}
-				if ( client_classes[index] > CLASS_MONK )
+				if ( client_classes[index] > CLASS_MONK
+					&& client_classes[index] != CLASS_RUNESMITH )
 				{
 					client_classes[index] = CLASS_BARBARIAN;
 				}

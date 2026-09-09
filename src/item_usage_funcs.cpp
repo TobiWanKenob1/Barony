@@ -40,6 +40,8 @@ bool potionUseAbundanceEffect(Item* item, Entity* entity, Entity* usedBy)
 			{
 				if ( stats[player]->getEffectActive(EFF_GREATER_ABUNDANCE) )
 				{
+					spell_t* activeSpell = entity->getActiveMagicEffect(SPELL_GREATER_ABUNDANCE);
+					ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 					if ( !itemIsEquipped(item, player) )
 					{
 						int mpCost = 0;
@@ -55,7 +57,8 @@ bool potionUseAbundanceEffect(Item* item, Entity* entity, Entity* usedBy)
 								if ( costPercent > 0.01 )
 								{
 									mpCost = std::max(1.0, spell->mana * costPercent);
-									if ( stats[player]->MP >= mpCost )
+									if ( (activeSpell && activeSpell->runeItemUid != 0)
+										|| stats[player]->MP >= mpCost )
 									{
 										hasCost = true;
 									}
@@ -79,23 +82,31 @@ bool potionUseAbundanceEffect(Item* item, Entity* entity, Entity* usedBy)
 									SDLNet_Write32((Uint32)0, &net_packet->data[5]);
 									SDLNet_Write32((Uint32)mpCost, &net_packet->data[9]);
 
-									Uint16 spellID = SPELL_NONE;
+									Uint16 spellID = activeSpell && activeSpell->runeItemUid != 0
+										? SPELL_GREATER_ABUNDANCE : SPELL_NONE;
 									SDLNet_Write16(spellID, &net_packet->data[13]);
+									SDLNet_Write32(activeSpell ? activeSpell->runeItemUid : 0, &net_packet->data[15]);
 									net_packet->address.host = net_server.host;
 									net_packet->address.port = net_server.port;
-									net_packet->len = 15;
+									net_packet->len = 19;
 									sendPacketSafe(net_sock, -1, net_packet, 0);
 								}
 								else
 								{
-									if ( mpCost > stats[player]->MP )
+									if ( activeSpell && activeSpell->runeItemUid != 0 )
 									{
-										cameravars[player].shakex += 0.1;
-										cameravars[player].shakey += 10;
-										playSoundPlayer(player, 28, 92);
+										consumeSustainedSpellResource(players[player]->entity, activeSpell, mpCost);
 									}
-									Sint32 prevMP = stats[player]->MP;
-									players[player]->entity->drainMP(mpCost);
+									else
+									{
+										if ( mpCost > stats[player]->MP )
+										{
+											cameravars[player].shakex += 0.1;
+											cameravars[player].shakey += 10;
+											playSoundPlayer(player, 28, 92);
+										}
+										players[player]->entity->drainMP(mpCost);
+									}
 								}
 
 								magicOnSpellCastEvent(players[player]->entity, players[player]->entity, nullptr, SPELL_GREATER_ABUNDANCE, spell_t::SPELL_LEVEL_EVENT_SUSTAIN, 1);
@@ -119,6 +130,8 @@ bool foodUseAbundanceEffect(Item* item, int player)
 			bool effect = false;
 			if ( stats[player]->getEffectActive(EFF_GREATER_ABUNDANCE) )
 			{
+				spell_t* activeSpell = players[player]->entity->getActiveMagicEffect(SPELL_GREATER_ABUNDANCE);
+				ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 				if ( !itemIsEquipped(item, player) )
 				{
 					int mpCost = 0;
@@ -134,7 +147,8 @@ bool foodUseAbundanceEffect(Item* item, int player)
 							if ( costPercent > 0.01 )
 							{
 								mpCost = std::max(1.0, spell->mana * costPercent);
-								if ( stats[player]->MP >= mpCost )
+								if ( (activeSpell && activeSpell->runeItemUid != 0)
+									|| stats[player]->MP >= mpCost )
 								{
 									hasCost = true;
 								}
@@ -158,23 +172,31 @@ bool foodUseAbundanceEffect(Item* item, int player)
 								SDLNet_Write32((Uint32)0, &net_packet->data[5]);
 								SDLNet_Write32((Uint32)mpCost, &net_packet->data[9]);
 
-								Uint16 spellID = SPELL_NONE;
+								Uint16 spellID = activeSpell && activeSpell->runeItemUid != 0
+									? SPELL_GREATER_ABUNDANCE : SPELL_NONE;
 								SDLNet_Write16(spellID, &net_packet->data[13]);
+								SDLNet_Write32(activeSpell ? activeSpell->runeItemUid : 0, &net_packet->data[15]);
 								net_packet->address.host = net_server.host;
 								net_packet->address.port = net_server.port;
-								net_packet->len = 15;
+								net_packet->len = 19;
 								sendPacketSafe(net_sock, -1, net_packet, 0);
 							}
 							else
 							{
-								if ( mpCost > stats[player]->MP )
+								if ( activeSpell && activeSpell->runeItemUid != 0 )
 								{
-									cameravars[player].shakex += 0.1;
-									cameravars[player].shakey += 10;
-									playSoundPlayer(player, 28, 92);
+									consumeSustainedSpellResource(players[player]->entity, activeSpell, mpCost);
 								}
-								Sint32 prevMP = stats[player]->MP;
-								players[player]->entity->drainMP(mpCost);
+								else
+								{
+									if ( mpCost > stats[player]->MP )
+									{
+										cameravars[player].shakex += 0.1;
+										cameravars[player].shakey += 10;
+										playSoundPlayer(player, 28, 92);
+									}
+									players[player]->entity->drainMP(mpCost);
+								}
 							}
 
 							magicOnSpellCastEvent(players[player]->entity, players[player]->entity, nullptr, SPELL_GREATER_ABUNDANCE, spell_t::SPELL_LEVEL_EVENT_SUSTAIN, 1);
@@ -184,6 +206,8 @@ bool foodUseAbundanceEffect(Item* item, int player)
 			}
 			if ( !effect && stats[player]->getEffectActive(EFF_ABUNDANCE) )
 			{
+				spell_t* activeSpell = players[player]->entity->getActiveMagicEffect(SPELL_ABUNDANCE);
+				ScopedSpellPowerOverride spellPowerScope(activeSpell, true);
 				if ( !itemIsEquipped(item, player) )
 				{
 					int mpCost = 0;
@@ -199,7 +223,8 @@ bool foodUseAbundanceEffect(Item* item, int player)
 							if ( costPercent > 0.01 )
 							{
 								mpCost = std::max(1.0, spell->mana * costPercent);
-								if ( stats[player]->MP >= mpCost )
+								if ( (activeSpell && activeSpell->runeItemUid != 0)
+									|| stats[player]->MP >= mpCost )
 								{
 									hasCost = true;
 								}
@@ -223,23 +248,31 @@ bool foodUseAbundanceEffect(Item* item, int player)
 								SDLNet_Write32((Uint32)0, &net_packet->data[5]);
 								SDLNet_Write32((Uint32)mpCost, &net_packet->data[9]);
 
-								Uint16 spellID = SPELL_NONE;
+								Uint16 spellID = activeSpell && activeSpell->runeItemUid != 0
+									? SPELL_ABUNDANCE : SPELL_NONE;
 								SDLNet_Write16(spellID, &net_packet->data[13]);
+								SDLNet_Write32(activeSpell ? activeSpell->runeItemUid : 0, &net_packet->data[15]);
 								net_packet->address.host = net_server.host;
 								net_packet->address.port = net_server.port;
-								net_packet->len = 15;
+								net_packet->len = 19;
 								sendPacketSafe(net_sock, -1, net_packet, 0);
 							}
 							else
 							{
-								if ( mpCost > stats[player]->MP )
+								if ( activeSpell && activeSpell->runeItemUid != 0 )
 								{
-									cameravars[player].shakex += 0.1;
-									cameravars[player].shakey += 10;
-									playSoundPlayer(player, 28, 92);
+									consumeSustainedSpellResource(players[player]->entity, activeSpell, mpCost);
 								}
-								Sint32 prevMP = stats[player]->MP;
-								players[player]->entity->drainMP(mpCost);
+								else
+								{
+									if ( mpCost > stats[player]->MP )
+									{
+										cameravars[player].shakex += 0.1;
+										cameravars[player].shakey += 10;
+										playSoundPlayer(player, 28, 92);
+									}
+									players[player]->entity->drainMP(mpCost);
+								}
 							}
 
 							magicOnSpellCastEvent(players[player]->entity, players[player]->entity, nullptr, SPELL_ABUNDANCE, spell_t::SPELL_LEVEL_EVENT_SUSTAIN, 1);

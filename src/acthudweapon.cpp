@@ -394,6 +394,7 @@ void actHudArm(Entity* my)
 
 #define HUDWEAPON_CHOP my->skill[0]
 #define HUDWEAPON_INIT my->skill[1]
+#define HUDWEAPON_RUNE_HAMMER_TIMING_ACCUMULATOR my->skill[2]
 #define HUDWEAPON_CHARGE my->skill[3]
 #define HUDWEAPON_OVERCHARGE my->skill[4]
 #define HUDWEAPON_WHIP_ANGLE my->skill[5]
@@ -912,12 +913,23 @@ void actHudWeapon(Entity* my)
 	{
 		swingweapon = false;
 	}
+	if ( players[HUDWEAPON_PLAYERNUM]->mechanics.runeHammerInscriptionTicks > 0 )
+	{
+		// Dedicated inscription motion owns the Hammer until recovery completes.
+		// Clearing the melee state prevents damage, degradation and proficiency paths.
+		swingweapon = false;
+		HUDWEAPON_CHOP = 0;
+		HUDWEAPON_CHARGE = 0;
+		HUDWEAPON_OVERCHARGE = 0;
+	}
 	// mod add end
 	bool thrownWeapon = stats[HUDWEAPON_PLAYERNUM]->weapon
 		&& (itemCategory(stats[HUDWEAPON_PLAYERNUM]->weapon) == THROWN || itemCategory(stats[HUDWEAPON_PLAYERNUM]->weapon) == GEM
 			|| stats[HUDWEAPON_PLAYERNUM]->weapon->type == FOOD_CREAMPIE || stats[HUDWEAPON_PLAYERNUM]->weapon->type == TOOL_DUCK);
 	bool castStrikeAnimation = (players[HUDWEAPON_PLAYERNUM]->entity->skill[9] == MONSTER_POSE_SPECIAL_WINDUP1);
 	bool flail = !hideWeapon && stats[HUDWEAPON_PLAYERNUM]->weapon && stats[HUDWEAPON_PLAYERNUM]->weapon->type == STEEL_FLAIL;
+	const bool runeHammer = !hideWeapon && stats[HUDWEAPON_PLAYERNUM]->weapon
+		&& stats[HUDWEAPON_PLAYERNUM]->weapon->type == RUNE_HAMMER;
 
 	// weapon switch animation
 	if ( players[HUDWEAPON_PLAYERNUM]->hud.weaponSwitch )
@@ -1021,6 +1033,24 @@ void actHudWeapon(Entity* my)
 				HUDWEAPON_ROLL = -PI / 2;
 			}
 		}
+	}
+
+	// Advance the entire Rune Hammer melee state machine at an exact fraction of
+	// ordinary melee speed so windup, impact and recovery remain synchronized.
+	if ( runeHammer && HUDWEAPON_CHOP != 0 )
+	{
+		static constexpr int RUNE_HAMMER_TIMING_DENOMINATOR = 10;
+		const int progression = runeHammerUsesTwoHandedPose(stats[HUDWEAPON_PLAYERNUM]) ? 7 : 4;
+		HUDWEAPON_RUNE_HAMMER_TIMING_ACCUMULATOR += progression;
+		if ( HUDWEAPON_RUNE_HAMMER_TIMING_ACCUMULATOR < RUNE_HAMMER_TIMING_DENOMINATOR )
+		{
+			return;
+		}
+		HUDWEAPON_RUNE_HAMMER_TIMING_ACCUMULATOR -= RUNE_HAMMER_TIMING_DENOMINATOR;
+	}
+	else
+	{
+		HUDWEAPON_RUNE_HAMMER_TIMING_ACCUMULATOR = 0;
 	}
 
 	// all items (e.g weapons) have swap equipment gimp timer in multiplayer.
@@ -4200,6 +4230,76 @@ void actHudWeapon(Entity* my)
 			my->z -= -Player::PlayerMovement_t::minimiseMaximiseCameraZ * (stats[HUDWEAPON_PLAYERNUM]->getEffectActive(EFF_MAXIMISE) & 0xF) * .5;
 		}
 	}
+	if ( stats[HUDWEAPON_PLAYERNUM]->weapon
+		&& stats[HUDWEAPON_PLAYERNUM]->weapon->type == RUNE_HAMMER )
+	{
+		const bool meleeAnimating = HUDWEAPON_CHOP != 0;
+		real_t runeCastProgress = 0.0;
+		RuneHammerCastVisualPhase runeCastPhase = RuneHammerCastVisualPhase::NONE;
+		if ( players[HUDWEAPON_PLAYERNUM]->entity )
+		{
+			runeCastPhase = getRuneHammerCastVisualPhase(
+				*players[HUDWEAPON_PLAYERNUM]->entity, runeCastProgress);
+		}
+		const bool runeCastAnimating = !meleeAnimating
+			&& runeCastPhase != RuneHammerCastVisualPhase::NONE;
+		const bool useTwoHandedTransform = runeHammerUsesTwoHandedPose(stats[HUDWEAPON_PLAYERNUM])
+			&& !meleeAnimating && !runeCastAnimating;
+		RuneHammerModelPositions.applyOffset(*my, RuneHammerModelPositions.hammerTransform(true,
+			useTwoHandedTransform));
+		if ( runeCastAnimating )
+		{
+			// Reproduce only the visual portion of the normal first Hammer swing.
+			// The real HUD attack state is deliberately untouched because it calls attack().
+			RuneHammerModelPositions_t::Transform_t visual;
+			switch ( runeCastPhase )
+			{
+				case RuneHammerCastVisualPhase::CHARGE:
+				{
+					const real_t virtualTicks = 10.0 * runeCastProgress;
+					visual.x = std::max<real_t>(-1.0, -0.35 * virtualTicks);
+					visual.y = std::max<real_t>(-2.0, -0.45 * virtualTicks);
+					visual.z = std::max<real_t>(-6.0, -0.65 * virtualTicks);
+					visual.pitch = std::max<real_t>(-PI / 4.0, -0.1 * virtualTicks);
+					break;
+				}
+				case RuneHammerCastVisualPhase::SWING:
+				{
+					const real_t virtualTicks = 11.0 * runeCastProgress;
+					visual.x = std::min<real_t>(4.0, -1.0 + virtualTicks);
+					visual.y = -2.0;
+					visual.z = std::min<real_t>(0.0, -6.0 + 0.8 * virtualTicks);
+					visual.pitch = std::min<real_t>(3.0 * PI / 4.0,
+						-PI / 4.0 + 0.75 * virtualTicks);
+					break;
+				}
+				case RuneHammerCastVisualPhase::RECOVERY:
+				{
+					const real_t virtualTicks = 16.0 * runeCastProgress;
+					visual.x = std::max<real_t>(0.0, 4.0 - 0.25 * virtualTicks);
+					visual.y = std::min<real_t>(0.0, -2.0 + 0.45 * virtualTicks);
+					visual.pitch = std::max<real_t>(0.0,
+						3.0 * PI / 4.0 - 0.15 * virtualTicks);
+					break;
+				}
+				default:
+					break;
+			}
+			RuneHammerModelPositions.applyOffset(*my, visual);
+		}
+		const int inscriptionTick = players[HUDWEAPON_PLAYERNUM]->mechanics.runeHammerInscriptionTicks;
+		if ( inscriptionTick > 0 )
+		{
+			const real_t impact = RuneHammerInscriptionAnimation::IMPACT_TICK;
+			const real_t progress = inscriptionTick <= impact
+				? inscriptionTick / impact
+				: 1.0 - (inscriptionTick - impact) /
+					static_cast<real_t>(RuneHammerInscriptionAnimation::END_TICK - RuneHammerInscriptionAnimation::IMPACT_TICK);
+			const real_t smash = sin(std::max<real_t>(0.0, std::min<real_t>(1.0, progress)) * PI / 2.0);
+			my->z += 5.0 * smash;
+			my->pitch += (PI * 0.65) * smash;
+		}
+	}
 	if ( !my->flags[OVERDRAW] )
 	{
 		my->x += 32;
@@ -4407,6 +4507,12 @@ void actHudShield(Entity* my)
 	bool spellbook = false;
 	bool quiver = false;
 	bool foci = false;
+	const bool runeFocusCasting = stats[HUDSHIELD_PLAYERNUM]->shield
+		&& stats[HUDSHIELD_PLAYERNUM]->shield->isMagicRune()
+		&& cast_animation[HUDSHIELD_PLAYERNUM].active
+		&& cast_animation[HUDSHIELD_PLAYERNUM].usingRune
+		&& (!stats[HUDSHIELD_PLAYERNUM]->weapon
+			|| stats[HUDSHIELD_PLAYERNUM]->weapon->type != RUNE_HAMMER);
 	bool duck = false;
 	if ( stats[HUDSHIELD_PLAYERNUM]->shield && itemCategory(stats[HUDSHIELD_PLAYERNUM]->shield) == SPELLBOOK )
 	{
@@ -4427,6 +4533,10 @@ void actHudShield(Entity* my)
 		{
 			hideShield = false;
 		}
+	}
+	else if ( runeFocusCasting )
+	{
+		foci = true; // presentation only: retain the Rune's actual sprite and gameplay path.
 	}
 	else if ( stats[HUDSHIELD_PLAYERNUM]->shield && stats[HUDSHIELD_PLAYERNUM]->shield->type == TOOL_DUCK )
 	{
@@ -4599,9 +4709,11 @@ void actHudShield(Entity* my)
 		--HUDSHIELD_DEFEND_DELAY_TICK;
 	}
 
-	if ( stats[HUDSHIELD_PLAYERNUM]->shield && itemTypeIsQuiver(stats[HUDSHIELD_PLAYERNUM]->shield->type) )
+	if ( stats[HUDSHIELD_PLAYERNUM]->shield
+		&& (itemTypeIsQuiver(stats[HUDSHIELD_PLAYERNUM]->shield->type)
+			|| stats[HUDSHIELD_PLAYERNUM]->shield->isMagicRune()) )
 	{
-		// can't defend with quivers.
+		// Quivers and magic runes occupy the offhand slot but do not block.
 		defending = false;
 		wouldBeDefending = false;
 	}
@@ -5114,17 +5226,28 @@ void actHudShield(Entity* my)
 		my->focaly = 0;
 		my->focalz = 0;
 	}
+	const bool runeHammerAttachment = hudweapon && stats[HUDSHIELD_PLAYERNUM]->weapon
+		&& stats[HUDSHIELD_PLAYERNUM]->weapon->type == RUNE_HAMMER
+		&& runeHammerHasAttachedOffhand(stats[HUDSHIELD_PLAYERNUM]);
+	if ( runeHammerAttachment )
+	{
+		// Reuse the real offhand HUD entity/model, but replace its hand-space pose
+		// with a Hammer-local attachment after the Hammer's final animation.
+		my->flags[INVISIBLE] = hudweapon->flags[INVISIBLE];
+		RuneHammerModelPositions.attachTo(*my, *hudweapon,
+			RuneHammerModelPositions.attachmentTransform(true));
+	}
 
-	if ( my->sprite == items[TOOL_TINKERING_KIT].fpindex && !hideShield )
+	if ( !runeHammerAttachment && my->sprite == items[TOOL_TINKERING_KIT].fpindex && !hideShield )
 	{
 		my->yaw += PI / 2 - HUDSHIELD_YAW / 4;
 		my->focalz -= 0.5;
 	}
-	else if ( my->sprite == items[TOOL_FRYING_PAN].fpindex && !hideShield )
+	else if ( !runeHammerAttachment && my->sprite == items[TOOL_FRYING_PAN].fpindex && !hideShield )
 	{
 		my->roll += PI / 8;
 	}
-	else if ( duck && !hideShield )
+	else if ( !runeHammerAttachment && duck && !hideShield )
 	{
 		my->z += -1;
 		my->yaw += (PI / 3) + -HUDSHIELD_YAW;
@@ -5161,11 +5284,11 @@ void actHudShield(Entity* my)
 			}
 		}
 	}
-	else if ( foci && !hideShield )
+	else if ( !runeHammerAttachment && foci && !hideShield )
 	{
 		//my->yaw += PI / 2 - HUDSHIELD_YAW / 4;
 		my->focalz -= 1.5;
-		if ( defending )
+		if ( defending || runeFocusCasting )
 		{
 			int rate = 20;
 			int chargeTimeInit = (float)(TICKS_PER_SECOND / 4);
@@ -5222,7 +5345,7 @@ void actHudShield(Entity* my)
 		my->yaw += HUDSHIELD_FOCI_SPIN * sin(HUDSHIELD_FOCI_EASE * PI / 2);
 	}
 
-	if ( !foci || hideShield || !defending )
+	if ( !foci || hideShield || (!defending && !runeFocusCasting) )
 	{
 		HUDSHIELD_FOCI_SPIN = 0.0;
 		HUDSHIELD_FOCI_EASE = 0.0;

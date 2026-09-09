@@ -24,6 +24,175 @@
 
 list_t channeledSpells[MAXPLAYERS];
 
+namespace
+{
+	thread_local bool activeSpellPowerOverride = false;
+	thread_local real_t activeSpellPowerBonus = 0.0;
+	thread_local bool activeRuneCastSource = false;
+	thread_local Sint8 activeRuneCreatorPlayer = -1;
+	thread_local Uint32 activeRuneItemUid = 0;
+}
+
+ScopedSpellPowerOverride::ScopedSpellPowerOverride(bool enabled, real_t bonus)
+	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
+	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
+	previousRuneItemUid(activeRuneItemUid)
+{
+	if ( enabled )
+	{
+		activeSpellPowerOverride = true;
+		activeSpellPowerBonus = bonus;
+	}
+}
+
+ScopedSpellPowerOverride::ScopedSpellPowerOverride(const spell_t* spell)
+	: ScopedSpellPowerOverride(spell, false)
+{
+}
+
+ScopedSpellPowerOverride::ScopedSpellPowerOverride(const spell_t* spell, bool replaceMissingOverride)
+	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
+	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
+	previousRuneItemUid(activeRuneItemUid)
+{
+	if ( spell && spell->hasSpellPowerOverride )
+	{
+		activeSpellPowerOverride = true;
+		activeSpellPowerBonus = spell->spellPowerOverride;
+	}
+	else if ( replaceMissingOverride )
+	{
+		activeSpellPowerOverride = false;
+		activeSpellPowerBonus = 0.0;
+	}
+	if ( spell && spell->runeItemUid != 0 )
+	{
+		activeRuneCastSource = true;
+		activeRuneCreatorPlayer = spell->runeCreatorPlayer;
+		activeRuneItemUid = spell->runeItemUid;
+	}
+	else if ( replaceMissingOverride )
+	{
+		activeRuneCastSource = false;
+		activeRuneCreatorPlayer = -1;
+		activeRuneItemUid = 0;
+	}
+}
+
+ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Entity* effectEntity)
+	: ScopedSpellPowerOverride(effectEntity, false)
+{
+}
+
+ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Entity* effectEntity, bool replaceMissingOverride)
+	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
+	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
+	previousRuneItemUid(activeRuneItemUid)
+{
+	if ( effectEntity && effectEntity->hasSpellPowerOverride )
+	{
+		activeSpellPowerOverride = true;
+		activeSpellPowerBonus = effectEntity->spellPowerOverride;
+	}
+	else if ( replaceMissingOverride )
+	{
+		activeSpellPowerOverride = false;
+		activeSpellPowerBonus = 0.0;
+	}
+	if ( effectEntity && effectEntity->magicCastFromRune )
+	{
+		activeRuneCastSource = true;
+		activeRuneCreatorPlayer = effectEntity->magicRuneCreatorPlayer;
+		activeRuneItemUid = 0;
+	}
+	else if ( replaceMissingOverride )
+	{
+		activeRuneCastSource = false;
+		activeRuneCreatorPlayer = -1;
+		activeRuneItemUid = 0;
+	}
+}
+
+ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem)
+	: ScopedSpellPowerOverride(runeItem, false)
+{
+}
+
+ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem, bool replaceMissingOverride)
+	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
+	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
+	previousRuneItemUid(activeRuneItemUid)
+{
+	if ( runeItem && runeItem->isMagicRune() )
+	{
+		if ( runeItem->runeHasStoredPWR() )
+		{
+			activeSpellPowerOverride = true;
+			activeSpellPowerBonus = runeItem->runeGetStoredPWR();
+		}
+		else if ( replaceMissingOverride )
+		{
+			activeSpellPowerOverride = false;
+			activeSpellPowerBonus = 0.0;
+		}
+		activeRuneCastSource = true;
+		activeRuneCreatorPlayer = static_cast<Sint8>(runeItem->runeGetCreatorPlayer());
+		activeRuneItemUid = runeItem->uid;
+	}
+	else if ( replaceMissingOverride )
+	{
+		activeSpellPowerOverride = false;
+		activeSpellPowerBonus = 0.0;
+		activeRuneCastSource = false;
+		activeRuneCreatorPlayer = -1;
+		activeRuneItemUid = 0;
+	}
+}
+
+ScopedSpellPowerOverride::~ScopedSpellPowerOverride()
+{
+	activeSpellPowerOverride = previousEnabled;
+	activeSpellPowerBonus = previousBonus;
+	activeRuneCastSource = previousRuneCast;
+	activeRuneCreatorPlayer = previousRuneCreatorPlayer;
+	activeRuneItemUid = previousRuneItemUid;
+}
+
+bool getActiveSpellPowerOverride(real_t& bonus)
+{
+	if ( !activeSpellPowerOverride ) { return false; }
+	bonus = activeSpellPowerBonus;
+	return true;
+}
+
+void inheritActiveSpellPowerOverride(Entity& entity)
+{
+	real_t bonus = 0.0;
+	if ( getActiveSpellPowerOverride(bonus) )
+	{
+		entity.hasSpellPowerOverride = true;
+		entity.spellPowerOverride = bonus;
+	}
+}
+
+bool getActiveRuneCastSource(Sint8& creatorPlayer, Uint32* runeItemUid)
+{
+	if ( !activeRuneCastSource ) { return false; }
+	creatorPlayer = activeRuneCreatorPlayer;
+	if ( runeItemUid ) { *runeItemUid = activeRuneItemUid; }
+	return true;
+}
+
+void inheritActiveRuneCastSource(Entity& entity)
+{
+	Sint8 creatorPlayer = -1;
+	if ( getActiveRuneCastSource(creatorPlayer) )
+	{
+		entity.magicCastFromRune = true;
+		entity.magicRuneCreatorPlayer = creatorPlayer;
+	}
+}
+
 spellElement_t spellElement_unintelligible;
 spellElement_t spellElement_missile;
 spellElement_t spellElement_missile_trio;
@@ -778,6 +947,7 @@ spellElement_t* copySpellElement(spellElement_t* spellElement)
 
 int getGoldCostOfSpell(spell_t* spell, int player)
 {
+	ScopedSpellPowerOverride spellPowerScope(spell);
 	if ( player < 0 || player >= MAXPLAYERS ) { return 0; }
 	if ( !spell )
 	{
@@ -810,6 +980,7 @@ int getGoldCostOfSpell(spell_t* spell, int player)
 
 int getSustainCostOfSpell(spell_t* spell, Entity* caster)
 {
+	ScopedSpellPowerOverride spellPowerScope(spell);
 	int cost = 0;
 	if ( !spell )
 	{
@@ -827,6 +998,7 @@ int getSustainCostOfSpell(spell_t* spell, Entity* caster)
 
 int getCostOfSpell(spell_t* spell, Entity* caster)
 {
+	ScopedSpellPowerOverride spellPowerScope(spell);
 	int cost = 0;
 	if ( !spell )
 	{
@@ -1002,6 +1174,11 @@ real_t getSpellBonusFromCasterINT(Entity* caster, Stat* casterStats, int skillID
 
 real_t getBonusFromCasterOfSpellElement(Entity* caster, Stat* casterStats, spellElement_t* spellElement, int spellID, int proficiencyWhenNoSpell)
 {
+	real_t storedPowerBonus = 0.0;
+	if ( getActiveSpellPowerOverride(storedPowerBonus) )
+	{
+		return storedPowerBonus;
+	}
 	if ( !casterStats && caster )
 	{
 		casterStats = caster->getStats();
@@ -1902,6 +2079,10 @@ spell_t* getSpellFromItem(const int player, Item* item, bool usePlayerInventory)
 	if ( !item )
 	{
 		return nullptr;
+	}
+	if ( item->isMagicRune() )
+	{
+		return getSpellFromID(item->runeGetSpellID());
 	}
 	if ( item->type != SPELL_ITEM )
 	{

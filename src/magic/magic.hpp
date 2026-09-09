@@ -804,6 +804,10 @@ typedef struct spell_t
 	bool sustain; //If a spell is channeled, should it be sustained? (NOTE: True by default. Set to false when the player decides to cancel/abandon a spell)
 	bool magicstaff; // if true the spell was cast from a magicstaff and thus it may have slightly different behavior
 	bool spellbook = false;
+	Uint32 runeItemUid = 0; // physical Rune powering this sustained spell, if any
+	Sint8 runeCreatorPlayer = -1; // creator slot snapshotted when a Rune is released
+	bool hasSpellPowerOverride = false;
+	real_t spellPowerOverride = 0.0; // bonus form: 0.0 is base/100% PWR
 	node_t* sustain_node = nullptr; //Node in the sustained/channeled spells list.
 	node_t* magic_effects_node = nullptr;
 	bool hide_from_ui = false; // hide from skillsheet/other UI places
@@ -863,7 +867,8 @@ typedef struct spell_t
 		SPELL_LEVEL_EVENT_ASSIST = 256,
 		SPELL_LEVEL_EVENT_MINOR_CHANCE = 512,
 		SPELL_LEVEL_EVENT_ALWAYS = 1024,
-		SPELL_LEVEL_EVENT_ENUM_END = 2048
+		SPELL_LEVEL_EVENT_RUNE = 2048,
+		SPELL_LEVEL_EVENT_ENUM_END = 4096
 	};
 
 	// get localized spell name
@@ -963,17 +968,43 @@ struct CastSpellProps_t
 
 void setupSpells();
 void equipSpell(spell_t* spell, int playernum, Item* spellItem);
-Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool trap, bool usingSpellbook = false, CastSpellProps_t* castSpellProps = nullptr, bool usingFoci = false);
+Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool trap, bool usingSpellbook = false, CastSpellProps_t* castSpellProps = nullptr, bool usingFoci = false, bool usingRune = false);
 // mod add: restore an Entrench-carried world entity on player cleanup.
 void restoreEntrenchCarriedObject(int player);
 void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity); // mod add: native death destruction
 void updateEntrenchCarriedObject(int player); // mod add: collisionless hover presentation
+bool tryToggleExistingChanneledSpell(int player, spell_t* spell);
 void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool usingTome); //Initiates the spell animation, then hands off the torch to it, which, when finished, calls castSpell.
 int spellGetCastSound(spell_t* spell);
+	class ScopedSpellPowerOverride
+	{
+	public:
+		ScopedSpellPowerOverride(bool enabled, real_t bonus);
+		explicit ScopedSpellPowerOverride(const spell_t* spell);
+		ScopedSpellPowerOverride(const spell_t* spell, bool replaceMissingOverride);
+		explicit ScopedSpellPowerOverride(const Entity* effectEntity);
+		ScopedSpellPowerOverride(const Entity* effectEntity, bool replaceMissingOverride);
+		explicit ScopedSpellPowerOverride(const Item* runeItem);
+		ScopedSpellPowerOverride(const Item* runeItem, bool replaceMissingOverride);
+		~ScopedSpellPowerOverride();
+		ScopedSpellPowerOverride(const ScopedSpellPowerOverride&) = delete;
+		ScopedSpellPowerOverride& operator=(const ScopedSpellPowerOverride&) = delete;
+	private:
+		bool previousEnabled = false;
+		real_t previousBonus = 0.0;
+		bool previousRuneCast = false;
+		Sint8 previousRuneCreatorPlayer = -1;
+		Uint32 previousRuneItemUid = 0;
+	};
+	bool getActiveSpellPowerOverride(real_t& bonus);
+	void inheritActiveSpellPowerOverride(Entity& entity);
+	bool getActiveRuneCastSource(Sint8& creatorPlayer, Uint32* runeItemUid = nullptr);
+	void inheritActiveRuneCastSource(Entity& entity);
 #ifndef EDITOR // editor doesn't know about stat*
 int getSpellcastingAbilityFromUsingSpellbook(spell_t* spell, Entity* caster, Stat* casterStats);
 bool isSpellcasterBeginnerFromSpellbook(int player, Entity* caster, Stat* stat, spell_t* spell, Item* spellbookItem);
 int getSpellbookBonusPercent(Entity* caster, Stat* stat, Item* spellbookItem);
+void handleSpellbookCastingDegradation(Entity* caster, spell_t* spell);
 real_t getBonusFromCasterOfSpellElement(Entity* caster, Stat* casterStats, spellElement_t* spellElement, int spellID, int proficiencyWhenNoSpell);
 real_t getSpellBonusFromCasterINT(Entity* caster, Stat* casterStats, int skillID);
 int getSpellbookBaseINTBonus(Entity* caster, Stat* casterStats, int skillID);
@@ -1052,7 +1083,8 @@ static const int PINPOINT_PARTICLE_START = 1767;
 static const int PINPOINT_PARTICLE_END = 1782;
 Entity* createParticleSpellPinpointTarget(Entity* parent, Uint32 casterUid, int sprite, int duration, int spellID);
 Entity* createFloorMagic(ParticleTimerEffect_t::EffectType particleType, int sprite, real_t x, real_t y, real_t z, real_t dir, Uint32 lifetime);
-Entity* createRadiusMagic(int spellID, Entity* caster, real_t x, real_t y, real_t radius, Uint32 lifetime, Entity* follow);
+Entity* createRadiusMagic(int spellID, Entity* caster, real_t x, real_t y, real_t radius,
+	Uint32 lifetime, Entity* follow, Uint32 runeItemUid = 0);
 void floorMagicClientReceive(Entity* my);
 void particleWaveClientReceive(Entity* my);
 void radiusMagicClientReceive(Entity* entity);
@@ -1131,6 +1163,10 @@ typedef struct spellcastingAnimationManager
 	int active_count = 0;
 	int overcharge = 0;
 	int overcharge_init = 0;
+	bool usingRune = false;
+	Uint32 runeItemUid = 0;
+	bool hasSpellPowerOverride = false;
+	real_t spellPowerOverride = 0.0;
 
 	int consume_interval; //Every consume_interval ticks, eat a mana.
 	int consume_timer; //How many ticks left till next mana consume.
@@ -1167,8 +1203,17 @@ extern spellcasting_animation_manager_t cast_animation[MAXPLAYERS];
 
 void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool usingTome);
 void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* animation_manager);
-void spellcastAnimationUpdateReceive(int player, int attackPose, int castTime);
-void spellcastAnimationUpdate(int player, int attackPose, int castTime);
+bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeItemUid);
+enum class RuneHammerCastVisualPhase : Uint8
+{
+	NONE,
+	CHARGE,
+	SWING,
+	RECOVERY
+};
+RuneHammerCastVisualPhase getRuneHammerCastVisualPhase(Entity& playerEntity, real_t& progress);
+void spellcastAnimationUpdateReceive(int player, int attackPose, int castTime, bool runeHammerCastVisual = false);
+void spellcastAnimationUpdate(int player, int attackPose, int castTime, bool runeHammerCastVisual = false);
 
 class Item;
 
@@ -1178,7 +1223,7 @@ int getSpellIDFromFoci(int fociType);
 int canUseShapeshiftSpellInCurrentForm(const int player, Item& item);
 
 //Spell implementation stuff.
-bool spellEffectDominate(Entity& my, spellElement_t& element, Entity& caster, Entity* parent);
+bool spellEffectDominate(Entity& my, spellElement_t& element, Entity& caster, Entity* parent, spell_t* spell = nullptr);
 void spellEffectAcid(Entity& my, spellElement_t& element, Entity* parent, int damage, int resistance);
 void spellEffectStealWeapon(Entity& my, spellElement_t& element, Entity* parent, int resistance);
 void spellEffectDrainSoul(Entity& my, spellElement_t& element, Entity* parent, int damage, int resistance);
@@ -1212,6 +1257,7 @@ int getSpellFromSummonedEntityForSpellEvent(Entity* summon);
 const char* magicLightColorForSprite(Entity* my, int sprite, bool darker);
 void doParticleEffectForTouchSpell(Entity& my, Entity* focalLimb, Monster monsterType);
 bool magicOnSpellCastEvent(Entity* parent, Entity* projectile, Entity* hitentity, int spellID, Uint32 eventType, int eventValue, bool allowedLevelup = true); // return true on level up
+bool magicOnGuaranteedSpellSchoolTraining(Entity* recipient, int spellID);
 void freeSpells();
 void createParticleFociLight(Entity* entity, int spellID, bool updateClients);
 void createParticleFociDark(Entity* entity, int spellID, bool updateClients);

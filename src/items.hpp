@@ -17,6 +17,7 @@
 
 class Entity; // forward declare
 class Stat; // forward declare
+struct spell_t; // forward declare
 
 // items
 typedef enum ItemType
@@ -556,6 +557,9 @@ typedef enum ItemType
 	SPELLBOOK_ENTRENCH,
 	// mod add: offhand scouting utility. TODO: dedicated model/icon in mod assets.
 	SPYGLASS = 528,
+	// mod add: one generic, instance-configured magic rune.
+	MAGIC_RUNE,
+	RUNE_HAMMER,
 
 	ITEM_ENUM_MAX
 } ItemType;
@@ -589,6 +593,31 @@ typedef enum Status
 	SERVICABLE,
 	EXCELLENT
 } Status;
+
+// Compact indices stored in MAGIC_RUNE appearance metadata. Deliberately excludes
+// rock, luckstone, worthless glass, and jewel.
+enum RuneGemType : Uint8
+{
+	RUNE_GEM_OBSIDIAN,
+	RUNE_GEM_JADE,
+	RUNE_GEM_FLUORITE,
+	RUNE_GEM_AMETHYST,
+	RUNE_GEM_GARNET,
+	RUNE_GEM_CITRINE,
+	RUNE_GEM_OPAL,
+	RUNE_GEM_JETSTONE,
+	RUNE_GEM_AMBER,
+	RUNE_GEM_AQUAMARINE,
+	RUNE_GEM_JACINTH,
+	RUNE_GEM_EMERALD,
+	RUNE_GEM_SAPPHIRE,
+	RUNE_GEM_RUBY,
+	RUNE_GEM_DIAMOND,
+	RUNE_GEM_COUNT,
+	RUNE_GEM_INVALID = 0xff
+};
+RuneGemType runeGemTypeFromItemType(ItemType type);
+ItemType itemTypeFromRuneGemType(RuneGemType gem);
 
 typedef enum EquipmentType
 {
@@ -649,6 +678,13 @@ enum ItemEquippableSlot : int
 class Item
 {
 public:
+	// MAGIC_RUNE stores its crafter's final bonus-form PWR as signed fixed point.
+	// This deliberately lives outside appearance so the existing Rune durability,
+	// resource-factor, and Dominate-capacity encodings retain their precision.
+	static constexpr Sint32 RUNE_STORED_PWR_INVALID = (-2147483647 - 1);
+	static constexpr real_t RUNE_STORED_PWR_SCALE = 1000000.0;
+	static constexpr Sint8 RUNE_CREATOR_INVALID = -1;
+
 	ItemType type;
 	Status status;
 
@@ -668,6 +704,8 @@ public:
 	bool spellNotifyIcon = false; // if spell can level you up
 	Uint8 itemRequireTradingSkillInShop = 0; // if item hidden in shop view until player has trading req
 	bool itemSpecialShopConsumable = false; // if item is extra non-standard inventory consumable
+	Sint32 runeStoredPWR = RUNE_STORED_PWR_INVALID;
+	Sint8 runeCreatorPlayer = RUNE_CREATOR_INVALID;
 
 	// weight, category and other generic info reported by function calls
 
@@ -683,6 +721,31 @@ public:
 
 	char* description() const;
 	char* getName() const;
+	bool isMagicRune() const;
+	int runeGetSpellID() const;
+	void runeSetSpellID(int spellID);
+	RuneGemType runeGetGemType() const;
+	void runeSetGemType(RuneGemType gem);
+	int runeGetMagicSchool() const;
+	bool runeIsValid() const;
+	bool runeCanCast() const;
+	ItemType runeGetVisualGemItemType() const;
+	std::string runeGetDisplayName() const;
+	real_t runeGetStoredBreakChance() const;
+	bool runeSetStoredBreakChance(real_t chance);
+	real_t runeGetStoredResourceFactor() const;
+	bool runeSetStoredResourceFactor(real_t factor);
+	int runeGetDominateCapacity() const;
+	bool runeSetDominateCapacity(int capacity);
+	bool runeHasStoredPWR() const;
+	real_t runeGetStoredPWR() const;
+	real_t runeGetStoredPWRDisplayPercent() const;
+	Sint32 runeGetStoredPWRRaw() const;
+	bool runeSetStoredPWR(real_t pwr);
+	void runeSetStoredPWRRaw(Sint32 raw);
+	bool runeHasCreator() const;
+	int runeGetCreatorPlayer() const;
+	void runeSetCreatorPlayer(int player);
 
 	//General Functions.
 	Sint32 weaponGetAttack(const Stat* wielder = nullptr) const; //Returns the tohit of the weapon.
@@ -882,6 +945,20 @@ void item_ToolLootBag(Item*& item, int player);
 
 //General functions.
 Item* newItem(ItemType type, Status status, Sint16 beatitude, Sint16 count, Uint32 appearance, bool identified, list_t* inventory);
+Item* createMagicRune(RuneGemType gem, int spellID, Status status, Sint16 beatitude,
+	bool identified, list_t* inventory = nullptr);
+int getRuneInscriptionManaCost(Status gemstoneStatus, const spell_t* spell, Entity* caster);
+int getRuneInscriptionGoldCost(Status gemstoneStatus, spell_t* spell, int player);
+bool activateMagicRune(int player);
+bool consumeSustainedSpellResource(Entity* caster, spell_t* spell, int manaCost);
+bool runeSpellIsSustained(spell_t* spell);
+real_t getRuneDominateStorageEfficiency(const Item& rune);
+real_t getRuneCrafterCompetence(const spell_t* spell, Entity* creator);
+bool initializeMagicRuneCraftingProfile(Item& rune, spell_t* spell, Entity* creator);
+bool applyMagicRuneStoredPWR(spell_t& spell, const Item& rune);
+bool applyMagicRuneCastStress(Uint32 runeUid, int resourceEquivalent);
+Item* findMagicRuneByUid(Uint32 runeUid, int* ownerOut = nullptr);
+bool breakMagicRune(Uint32 runeUid, const char* message = nullptr);
 Item* uidToItem(Uint32 uid);
 ItemType itemLevelCurveEntity(Entity& my, Category cat, int minLevel, int maxLevel, BaronyRNG& rng);
 bool itemLevelCurvePostProcess(Entity* my, Item* item, BaronyRNG& rng, 
@@ -895,6 +972,16 @@ bool itemLevelCurvePostProcess(Entity* my, Item* item, BaronyRNG& rng,
 ItemType itemLevelCurve(Category cat, int minLevel, int maxLevel, BaronyRNG& rng);
 Item* newItemFromEntity(const Entity* entity, bool discardUid = false); //Make sure to call free(item). discardUid will free the new items uid if this is for temp purposes
 Entity* dropItemMonster(Item* item, Entity* monster, Stat* monsterStats, Sint16 count = 1);
+bool inscribeFloorGemWithRuneHammer(int player, Entity* floorItem, int charge);
+bool beginRuneHammerInscription(int player, Uint32 targetUid, int charge);
+void updateRuneHammerInscription(int player);
+bool runeHammerUsesTwoHandedPose(const Stat* stats);
+bool runeHammerHasAttachedOffhand(const Stat* stats);
+namespace RuneHammerInscriptionAnimation
+{
+	constexpr int IMPACT_TICK = 12;
+	constexpr int END_TICK = 24;
+}
 Item** itemSlot(Stat* myStats, Item* item);
 
 enum Category itemCategory(const Item* item);
@@ -927,7 +1014,9 @@ enum EquipItemSendToServerSlot : int
 };
 void playerTryEquipItemAndUpdateServer(const int player, Item* item, bool checkInventorySpaceForPaperDoll);
 void clientSendEquipUpdateToServer(EquipItemSendToServerSlot slot, EquipItemResult equipType, int player,
-	ItemType type, Status status, Sint16 beatitude, int count, Uint32 appearance, bool identified);
+	ItemType type, Status status, Sint16 beatitude, int count, Uint32 appearance, bool identified,
+	Sint32 runeStoredPWR = Item::RUNE_STORED_PWR_INVALID,
+	Sint8 runeCreatorPlayer = Item::RUNE_CREATOR_INVALID);
 void clientUnequipSlotAndUpdateServer(const int player, EquipItemSendToServerSlot slot, Item* item);
 void clientSendAppearanceUpdateToServer(const int player, Item* item, const bool onIdentify);
 void clientSendItemTypeUpdateToServer(const int player, Item* item, ItemType prevItemType);

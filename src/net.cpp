@@ -1357,9 +1357,11 @@ void serverSendItemToPickupAndEquip(int player, Item* item)
 	SDLNet_Write32((Uint32)item->appearance, &net_packet->data[20]);
 	SDLNet_Write32((Uint32)item->ownerUid, &net_packet->data[24]);
 	net_packet->data[28] = item->identified;
+	SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[29]);
+	net_packet->data[33] = static_cast<Uint8>(item->runeGetCreatorPlayer());
 	net_packet->address.host = net_clients[player - 1].host;
 	net_packet->address.port = net_clients[player - 1].port;
-	net_packet->len = 29;
+	net_packet->len = 34;
 	sendPacketSafe(net_sock, -1, net_packet, player - 1);
 }
 
@@ -2989,7 +2991,18 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 			{
 				if ( entity->skill[10] >= 0 && entity->skill[10] < NUMITEMS )
 				{
-					if ( items[entity->skill[10]].category == TOME_SPELL )
+					if ( entity->skill[10] == MAGIC_RUNE && net_packet->len >= 25 )
+					{
+						entity->skill[14] = SDLNet_Read32(&net_packet->data[16]);
+						entity->itemRuneStoredPWR = static_cast<Sint32>(SDLNet_Read32(&net_packet->data[20]));
+						entity->itemRuneStoredPWRValid = net_packet->data[24] ? 1 : 0;
+						entity->itemRuneCreatorPlayer = net_packet->len >= 26
+							? static_cast<Sint8>(net_packet->data[25]) : Item::RUNE_CREATOR_INVALID;
+						entity->itemRuneCreatorPlayerValid = net_packet->len >= 26
+							&& entity->itemRuneCreatorPlayer >= 0
+							&& entity->itemRuneCreatorPlayer < MAXPLAYERS ? 1 : 0;
+					}
+					else if ( items[entity->skill[10]].category == TOME_SPELL )
 					{
 						entity->skill[14] = SDLNet_Read16(&net_packet->data[16]);
 					}
@@ -4246,6 +4259,34 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		}
 	}},
 
+	// update a magic rune's persisted status/profile by physical item UID
+	{'RUSD', [](){
+		const Uint32 runeUid = SDLNet_Read32(&net_packet->data[4]);
+		for ( node_t* node = stats[clientnum]->inventory.first; node; node = node->next )
+		{
+			Item* item = static_cast<Item*>(node->element);
+			if ( item && item->uid == runeUid && item->type == MAGIC_RUNE )
+			{
+				item->status = static_cast<Status>(std::max(static_cast<int>(BROKEN),
+					std::min(static_cast<int>(EXCELLENT), static_cast<int>(net_packet->data[8]))));
+				item->appearance = SDLNet_Read32(&net_packet->data[9]);
+				item->runeSetStoredPWRRaw(net_packet->len >= 17
+					? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[13]))
+					: Item::RUNE_STORED_PWR_INVALID);
+				item->runeSetCreatorPlayer(net_packet->len >= 18
+					? static_cast<Sint8>(net_packet->data[17]) : Item::RUNE_CREATOR_INVALID);
+				break;
+			}
+		}
+	}},
+
+	// Remote Rune Hammer inscription presentation; world mutation remains server-only.
+	{'RANI', [](){
+		const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
+		beginRuneHammerInscription(player, SDLNet_Read32(&net_packet->data[5]),
+			static_cast<int>(SDLNet_Read32(&net_packet->data[9])));
+	}},
+
 	// update armor quality
 	{'ARMR', [](){
 	    Item* item;
@@ -4293,6 +4334,10 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		}
 		if ( item != NULL && (checkType <= -1 || (checkType >= 0 && item->type == checkType)) )
 		{
+			if ( net_packet->len >= 12 && item->type == MAGIC_RUNE )
+			{
+				item->appearance = SDLNet_Read32(&net_packet->data[8]);
+			}
 			if ( item->count > 1 )
 			{
 				Item* pickedUp = newItem(item->type, item->status, item->beatitude, item->count - 1, item->appearance, item->identified, &stats[clientnum]->inventory);
@@ -4676,6 +4721,11 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		    net_packet->data[28],
 		    NULL);
 		item->ownerUid = SDLNet_Read32(&net_packet->data[24]);
+		item->runeSetStoredPWRRaw(net_packet->len >= 33
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[29]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 34
+			? static_cast<Sint8>(net_packet->data[33]) : Item::RUNE_CREATOR_INVALID);
 		Item* pickedUp = itemPickup(clientnum, item);
 		free(item);
 		if ( players[clientnum] && players[clientnum]->entity )
@@ -4859,6 +4909,11 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		int y = (Sint8)net_packet->data[17];
 		if ( Item* item = newItem(type, status, beatitude, count, appearance, identified, shopInv[clientnum]) )
 		{
+			item->runeSetStoredPWRRaw(net_packet->len >= 22
+				? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[18]))
+				: Item::RUNE_STORED_PWR_INVALID);
+			item->runeSetCreatorPlayer(net_packet->len >= 23
+				? static_cast<Sint8>(net_packet->data[22]) : Item::RUNE_CREATOR_INVALID);
 			item->x = x;
 			item->y = y;
 			item->playerSoldItemToShop = buybackItem;
@@ -4976,9 +5031,11 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 				net_packet->data[25] = clientnum;
 				net_packet->data[26] = (Uint8)cameras[clientnum].x;
 				net_packet->data[27] = (Uint8)cameras[clientnum].y;
+				SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
+				net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
 				net_packet->address.host = net_server.host;
 				net_packet->address.port = net_server.port;
-				net_packet->len = 28;
+				net_packet->len = 33;
 				sendPacketSafe(net_sock, -1, net_packet, 0);
 			}
 		}
@@ -5014,9 +5071,11 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 					net_packet->data[25] = clientnum;
 					net_packet->data[26] = (Uint8)cameras[clientnum].x;
 					net_packet->data[27] = (Uint8)cameras[clientnum].y;
+					SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
+					net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
 					net_packet->address.host = net_server.host;
 					net_packet->address.port = net_server.port;
-					net_packet->len = 28;
+					net_packet->len = 33;
 					sendPacketSafe(net_sock, -1, net_packet, 0);
 					list_RemoveNode(node);
 				}
@@ -5857,6 +5916,11 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 			identified = false;
 		}
 		Item* newitem = newItem(itemType, status, beatitude, count, appearance, identified, nullptr);
+		newitem->runeSetStoredPWRRaw(net_packet->len >= 32
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[28]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		newitem->runeSetCreatorPlayer(net_packet->len >= 33
+			? static_cast<Sint8>(net_packet->data[32]) : Item::RUNE_CREATOR_INVALID);
 		bool forceNewStack = net_packet->data[25] ? true : false;
 		newitem->x = (Sint8)net_packet->data[26];
 		newitem->y = (Sint8)net_packet->data[27];
@@ -5870,7 +5934,23 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 
 	//Open up the GUI to identify an item.
 	{'IDEN', [](){
-		if ( net_packet->data[4] == 1 ) // spellbook
+		if ( net_packet->data[4] == 2 && net_packet->len >= 10 ) // Rune
+		{
+			const Uint32 runeUid = SDLNet_Read32(&net_packet->data[6]);
+			Item* rune = nullptr;
+			for ( node_t* node = stats[clientnum]->inventory.first; node; node = node->next )
+			{
+				Item* item = static_cast<Item*>(node->element);
+				if ( item && item->uid == runeUid && item->isMagicRune()
+					&& item->runeGetSpellID() == SPELL_IDENTIFY )
+				{
+					rune = item;
+					break;
+				}
+			}
+			if ( rune ) { GenericGUI[clientnum].openGUI(GUI_TYPE_ITEMFX, rune, 0, MAGIC_RUNE, SPELL_IDENTIFY); }
+		}
+		else if ( net_packet->data[4] == 1 ) // spellbook
 		{
 			int beatitude = static_cast<Sint8>(net_packet->data[5]);
 			GenericGUI[clientnum].openGUI(GUI_TYPE_ITEMFX, nullptr, beatitude, getSpellbookFromSpellID(SPELL_IDENTIFY), SPELL_IDENTIFY);
@@ -5884,7 +5964,23 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 	// Open up the Remove Curse GUI
 	{'CRCU', [](){
 		//Uncurse an item
-		if ( net_packet->data[4] == 1 ) // spellbook
+		if ( net_packet->data[4] == 2 && net_packet->len >= 10 ) // Rune
+		{
+			const Uint32 runeUid = SDLNet_Read32(&net_packet->data[6]);
+			Item* rune = nullptr;
+			for ( node_t* node = stats[clientnum]->inventory.first; node; node = node->next )
+			{
+				Item* item = static_cast<Item*>(node->element);
+				if ( item && item->uid == runeUid && item->isMagicRune()
+					&& item->runeGetSpellID() == SPELL_REMOVECURSE )
+				{
+					rune = item;
+					break;
+				}
+			}
+			if ( rune ) { GenericGUI[clientnum].openGUI(GUI_TYPE_ITEMFX, rune, 0, MAGIC_RUNE, SPELL_REMOVECURSE); }
+		}
+		else if ( net_packet->data[4] == 1 ) // spellbook
 		{
 			int beatitude = static_cast<Sint8>(net_packet->data[5]);
 			GenericGUI[clientnum].openGUI(GUI_TYPE_ITEMFX, nullptr, beatitude, getSpellbookFromSpellID(SPELL_REMOVECURSE), SPELL_REMOVECURSE);
@@ -5897,7 +5993,26 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 
 	{'FXSP', []() {
 		int spellID = SDLNet_Read32(&net_packet->data[6]);
-		if ( net_packet->data[4] == 1 ) // spellbook
+		if ( net_packet->data[4] == 2 && net_packet->len >= 14 ) // Rune
+		{
+			const Uint32 runeUid = SDLNet_Read32(&net_packet->data[10]);
+			Item* rune = nullptr;
+			for ( node_t* node = stats[clientnum]->inventory.first; node; node = node->next )
+			{
+				Item* item = static_cast<Item*>(node->element);
+				if ( item && item->uid == runeUid && item->isMagicRune()
+					&& item->runeGetSpellID() == spellID )
+				{
+					rune = item;
+					break;
+				}
+			}
+			if ( rune )
+			{
+				GenericGUI[clientnum].openGUI(GUI_TYPE_ITEMFX, rune, 0, MAGIC_RUNE, spellID);
+			}
+		}
+		else if ( net_packet->data[4] == 1 ) // spellbook
 		{
 			int beatitude = static_cast<Sint8>(net_packet->data[5]);
 			GenericGUI[clientnum].openGUI(GUI_TYPE_ITEMFX, nullptr, beatitude, getSpellbookFromSpellID(spellID), spellID);
@@ -5914,6 +6029,11 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		{
 			if ( spell_t* thespell = copySpell(spell) )
 			{
+				if ( net_packet->len >= 15 && net_packet->data[9] == 1 )
+				{
+					thespell->runeItemUid = SDLNet_Read32(&net_packet->data[10]);
+					thespell->runeCreatorPlayer = static_cast<Sint8>(net_packet->data[14]);
+				}
 				auto node = list_AddNodeLast(&channeledSpells[clientnum]);
 				node->element = thespell;
 				node->size = sizeof(spell_t);
@@ -5927,6 +6047,7 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 	//Remove a spell from the channeled spells list.
 	{'UNCH', [](){
 		spell_t* thespell = getSpellFromID(SDLNet_Read32(&net_packet->data[5]));
+		if ( !thespell ) { return; }
 		if (spellInList(&channeledSpells[clientnum], thespell))
 		{
 			node_t *node, *nextnode;
@@ -6311,6 +6432,11 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		    net_packet->data[28],
 		    NULL);
 		item->ownerUid = SDLNet_Read32(&net_packet->data[24]);
+		item->runeSetStoredPWRRaw(net_packet->len >= 33
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[29]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 34
+			? static_cast<Sint8>(net_packet->data[33]) : Item::RUNE_CREATOR_INVALID);
 		Item* pickedUp = itemPickup(clientnum, item);
 		free(item);
 		if ( players[clientnum] && players[clientnum]->entity && pickedUp )
@@ -6843,7 +6969,7 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		int player = net_packet->data[4];
 		int pose = net_packet->data[5];
 		int charge = SDLNet_Read16(&net_packet->data[6]);
-		spellcastAnimationUpdateReceive(player, pose, charge);
+		spellcastAnimationUpdateReceive(player, pose, charge, net_packet->len >= 9 ? net_packet->data[8] : 0);
 	} },
 
 	// update breakable counter
@@ -7152,7 +7278,16 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 			net_packet->len = 16;
 			if ( entity->skill[10] >= 0 && entity->skill[10] < NUMITEMS )
 			{
-				if ( items[entity->skill[10]].category == TOME_SPELL )
+				if ( entity->skill[10] == MAGIC_RUNE )
+				{
+					SDLNet_Write32(entity->skill[14], &net_packet->data[16]);
+					SDLNet_Write32(static_cast<Uint32>(entity->itemRuneStoredPWR), &net_packet->data[20]);
+					net_packet->data[24] = entity->itemRuneStoredPWRValid ? 1 : 0;
+					net_packet->data[25] = static_cast<Uint8>(entity->itemRuneCreatorPlayerValid
+						? entity->itemRuneCreatorPlayer : Item::RUNE_CREATOR_INVALID);
+					net_packet->len = 26;
+				}
+				else if ( items[entity->skill[10]].category == TOME_SPELL )
 				{
 					SDLNet_Write16(entity->skill[14] % TOME_APPEARANCE_MAX, &net_packet->data[16]);
 					net_packet->len = 18;
@@ -7523,6 +7658,29 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		}
 	}},
 
+	// Rune Hammer inscription request. All world/MP mutation remains server-side.
+	{'RUNE', [](){
+		const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
+		client_keepalive[player] = ticks;
+		const Uint32 targetUid = SDLNet_Read32(&net_packet->data[5]);
+		const int charge = static_cast<int>(SDLNet_Read32(&net_packet->data[9]));
+		if ( beginRuneHammerInscription(player, targetUid, charge) )
+		{
+			for ( int c = 1; c < MAXPLAYERS; ++c )
+			{
+				if ( c == player || client_disconnected[c] || players[c]->isLocalPlayer() ) { continue; }
+				strcpy((char*)net_packet->data, "RANI");
+				net_packet->data[4] = static_cast<Uint8>(player);
+				SDLNet_Write32(targetUid, &net_packet->data[5]);
+				SDLNet_Write32(charge, &net_packet->data[9]);
+				net_packet->address.host = net_clients[c - 1].host;
+				net_packet->address.port = net_clients[c - 1].port;
+				net_packet->len = 13;
+				sendPacketSafe(net_sock, -1, net_packet, c - 1);
+			}
+		}
+	}},
+
 	// tinker salvage
 	{'SALV', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
@@ -7835,6 +7993,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		    SDLNet_Read32(&net_packet->data[20]),
 		    net_packet->data[24],
 		    &stats[player]->inventory);
+		item->runeSetStoredPWRRaw(net_packet->len >= 30
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[26]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 31
+			? static_cast<Sint8>(net_packet->data[30]) : Item::RUNE_CREATOR_INVALID);
 		dropItem(item, player);
 	}},
 
@@ -7922,6 +8085,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		    SDLNet_Read32(&net_packet->data[20]),
 		    net_packet->data[24],
 		    nullptr);
+		item->runeSetStoredPWRRaw(net_packet->len >= 32
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[28]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 33
+			? static_cast<Sint8>(net_packet->data[32]) : Item::RUNE_CREATOR_INVALID);
 
 		real_t x = net_packet->data[26];
 		x = (x * 16) + 8;
@@ -8068,6 +8236,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		}
 		item->x = (Sint8)net_packet->data[18];
 		item->y = (Sint8)net_packet->data[19];
+		item->runeSetStoredPWRRaw(net_packet->len >= 34
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[30]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 35
+			? static_cast<Sint8>(net_packet->data[34]) : Item::RUNE_CREATOR_INVALID);
 		node_t* nextnode;
 		for ( auto node = entitystats->inventory.first; node != NULL; node = nextnode )
 		{
@@ -8194,6 +8367,7 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	{'UNCH', [](){
 		const int client = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
 		spell_t* thespell = getSpellFromID(SDLNet_Read32(&net_packet->data[5]));
+		if ( !thespell ) { return; }
 		if (spellInList(&channeledSpells[client], thespell))
 		{
 			node_t *node, *nextnode;
@@ -8240,6 +8414,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 			printlog("[Shops]: client %d sold item to shop (uid=%d) but could not create item!\n", client, uidnum);
 			return;
 		}
+		item->runeSetStoredPWRRaw(net_packet->len >= 34
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[30]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 35
+			? static_cast<Sint8>(net_packet->data[34]) : Item::RUNE_CREATOR_INVALID);
 
 		Sint32 goldValue = item->sellValue(client);
 		int xout = Player::ShopGUI_t::MAX_SHOP_X;
@@ -8257,6 +8436,8 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		else
 		{
 			Item* item2 = newItem(item->type, item->status, item->beatitude, item->count, item->appearance, item->identified, &entitystats->inventory);
+			item2->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+			item2->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
 			item2->x = xout;
 			item2->y = yout;
 			item2->playerSoldItemToShop = true;
@@ -8302,6 +8483,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		    SDLNet_Read32(&net_packet->data[20]),
 		    net_packet->data[24],
 		    &stats[client]->inventory);
+		item->runeSetStoredPWRRaw(net_packet->len >= 30
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[26]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 31
+			? static_cast<Sint8>(net_packet->data[30]) : Item::RUNE_CREATOR_INVALID);
 		useItem(item, client, nullptr, false, true);
 	}},
 
@@ -8327,6 +8513,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		    SDLNet_Read32(&net_packet->data[20]),
 		    net_packet->data[24],
 		    &stats[client]->inventory);
+		item->runeSetStoredPWRRaw(net_packet->len >= 32
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[28]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 33
+			? static_cast<Sint8>(net_packet->data[32]) : Item::RUNE_CREATOR_INVALID);
 		EquipItemResult res = equipItem(item, &stats[client]->weapon, client, false);
 		if ( res == EQUIP_ITEM_SUCCESS_UPDATE_QTY
 			|| res == EQUIP_ITEM_FAIL_CANT_UNEQUIP )
@@ -8360,6 +8551,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		    SDLNet_Read32(&net_packet->data[20]),
 		    net_packet->data[24],
 		    &stats[client]->inventory);
+		item->runeSetStoredPWRRaw(net_packet->len >= 32
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[28]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 33
+			? static_cast<Sint8>(net_packet->data[32]) : Item::RUNE_CREATOR_INVALID);
 		EquipItemResult res = equipItem(item, &stats[client]->shield, client, false);
 		if ( res == EQUIP_ITEM_SUCCESS_UPDATE_QTY
 			|| res == EQUIP_ITEM_FAIL_CANT_UNEQUIP )
@@ -8437,6 +8633,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		    SDLNet_Read32(&net_packet->data[20]),
 		    net_packet->data[24],
 		    &stats[client]->inventory);
+		item->runeSetStoredPWRRaw(net_packet->len >= 32
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[28]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 33
+			? static_cast<Sint8>(net_packet->data[32]) : Item::RUNE_CREATOR_INVALID);
 		
 		int res = -1;
 		switch ( net_packet->data[27] )
@@ -8791,6 +8992,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		}
 
 		spell_t* thespell = getSpellFromID(SDLNet_Read32(&net_packet->data[5]));
+		if ( !thespell )
+		{
+			return;
+		}
 		if ( players[player] && players[player]->entity )
 		{
 			bool spellbookCast = net_packet->data[9] == 1;
@@ -8805,7 +9010,36 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 				castSpellProps.wallDir = net_packet->data[30];
 				castSpellProps.optionalData = net_packet->data[31];
 				castSpellProps.overcharge = net_packet->data[32];
-				castSpell(players[player]->entity->getUID(), thespell, false, false, spellbookCast, &castSpellProps);
+				const bool runeCast = net_packet->len >= 38 && net_packet->data[33] == 1;
+				const Uint32 runeUid = runeCast ? SDLNet_Read32(&net_packet->data[34]) : 0;
+				if ( runeCast )
+				{
+					Item* rune = stats[player] ? stats[player]->shield : nullptr;
+					if ( !rune || !rune->isMagicRune() || rune->uid != runeUid
+						|| !rune->runeCanCast() || rune->runeGetSpellID() != thespell->ID )
+					{
+						return;
+					}
+					spell_t* runeSpell = copySpell(thespell);
+					if ( !runeSpell ) { return; }
+					runeSpell->runeItemUid = runeUid;
+					if ( !applyMagicRuneStoredPWR(*runeSpell, *rune) )
+					{
+						spellDeconstructor(runeSpell);
+						return;
+					}
+					const int runeResource = runeSpell->ID == SPELL_LEAD_BOLT
+						? getGoldCostOfSpell(runeSpell, player)
+						: getCostOfSpell(runeSpell, players[player]->entity);
+					castSpell(players[player]->entity->getUID(), runeSpell, false, false, false,
+						&castSpellProps, false, true);
+					applyMagicRuneCastStress(runeUid, runeResource);
+					spellDeconstructor(runeSpell);
+				}
+				else
+				{
+					castSpell(players[player]->entity->getUID(), thespell, false, false, spellbookCast, &castSpellProps);
+				}
 			}
 			else
 			{
@@ -8840,6 +9074,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		newitem->count = SDLNet_Read32(&net_packet->data[17]);
 		newitem->appearance = SDLNet_Read32(&net_packet->data[21]);
 		newitem->identified = net_packet->data[25];
+		newitem->runeSetStoredPWRRaw(net_packet->len >= 32
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[28]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		newitem->runeSetCreatorPlayer(net_packet->len >= 33
+			? static_cast<Sint8>(net_packet->data[32]) : Item::RUNE_CREATOR_INVALID);
 		bool forceNewStack = net_packet->data[26] ? true : false;
 		if ( net_packet->data[27] == 0 )
 		{
@@ -8874,6 +9113,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		item->count = SDLNet_Read32(&net_packet->data[17]);
 		item->appearance = SDLNet_Read32(&net_packet->data[21]);
 		item->identified = net_packet->data[25];
+		item->runeSetStoredPWRRaw(net_packet->len >= 32
+			? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[28]))
+			: Item::RUNE_STORED_PWR_INVALID);
+		item->runeSetCreatorPlayer(net_packet->len >= 33
+			? static_cast<Sint8>(net_packet->data[32]) : Item::RUNE_CREATOR_INVALID);
 
 		if ( net_packet->data[27] == 0 )
 		{
@@ -9334,6 +9578,10 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 				entity->skill[13] = item->count;
 				entity->skill[14] = item->appearance;
 				entity->skill[15] = item->identified;
+				entity->itemRuneStoredPWR = item->runeGetStoredPWRRaw();
+				entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
+				entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
+				entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
 				entity->parent = 0;
 				entity->itemOriginalOwner = 0;
 
@@ -9538,13 +9786,26 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		int player = net_packet->data[4];
 		if ( player >= 1 && player < MAXPLAYERS && !players[player]->isLocalPlayer() )
 		{
+			Uint16 spellID = SDLNet_Read16(&net_packet->data[13]);
+			const Uint32 runeUid = net_packet->len >= 19 ? SDLNet_Read32(&net_packet->data[15]) : 0;
+			Item* rune = nullptr;
+			if ( runeUid != 0 )
+			{
+				int runeOwner = -1;
+				rune = findMagicRuneByUid(runeUid, &runeOwner);
+				if ( !rune || runeOwner != player || rune->runeGetSpellID() != spellID ) { return; }
+			}
 			Sint32 goldSpent = (Sint32)SDLNet_Read32(&net_packet->data[5]);
 			stats[player]->GOLD -= goldSpent;
 			stats[player]->GOLD = std::max(0, stats[player]->GOLD);
 
 			Sint32 magiccost = std::max(0, (Sint32)SDLNet_Read32(&net_packet->data[9]));
 			Sint32 prevMP = stats[player]->MP;
-			if ( players[player] && players[player]->entity )
+			if ( players[player] && players[player]->entity && rune )
+			{
+				applyMagicRuneCastStress(runeUid, magiccost);
+			}
+			else if ( players[player] && players[player]->entity )
 			{
 				if ( magiccost > stats[player]->MP )
 				{
@@ -9561,8 +9822,7 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 				players[player]->entity->drainMP(magiccost);
 			}
 
-			Uint16 spellID = SDLNet_Read16(&net_packet->data[13]);
-			if ( spellID != SPELL_NONE )
+			if ( spellID != SPELL_NONE && !rune )
 			{
 				if ( auto spell = getSpellFromID(spellID) )
 				{
@@ -9583,7 +9843,7 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		int player = net_packet->data[4];
 		int pose = net_packet->data[5];
 		int charge = SDLNet_Read16(&net_packet->data[6]);
-		spellcastAnimationUpdateReceive(player, pose, charge);
+		spellcastAnimationUpdateReceive(player, pose, charge, net_packet->len >= 9 ? net_packet->data[8] : 0);
 	} },
 
 	{ 'OVRC', []() {
@@ -9614,7 +9874,48 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 					}
 					else
 					{
-						magicOnSpellCastEvent(players[player]->entity, players[player]->entity, nullptr, spellID, eventType, eventValue);
+						if ( eventType & spell_t::SPELL_LEVEL_EVENT_RUNE )
+						{
+							// The client supplies only a Rune-source hint and item UID. Resolve
+							// creator attribution from server-authoritative spell/item state.
+							eventType &= ~spell_t::SPELL_LEVEL_EVENT_RUNE;
+							spell_t* sourceSpell = players[player]->entity->getActiveMagicEffect(spellID);
+							if ( sourceSpell && sourceSpell->runeItemUid == 0 ) { sourceSpell = nullptr; }
+							if ( !sourceSpell )
+							{
+								for ( node_t* node = channeledSpells[player].first; node; node = node->next )
+								{
+									spell_t* channeledSpell = static_cast<spell_t*>(node->element);
+									if ( channeledSpell && channeledSpell->ID == spellID
+										&& channeledSpell->runeItemUid != 0 )
+									{
+										sourceSpell = channeledSpell;
+										break;
+									}
+								}
+							}
+							Item* sourceRune = nullptr;
+							if ( !sourceSpell && net_packet->len >= 19 )
+							{
+								const Uint32 runeItemUid = SDLNet_Read32(&net_packet->data[15]);
+								int runeOwner = -1;
+								sourceRune = findMagicRuneByUid(runeItemUid, &runeOwner);
+								if ( !sourceRune || runeOwner != player || sourceRune->runeGetSpellID() != spellID )
+								{
+									return;
+								}
+							}
+							if ( !sourceSpell && !sourceRune ) { return; }
+							ScopedSpellPowerOverride spellSourceScope(sourceSpell, true);
+							ScopedSpellPowerOverride runeItemSourceScope(sourceRune, false);
+							magicOnSpellCastEvent(players[player]->entity, players[player]->entity,
+								nullptr, spellID, eventType, eventValue);
+						}
+						else
+						{
+							magicOnSpellCastEvent(players[player]->entity, players[player]->entity,
+								nullptr, spellID, eventType, eventValue);
+						}
 					}
 				}
 			}

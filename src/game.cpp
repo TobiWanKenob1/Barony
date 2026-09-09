@@ -5887,12 +5887,17 @@ void ingameHud()
 		{
             const bool shootmode = players[player]->shootmode;
 			bool hasSpellbook = false;
+			Item* equippedRune = nullptr;
 			bool tryHotbarQuickCast = players[player]->hotbar.faceMenuQuickCast;
 			bool tryInventoryQuickCast = players[player]->magic.doQuickCastSpell();
 			bool tryTomeQuickCast = players[player]->magic.doQuickCastTome();
 			if ( stats[player]->shield && itemCategory(stats[player]->shield) == SPELLBOOK )
 			{
 				hasSpellbook = true;
+			}
+			else if ( stats[player]->shield && stats[player]->shield->runeIsValid() )
+			{
+				equippedRune = stats[player]->shield;
 			}
 
 			players[player]->hotbar.faceMenuQuickCast = false;
@@ -5908,6 +5913,7 @@ void ingameHud()
 				bool hotbarFaceMenuOpen = players[player]->hotbar.faceMenuButtonHeld != Player::Hotbar_t::GROUP_NONE;
 				bool castMemorizedSpell = input.binaryToggle("Cast Spell");
 				bool castSpellbook = (hasSpellbook && input.binaryToggle("Defend"));
+				bool castRune = (equippedRune && input.binaryToggle("Defend"));
 
 				if ( inputs.hasController(player) && cast_animation[player].spellWaitingAttackInput() )
 				{
@@ -5929,7 +5935,7 @@ void ingameHud()
 						castSpellInit(players[player]->entity->getUID(), players[player]->magic.selectedSpell(), false, false);
 					}
 				}
-			    else if (tryHotbarQuickCast || castMemorizedSpell || castSpellbook )
+			    else if (tryHotbarQuickCast || castMemorizedSpell || castSpellbook || castRune )
 			    {
 				    allowCasting = true;
 				    if ( tryHotbarQuickCast == false )
@@ -5954,7 +5960,7 @@ void ingameHud()
 										allowCasting = false;
 									}
 								}
-								if ( castSpellbook )
+								if ( castSpellbook || castRune )
 								{
 									if ( input.bindingIsSharedWithKeyboardSystemBinding("Defend") )
 									{
@@ -5975,7 +5981,7 @@ void ingameHud()
 										allowCasting = false;
 									}
 								}
-								if ( castSpellbook )
+								if ( castSpellbook || castRune )
 								{
 									allowCasting = false;
 									input.consumeBinaryToggle("Defend");
@@ -5991,7 +5997,7 @@ void ingameHud()
 						}
 					}
 
-				    if ( allowCasting && castSpellbook && players[player] && players[player]->entity )
+				    if ( allowCasting && (castSpellbook || castRune) && players[player] && players[player]->entity )
 				    {
 					    if ( players[player]->entity->effectShapeshift != NOTHING )
 					    {
@@ -6062,6 +6068,10 @@ void ingameHud()
 							{
 								castSpellInit(players[player]->entity->getUID(), getSpellFromID(getSpellIDFromSpellbook(stats[player]->shield->type)), true, false);
 							}
+							else if ( equippedRune && input.consumeBinaryToggle("Defend") )
+							{
+								activateMagicRune(player);
+							}
 							else
 							{
 								castSpellInit(players[player]->entity->getUID(), players[player]->magic.selectedSpell(), false, false);
@@ -6104,6 +6114,10 @@ void ingameHud()
 						else if ( hasSpellbook && input.consumeBinaryToggle("Defend") )
 						{
 							castSpellInit(players[player]->entity->getUID(), getSpellFromID(getSpellIDFromSpellbook(stats[player]->shield->type)), true, false);
+						}
+						else if ( equippedRune && input.consumeBinaryToggle("Defend") )
+						{
+							activateMagicRune(player);
 						}
 						else
 						{
@@ -7775,7 +7789,11 @@ int main(int argc, char** argv)
 				{
 					if (classtoquickstart[0] != '\0')
 					{
-						for ( c = 0; c <= CLASS_MONK; c++ ) {
+						for ( c = 0; c < NUMCLASSES; c++ ) {
+							if ( c > CLASS_MONK && c != CLASS_RUNESMITH )
+							{
+								continue;
+							}
 							if ( !strcmp(classtoquickstart, playerClassLangEntry(c, 0)) ) {
 								client_classes[0] = c;
 								break;

@@ -47,6 +47,66 @@ static ConsoleVariable<float> cvar_followerStartZ("/follower_start_z", -2.5);
 static ConsoleVariable<float> cvar_followerMoveTo("/follower_moveto_z", 0.1);
 static ConsoleVariable<float> cvar_followerStartZLimit("/follower_start_z_limit", 7.5);
 
+bool runeHammerHasAttachedOffhand(const Stat* playerStats)
+{
+	return playerStats && playerStats->shield
+		&& (playerStats->shield->isMagicRune() || itemTypeIsFoci(playerStats->shield->type));
+}
+
+bool runeHammerUsesTwoHandedPose(const Stat* playerStats)
+{
+	return playerStats && (!playerStats->shield || runeHammerHasAttachedOffhand(playerStats));
+}
+
+bool beginRuneHammerInscription(int player, Uint32 targetUid, int charge)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !stats[player]
+		|| !stats[player]->weapon || stats[player]->weapon->type != RUNE_HAMMER
+		|| players[player]->mechanics.runeHammerInscriptionTicks > 0 )
+	{
+		return false;
+	}
+	auto& action = players[player]->mechanics;
+	action.runeHammerInscriptionTargetUid = targetUid;
+	action.runeHammerInscriptionCharge = charge;
+	action.runeHammerInscriptionImpacted = false;
+	action.runeHammerInscriptionTicks = 1;
+	return true;
+}
+
+void updateRuneHammerInscription(int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] ) { return; }
+	auto& action = players[player]->mechanics;
+	if ( action.runeHammerInscriptionTicks <= 0 ) { return; }
+	if ( !stats[player] || !stats[player]->weapon || stats[player]->weapon->type != RUNE_HAMMER )
+	{
+		action.runeHammerInscriptionTicks = 0;
+		return;
+	}
+	if ( action.runeHammerInscriptionTicks == RuneHammerInscriptionAnimation::IMPACT_TICK
+		&& !action.runeHammerInscriptionImpacted )
+	{
+		action.runeHammerInscriptionImpacted = true;
+		Entity* target = uidToEntity(action.runeHammerInscriptionTargetUid);
+		if ( target && target->behavior == &actItem && players[player]->entity
+			&& entityDist(players[player]->entity, target) <= TOUCHRANGE )
+		{
+			playSoundPos(target->x, target->y, 66, 128);
+			if ( multiplayer != CLIENT )
+			{
+				inscribeFloorGemWithRuneHammer(player, target, action.runeHammerInscriptionCharge);
+			}
+		}
+	}
+	if ( ++action.runeHammerInscriptionTicks > RuneHammerInscriptionAnimation::END_TICK )
+	{
+		action.runeHammerInscriptionTicks = 0;
+		action.runeHammerInscriptionTargetUid = 0;
+		action.runeHammerInscriptionCharge = 0;
+	}
+}
+
 // mod add: shared custom-effect predicates. These are intentionally player-only
 // and do not alter vanilla mobility, blindness, or Lich behavior.
 bool playerIsPanicking(int player)
@@ -58,6 +118,61 @@ bool playerIsPanicking(int player)
 bool playerCanInteractWhilePanicking(const Entity* target)
 {
 	return target && (target->behavior == &actDoor || target->behavior == &actIronDoor);
+}
+
+static bool requestRuneHammerInscription(int player, Entity* target)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !target || target->behavior != &actItem
+		|| !stats[player] || !stats[player]->weapon || stats[player]->weapon->type != RUNE_HAMMER
+		|| !players[player] || !players[player]->hud.weapon
+		|| !Input::inputs[player].binaryToggle("Attack") )
+	{
+		return false;
+	}
+	const int charge = players[player]->hud.weapon->skill[3];
+	const ItemType targetType = static_cast<ItemType>(target->skill[10]);
+	if ( charge <= 0 || (runeGemTypeFromItemType(targetType) == RUNE_GEM_INVALID
+		&& targetType != GEM_GLASS) )
+	{
+		return false;
+	}
+	Item* spellbook = stats[player]->shield;
+	if ( !spellbook || itemCategory(spellbook) != SPELLBOOK )
+	{
+		messagePlayer(player, MESSAGE_STATUS, "Equip a spellbook in your offhand before inscribing a gemstone.");
+		return true;
+	}
+	if ( multiplayer == CLIENT )
+	{
+		strcpy((char*)net_packet->data, "RUNE");
+		net_packet->data[4] = player;
+		SDLNet_Write32(target->getUID(), &net_packet->data[5]);
+		SDLNet_Write32(charge, &net_packet->data[9]);
+		net_packet->address.host = net_server.host;
+		net_packet->address.port = net_server.port;
+		net_packet->len = 13;
+		sendPacketSafe(net_sock, -1, net_packet, 0);
+		beginRuneHammerInscription(player, target->getUID(), charge);
+	}
+	else
+	{
+		if ( beginRuneHammerInscription(player, target->getUID(), charge) && multiplayer == SERVER )
+		{
+			for ( int c = 1; c < MAXPLAYERS; ++c )
+			{
+				if ( client_disconnected[c] || players[c]->isLocalPlayer() ) { continue; }
+				strcpy((char*)net_packet->data, "RANI");
+				net_packet->data[4] = static_cast<Uint8>(player);
+				SDLNet_Write32(target->getUID(), &net_packet->data[5]);
+				SDLNet_Write32(charge, &net_packet->data[9]);
+				net_packet->address.host = net_clients[c - 1].host;
+				net_packet->address.port = net_clients[c - 1].port;
+				net_packet->len = 13;
+				sendPacketSafe(net_sock, -1, net_packet, c - 1);
+			}
+		}
+	}
+	return true;
 }
 
 bool playerDarkvisionSuppressed(int player)
@@ -1596,6 +1711,12 @@ void Player::Ghost_t::handleActions()
 
 		if ( selectedEntity[player.playernum] )
 		{
+			if ( requestRuneHammerInscription(player.playernum, selectedEntity[player.playernum]) )
+			{
+				selectedEntity[player.playernum] = nullptr;
+				input.consumeBinaryToggle("Use");
+				return;
+			}
 			if ( selectedEntity[player.playernum]->behavior == &actItem && pushPoints == 0 )
 			{
 				selectedEntity[player.playernum] = nullptr;
@@ -6332,6 +6453,7 @@ void actPlayer(Entity* my)
 	// mod add: Advance firearm reload/unjam actions for local, host, and remote players.
 	updateFirearmReload(PLAYER_NUM);
 	updateFirearmUnjam(PLAYER_NUM);
+	updateRuneHammerInscription(PLAYER_NUM);
 	// mod add end
 	if ( logCheckObstacle )
 	{
@@ -7362,6 +7484,14 @@ void actPlayer(Entity* my)
 	if ( PLAYER_NUM < 0 || PLAYER_NUM >= MAXPLAYERS )
 	{
 		return;
+	}
+	real_t runeHammerCastVisualProgress = 0.0;
+	RuneHammerCastVisualPhase runeHammerCastVisualPhase = RuneHammerCastVisualPhase::NONE;
+	if ( stats[PLAYER_NUM] && stats[PLAYER_NUM]->weapon
+		&& stats[PLAYER_NUM]->weapon->type == RUNE_HAMMER )
+	{
+		runeHammerCastVisualPhase = getRuneHammerCastVisualPhase(
+			*my, runeHammerCastVisualProgress);
 	}
 
 	Monster playerRace = HUMAN;
@@ -10562,6 +10692,12 @@ void actPlayer(Entity* my)
 
 				if ( selectedEntity[PLAYER_NUM] )
 				{
+					if ( requestRuneHammerInscription(PLAYER_NUM, selectedEntity[PLAYER_NUM]) )
+					{
+						selectedEntity[PLAYER_NUM] = nullptr;
+						input.consumeBinaryToggle("Use");
+						return;
+					}
 					input.consumeBinaryToggle("Use");
 					//input.consumeBindingsSharedWithBinding("Use");
 					bool foundTinkeringKit = false;
@@ -11475,6 +11611,10 @@ void actPlayer(Entity* my)
 											entity->skill[13] = qtyToDrop;
 											entity->skill[14] = item->appearance;
 											entity->skill[15] = item->identified;
+											entity->itemRuneStoredPWR = item->runeGetStoredPWRRaw();
+											entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
+											entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
+											entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
 											entity->parent = achievementObserver.playerUids[PLAYER_NUM];
 										}
 									}
@@ -11528,6 +11668,10 @@ void actPlayer(Entity* my)
 											entity->skill[13] = 1;
 											entity->skill[14] = item->appearance;
 											entity->skill[15] = item->identified;
+											entity->itemRuneStoredPWR = item->runeGetStoredPWRRaw();
+											entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
+											entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
+											entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
 										}
 										list_RemoveNode(node);
 									}
@@ -12491,7 +12635,37 @@ void actPlayer(Entity* my)
 				if ( bodypart == 4 )
 				{
 					weaponarm = entity;
-					if ( PLAYER_ATTACK == MONSTER_POSE_PARRY )
+					if ( runeHammerCastVisualPhase != RuneHammerCastVisualPhase::NONE )
+					{
+						// The normal vertical-chop state calls into combat when entered from the
+						// HUD. Copy only its arm poses here for the Rune's visual-only release.
+						entity->skill[1] = 0;
+						PLAYER_WEAPONYAW = 0;
+						entity->roll = 0;
+						entity->yaw = my->yaw;
+						if ( runeHammerCastVisualPhase == RuneHammerCastVisualPhase::CHARGE )
+						{
+							PLAYER_ARMBENDED = 0;
+							const real_t virtualTicks = 10.0 * runeHammerCastVisualProgress;
+							entity->pitch = std::max<real_t>(-3.0 * PI / 4.0,
+								-0.5 * virtualTicks);
+						}
+						else if ( runeHammerCastVisualPhase == RuneHammerCastVisualPhase::SWING )
+						{
+							const real_t virtualTicks = 11.0 * runeHammerCastVisualProgress;
+							entity->pitch = std::min<real_t>(PI / 4.0,
+								-3.0 * PI / 4.0 + 0.3 * virtualTicks);
+							PLAYER_ARMBENDED = entity->pitch >= -PI / 2.0;
+						}
+						else
+						{
+							PLAYER_ARMBENDED = 0;
+							const real_t restingPitch = rightbody ? rightbody->pitch : 0.0;
+							entity->pitch = PI / 4.0
+								+ (restingPitch - PI / 4.0) * runeHammerCastVisualProgress;
+						}
+					}
+					else if ( PLAYER_ATTACK == MONSTER_POSE_PARRY )
 					{
 						if ( PLAYER_ATTACKTIME == 0 )
 						{
@@ -13692,6 +13866,29 @@ void actPlayer(Entity* my)
 					}
 				}
 				my->handleHumanoidWeaponLimb(entity, weaponarm);
+				if ( stats[PLAYER_NUM]->weapon && stats[PLAYER_NUM]->weapon->type == RUNE_HAMMER )
+				{
+					const bool meleeAnimating = PLAYER_ATTACK > 0
+						&& PLAYER_ATTACK < MONSTER_POSE_MAGIC_WINDUP1;
+					const bool runeCastAnimating = runeHammerCastVisualPhase
+						!= RuneHammerCastVisualPhase::NONE;
+					const bool useTwoHandedTransform = runeHammerUsesTwoHandedPose(stats[PLAYER_NUM])
+						&& !meleeAnimating && !runeCastAnimating;
+					RuneHammerModelPositions.applyOffset(*entity,
+						RuneHammerModelPositions.hammerTransform(false, useTwoHandedTransform));
+					const int inscriptionTick = players[PLAYER_NUM]->mechanics.runeHammerInscriptionTicks;
+					if ( inscriptionTick > 0 )
+					{
+						const real_t impact = RuneHammerInscriptionAnimation::IMPACT_TICK;
+						const real_t progress = inscriptionTick <= impact ? inscriptionTick / impact
+							: 1.0 - (inscriptionTick - impact) / static_cast<real_t>(
+								RuneHammerInscriptionAnimation::END_TICK - RuneHammerInscriptionAnimation::IMPACT_TICK);
+						const real_t smash = sin(std::max<real_t>(0.0,
+							std::min<real_t>(1.0, progress)) * PI / 2.0);
+						entity->z -= 2.0 * smash;
+						entity->pitch += PI * 0.65 * smash;
+					}
+				}
 
 				if ( entity->sprite >= items[STEEL_FLAIL].index && entity->sprite <= items[STEEL_FLAIL].index + 2 )
 				{
@@ -13776,6 +13973,19 @@ void actPlayer(Entity* my)
 					}
 				}
 				my->handleHumanoidShieldLimb(entity, shieldarm);
+				if ( runeHammerHasAttachedOffhand(stats[PLAYER_NUM])
+					&& stats[PLAYER_NUM]->weapon && stats[PLAYER_NUM]->weapon->type == RUNE_HAMMER )
+				{
+					if ( node_t* weaponNode = list_Node(&my->children, 6) )
+					{
+						if ( Entity* hammer = static_cast<Entity*>(weaponNode->element) )
+						{
+							entity->flags[INVISIBLE] = hammer->flags[INVISIBLE];
+							RuneHammerModelPositions.attachTo(*entity, *hammer,
+								RuneHammerModelPositions.attachmentTransform(false));
+						}
+					}
+				}
 				break;
 				// cloak
 			case 8:

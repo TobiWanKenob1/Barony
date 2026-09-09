@@ -989,6 +989,8 @@ public:
 			int beatitude;
 			int count;
 			Uint32 appearance;
+			Sint32 runeStoredPWR;
+			Sint8 runeCreatorPlayer;
 			bool identified;
 			Uint32 uid;
 			bool wasAppraisalTarget = false;
@@ -1035,6 +1037,8 @@ public:
 				beatitude = 0;
 				count = -1;
 				appearance = 0;
+				runeStoredPWR = Item::RUNE_STORED_PWR_INVALID;
+				runeCreatorPlayer = Item::RUNE_CREATOR_INVALID;
 				identified = false;
 				uid = 0;
 				wasAppraisalTarget = false;
@@ -2019,6 +2023,8 @@ public:
 			int beatitude = -99;
 			int count = 0;
 			Uint32 appearance = 0;
+			Sint32 runeStoredPWR = Item::RUNE_STORED_PWR_INVALID;
+			Sint8 runeCreatorPlayer = Item::RUNE_CREATOR_INVALID;
 			bool identifiedItem = false;
 			bool hasAppraiseCapstone = false;
 			bool isItemSameAsCurrent(Item* item);
@@ -2447,6 +2453,12 @@ public:
 		// mod add: Separate normal-water transition state; PLAYER_INWATER also
 		// represents lava and cannot distinguish a direct lava-to-water move.
 		bool firearmInNormalWater = false;
+		// Rune Hammer inscription is a presentation-driven, non-combat action.
+		// The world item is deliberately retained by UID rather than pointer.
+		Sint32 runeHammerInscriptionTicks = 0;
+		Uint32 runeHammerInscriptionTargetUid = 0;
+		Sint32 runeHammerInscriptionCharge = 0;
+		bool runeHammerInscriptionImpacted = false;
 		// mod add end
 		// mod add: Leonin racial mechanics keep effect ownership separate from
 		// vanilla effect and swimming state.

@@ -586,10 +586,49 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 }
 // mod add end
 
+bool tryToggleExistingChanneledSpell(int player, spell_t* spell)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !spell || !spell_isChanneled(spell) )
+	{
+		return false;
+	}
+
+	bool removedSpell = false;
+	for ( node_t* node = channeledSpells[player].first, *nextnode = nullptr; node; node = nextnode )
+	{
+		nextnode = node->next;
+		spell_t* spell_search = static_cast<spell_t*>(node->element);
+		if ( !spell_search || spell_search->ID != spell->ID )
+		{
+			continue;
+		}
+
+		if ( multiplayer != CLIENT )
+		{
+			// Server copies own their sustain state. Client entries are definitions
+			// and are removed locally while the authoritative UNCH is sent below.
+			spell_search->sustain = false;
+		}
+		messagePlayer(player, MESSAGE_COMBAT, Language::get(408), spell->getSpellName());
+		if ( multiplayer == CLIENT )
+		{
+			list_RemoveNode(node);
+			strcpy((char*)net_packet->data, "UNCH");
+			net_packet->data[4] = clientnum;
+			SDLNet_Write32(spell->ID, &net_packet->data[5]);
+			net_packet->address.host = net_server.host;
+			net_packet->address.port = net_server.port;
+			net_packet->len = 9;
+			sendPacketSafe(net_sock, -1, net_packet, 0);
+		}
+		removedSpell = true;
+	}
+	return removedSpell;
+}
+
 void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool usingTome)
 {
 	Entity* caster = uidToEntity(caster_uid);
-	node_t* node = NULL;
 	if ( !caster )
 	{
 		//Need a spell and caster to cast a spell.
@@ -657,45 +696,7 @@ void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool 
 		}
 		if ( spell_isChanneled(spell))
 		{
-			bool removedSpell = false;
-			node_t* nextnode;
-			for (node = channeledSpells[player].first; node; node = nextnode)
-			{
-				nextnode = node->next;
-				spell_t* spell_search = (spell_t*)node->element;
-				if (spell_search->ID == spell->ID)
-				{
-					//list_RemoveNode(node);
-					//node = NULL;
-
-					if ( multiplayer != CLIENT )
-					{
-						// 02/12/20 - BP
-						// spell_search refers to actual spell definitions for client, like spell_light* 
-						// server uses copies of spell elements, so it works as intended
-						// clients don't read spell_search->sustain status to know when to stop anyway
-						spell_search->sustain = false; 
-					}
-
-					//if (spell->magic_effects)
-					//	list_RemoveNode(spell->magic_effects);
-					messagePlayer(player, MESSAGE_COMBAT, Language::get(408), spell->getSpellName());
-					if (multiplayer == CLIENT)
-					{
-						list_RemoveNode(node);
-						node = nullptr;
-						strcpy( (char*)net_packet->data, "UNCH");
-						net_packet->data[4] = clientnum;
-						SDLNet_Write32(spell->ID, &net_packet->data[5]);
-						net_packet->address.host = net_server.host;
-						net_packet->address.port = net_server.port;
-						net_packet->len = 9;
-						sendPacketSafe(net_sock, -1, net_packet, 0);
-					}
-					removedSpell = true;
-				}
-			}
-			if ( removedSpell )
+			if ( tryToggleExistingChanneledSpell(player, spell) )
 			{
 				return;
 			}
@@ -1096,7 +1097,117 @@ int getEffectiveSpellcastingAbility(Entity* caster, Stat* stat, spell_t* spell) 
 	return std::min(std::max(0, stat->getModifiedProficiency(spell->skillID) + statGetINT(stat, caster)), 100);
 }
 
-Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool trap, bool usingSpellbook, CastSpellProps_t* castSpellProps, bool usingFoci)
+void handleSpellbookCastingDegradation(Entity* caster, spell_t* spell)
+{
+	if ( !caster || !spell )
+	{
+		return;
+	}
+	Stat* stat = caster->getStats();
+	if ( !stat )
+	{
+		return;
+	}
+
+	int player = -1;
+	for ( int i = 0; i < MAXPLAYERS; ++i )
+	{
+		if ( players[i] && caster == players[i]->entity )
+		{
+			player = i;
+		}
+	}
+
+	int chance = 8;
+	if ( stat->type == GOBLIN )
+	{
+		chance = 16;
+
+		if ( caster->behavior == &actPlayer && stat->playerRace == RACE_GOBLIN && stat->stat_appearance == 0 )
+		{
+			if ( spell->ID >= 30 && spell->ID < 60 )
+			{
+				serverUpdatePlayerGameplayStats(caster->skill[2], STATISTICS_POP_QUIZ_2, spell->ID);
+			}
+			else
+			{
+				serverUpdatePlayerGameplayStats(caster->skill[2], STATISTICS_POP_QUIZ_1, spell->ID);
+			}
+		}
+	}
+	if ( stat->shield
+		&& ( (stat->shield->beatitude < 0 && !shouldInvertEquipmentBeatitude(stat))
+			|| (stat->shield->beatitude > 0 && shouldInvertEquipmentBeatitude(stat)) )
+		)
+	{
+		chance = 1; // cursed books always degrade, or blessed books in succubus/incubus
+	}
+	else
+	{
+		if ( caster->behavior == &actPlayer )
+		{
+			if ( stat->shield && itemCategory(stat->shield) == SPELLBOOK )
+			{
+				if ( !players[caster->skill[2]]->mechanics.itemDegradeRoll(stat->shield) )
+				{
+					chance = 0;
+				}
+			}
+		}
+	}
+	if ( chance > 0 && local_rng.rand() % chance == 0 && stat->shield && itemCategory(stat->shield) == SPELLBOOK )
+	{
+		Status oldStatus = stat->shield->status;
+		if ( caster->behavior == &actPlayer )
+		{
+			players[caster->skill[2]]->mechanics.onItemDegrade(stat->shield);
+		}
+		if ( oldStatus == DECREPIT && stat->shield->beatitude > 0 && caster->behavior == &actPlayer )
+		{
+			--stat->shield->beatitude;
+			if ( caster->skill[2] >= 0 )
+			{
+				messagePlayer(caster->skill[2], MESSAGE_EQUIPMENT, Language::get(6308), stat->shield->getName());
+			}
+
+			if ( multiplayer == SERVER && caster->skill[2] > 0 )
+			{
+				strcpy((char*)net_packet->data, "BEAT");
+				net_packet->data[4] = caster->skill[2];
+				net_packet->data[5] = 5; // shield index
+				net_packet->data[6] = stat->shield->beatitude + 100;
+				SDLNet_Write16((Sint16)stat->shield->type, &net_packet->data[7]);
+				net_packet->address.host = net_clients[caster->skill[2] - 1].host;
+				net_packet->address.port = net_clients[caster->skill[2] - 1].port;
+				net_packet->len = 9;
+				sendPacketSafe(net_sock, -1, net_packet, caster->skill[2] - 1);
+			}
+		}
+		else
+		{
+			caster->degradeArmor(*stat, *(stat->shield), 4);
+			if ( stat->shield->status < oldStatus )
+			{
+				if ( player >= 0 )
+				{
+					Compendium_t::Events_t::eventUpdate(player, Compendium_t::CPDM_SPELLBOOK_CAST_DEGRADES, stat->shield->type, 1);
+				}
+			}
+
+			if ( stat->shield->status == BROKEN && player >= 0 )
+			{
+				if ( caster->behavior == &actPlayer && stat->playerRace == RACE_GOBLIN && stat->stat_appearance == 0 )
+				{
+					steamStatisticUpdateClient(player, STEAM_STAT_DYSLEXIA, STEAM_STAT_INT, 1);
+				}
+				Item* toBreak = stat->shield;
+				consumeItem(toBreak, player);
+			}
+		}
+	}
+}
+
+Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool trap, bool usingSpellbook, CastSpellProps_t* castSpellProps, bool usingFoci, bool usingRune)
 {
 	Entity* caster = uidToEntity(caster_uid);
 
@@ -1105,6 +1216,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 		//Need a spell and caster to cast a spell.
 		return NULL;
 	}
+	ScopedSpellPowerOverride spellPowerScope(spell);
 	// mod add: authoritative spell rejection for a Panicking player. Monster,
 	// trap, staff, and focus casts without a player caster retain vanilla paths.
 	for ( int i = 0; i < MAXPLAYERS; ++i )
@@ -1149,7 +1261,9 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 				net_packet->data[30] = castSpellProps->wallDir;
 				net_packet->data[31] = castSpellProps->optionalData;
 				net_packet->data[32] = castSpellProps->overcharge;
-				net_packet->len = 33;
+				net_packet->data[33] = usingRune ? 1 : 0;
+				SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[34]);
+				net_packet->len = 38;
 			}
 			else
 			{
@@ -1223,7 +1337,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 			{
 				allowedSkillup = true;
 			}
-			else if ( (!using_magicstaff && !usingFoci) )
+			else if ( (!using_magicstaff && !usingFoci && !usingRune) )
 			{
 				allowedSkillup = true;
 			}
@@ -1241,7 +1355,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 		prevMP = stat->MP;
 	}
 
-	if ( !using_magicstaff && !trap && !usingFoci && stat && player >= 0 )
+	if ( !using_magicstaff && !trap && !usingFoci && !usingRune && stat && player >= 0 )
 	{
 		newbie = isSpellcasterBeginner(player, caster, spell->skillID);
 
@@ -2120,7 +2234,12 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 					{
 						//Tell the client to identify an item.
 						strcpy((char*)net_packet->data, "IDEN");
-						if ( usingSpellbook )
+						if ( usingRune )
+						{
+							net_packet->data[4] = 2;
+							net_packet->data[5] = 0;
+						}
+						else if ( usingSpellbook )
 						{
 							net_packet->data[4] = 1;
 							net_packet->data[5] = static_cast<Uint8>(spellBookBeatitude);
@@ -2130,15 +2249,21 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 							net_packet->data[4] = 0;
 							net_packet->data[5] = 0;
 						}
+						SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[6]);
 						net_packet->address.host = net_clients[i - 1].host;
 						net_packet->address.port = net_clients[i - 1].port;
-						net_packet->len = 6;
+						net_packet->len = 10;
 						sendPacketSafe(net_sock, -1, net_packet, i - 1);
 					}
 					else
 					{
 						//Identify an item.
-						if ( usingSpellbook )
+						if ( usingRune )
+						{
+							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX,
+								findMagicRuneByUid(spell->runeItemUid), 0, MAGIC_RUNE, SPELL_IDENTIFY);
+						}
+						else if ( usingSpellbook )
 						{
 							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX, nullptr, spellBookBeatitude, getSpellbookFromSpellID(SPELL_IDENTIFY), SPELL_IDENTIFY);
 						}
@@ -2163,7 +2288,12 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 					{
 						//Tell the client to identify an item.
 						strcpy((char*)net_packet->data, "CRCU");
-						if ( usingSpellbook )
+						if ( usingRune )
+						{
+							net_packet->data[4] = 2;
+							net_packet->data[5] = 0;
+						}
+						else if ( usingSpellbook )
 						{
 							net_packet->data[4] = 1;
 							net_packet->data[5] = static_cast<Uint8>(spellBookBeatitude);
@@ -2173,15 +2303,21 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 							net_packet->data[4] = 0;
 							net_packet->data[5] = 0;
 						}
+						SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[6]);
 						net_packet->address.host = net_clients[i - 1].host;
 						net_packet->address.port = net_clients[i - 1].port;
-						net_packet->len = 6;
+						net_packet->len = 10;
 						sendPacketSafe(net_sock, -1, net_packet, i - 1);
 					}
 					else
 					{
 						//Identify an item.
-						if ( usingSpellbook )
+						if ( usingRune )
+						{
+							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX,
+								findMagicRuneByUid(spell->runeItemUid), 0, MAGIC_RUNE, SPELL_REMOVECURSE);
+						}
+						else if ( usingSpellbook )
 						{
 							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX, nullptr, spellBookBeatitude, getSpellbookFromSpellID(SPELL_REMOVECURSE), SPELL_REMOVECURSE);
 						}
@@ -2222,7 +2358,12 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 					{
 						//Tell the client to identify an item.
 						strcpy((char*)net_packet->data, "FXSP");
-						if ( usingSpellbook )
+						if ( usingRune )
+						{
+							net_packet->data[4] = 2;
+							net_packet->data[5] = 0;
+						}
+						else if ( usingSpellbook )
 						{
 							net_packet->data[4] = 1;
 							net_packet->data[5] = static_cast<Uint8>(spellBookBeatitude);
@@ -2233,15 +2374,21 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 							net_packet->data[5] = 0;
 						}
 						SDLNet_Write32(spell->ID, &net_packet->data[6]);
+						SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[10]);
 						net_packet->address.host = net_clients[i - 1].host;
 						net_packet->address.port = net_clients[i - 1].port;
-						net_packet->len = 10;
+						net_packet->len = 14;
 						sendPacketSafe(net_sock, -1, net_packet, i - 1);
 					}
 					else
 					{
 						//Identify an item.
-						if ( usingSpellbook )
+						if ( usingRune )
+						{
+							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX,
+								findMagicRuneByUid(spell->runeItemUid), 0, MAGIC_RUNE, spell->ID);
+						}
+						else if ( usingSpellbook )
 						{
 							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX, nullptr, spellBookBeatitude, getSpellbookFromSpellID(spell->ID), spell->ID);
 						}
@@ -8694,7 +8841,8 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 				{
 					if ( Entity* fx = createRadiusMagic(SPELL_SANCTUARY, caster,
 						castSpellProps->target_x, castSpellProps->target_y, 32,
-						getSpellEffectDurationFromID(SPELL_SANCTUARY, caster, nullptr, caster), nullptr) )
+						getSpellEffectDurationFromID(SPELL_SANCTUARY, caster, nullptr, caster), nullptr,
+						spell->runeItemUid) )
 					{
 						playSoundEntity(fx, 167, 128);
 						messagePlayerColor(caster->isEntityPlayer(), MESSAGE_HINT, makeColorRGB(0, 255, 0), Language::get(6953));
@@ -9785,93 +9933,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 
 	if ( !trap && usingSpellbook && stat ) // degrade spellbooks on use.
 	{
-		int chance = 8;
-		if ( stat->type == GOBLIN )
-		{
-			chance = 16;
-
-			if ( caster && caster->behavior == &actPlayer && stat->playerRace == RACE_GOBLIN && stat->stat_appearance == 0 )
-			{
-				if ( spell->ID >= 30 && spell->ID < 60 )
-				{
-					serverUpdatePlayerGameplayStats(caster->skill[2], STATISTICS_POP_QUIZ_2, spell->ID);
-				}
-				else
-				{
-					serverUpdatePlayerGameplayStats(caster->skill[2], STATISTICS_POP_QUIZ_1, spell->ID);
-				}
-			}
-		}
-		if ( stat->shield 
-			&& ( (stat->shield->beatitude < 0 && !shouldInvertEquipmentBeatitude(stat))
-				|| (stat->shield->beatitude > 0 && shouldInvertEquipmentBeatitude(stat)) ) 
-			)
-		{
-			chance = 1; // cursed books always degrade, or blessed books in succubus/incubus
-		}
-		else
-		{
-			if ( caster && caster->behavior == &actPlayer )
-			{
-				if ( stat->shield && itemCategory(stat->shield) == SPELLBOOK )
-				{
-					if ( !players[caster->skill[2]]->mechanics.itemDegradeRoll(stat->shield) )
-					{
-						chance = 0;
-					}
-				}
-			}
-		}
-		if ( chance > 0 && local_rng.rand() % chance == 0 && stat->shield && itemCategory(stat->shield) == SPELLBOOK )
-		{
-			Status oldStatus = stat->shield->status;
-			if ( caster && caster->behavior == &actPlayer )
-			{
-				players[caster->skill[2]]->mechanics.onItemDegrade(stat->shield);
-			}
-			if ( oldStatus == DECREPIT && stat->shield->beatitude > 0 && caster && caster->behavior == &actPlayer )
-			{
-				--stat->shield->beatitude;
-				if ( caster->skill[2] >= 0 )
-				{
-					messagePlayer(caster->skill[2], MESSAGE_EQUIPMENT, Language::get(6308), stat->shield->getName());
-				}
-
-				if ( multiplayer == SERVER && caster->skill[2] > 0 )
-				{
-					strcpy((char*)net_packet->data, "BEAT");
-					net_packet->data[4] = caster->skill[2];
-					net_packet->data[5] = 5; // shield index
-					net_packet->data[6] = stat->shield->beatitude + 100;
-					SDLNet_Write16((Sint16)stat->shield->type, &net_packet->data[7]);
-					net_packet->address.host = net_clients[caster->skill[2] - 1].host;
-					net_packet->address.port = net_clients[caster->skill[2] - 1].port;
-					net_packet->len = 9;
-					sendPacketSafe(net_sock, -1, net_packet, caster->skill[2] - 1);
-				}
-			}
-			else
-			{
-				caster->degradeArmor(*stat, *(stat->shield), 4);
-				if ( stat->shield->status < oldStatus )
-				{
-					if ( player >= 0 )
-					{
-						Compendium_t::Events_t::eventUpdate(player, Compendium_t::CPDM_SPELLBOOK_CAST_DEGRADES, stat->shield->type, 1);
-					}
-				}
-
-				if ( stat->shield->status == BROKEN && player >= 0 )
-				{
-					if ( caster && caster->behavior == &actPlayer && stat->playerRace == RACE_GOBLIN && stat->stat_appearance == 0 )
-					{
-						steamStatisticUpdateClient(player, STEAM_STAT_DYSLEXIA, STEAM_STAT_INT, 1);
-					}
-					Item* toBreak = stat->shield;
-					consumeItem(toBreak, player);
-				}
-			}
-		}
+		handleSpellbookCastingDegradation(caster, spell);
 	}
 
 	if (spell_isChanneled(spell) && !using_magicstaff && !trap && !usingFoci )   //TODO: What about magic traps and channeled spells?
@@ -9896,15 +9958,24 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 				strcpy( (char*)net_packet->data, "CHAN" );
 				net_packet->data[4] = clientnum;
 				SDLNet_Write32(spell->ID, &net_packet->data[5]);
+				net_packet->data[9] = usingRune ? 1 : 0;
+				SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[10]);
+				net_packet->data[14] = static_cast<Uint8>(usingRune
+					? spell->runeCreatorPlayer : Item::RUNE_CREATOR_INVALID);
 				net_packet->address.host = net_clients[target_client - 1].host;
 				net_packet->address.port = net_clients[target_client - 1].port;
-				net_packet->len = 9;
+				net_packet->len = 15;
 				sendPacketSafe(net_sock, -1, net_packet, target_client - 1);
 			}
 
 			if ( usingSpellbook )
 			{
 				channeled_spell->spellbook = true;
+			}
+			if ( usingRune )
+			{
+				channeled_spell->runeItemUid = spell->runeItemUid;
+				channeled_spell->runeCreatorPlayer = spell->runeCreatorPlayer;
 			}
 
 			//Add this spell to the list of channeled spells.
@@ -9930,7 +10001,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 				{
 					castSpellProps->elementIndex = index;
 				}
-				castSpell(caster_uid, subSpell, using_magicstaff, _trap, usingSpellbook, castSpellProps, usingFoci);
+				castSpell(caster_uid, subSpell, using_magicstaff, _trap, usingSpellbook, castSpellProps, usingFoci, usingRune);
 			}
 		}
 

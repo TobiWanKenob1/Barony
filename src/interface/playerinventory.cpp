@@ -2282,9 +2282,102 @@ void select_inventory_slot(int player, int currentx, int currenty, int diffx, in
 	inventoryUI.selectSlot(x, y);
 }
 
+static std::string getDefaultMagicRuneSpritePath()
+{
+	auto firstImagePath = [](ItemType type) -> const char*
+	{
+		if ( node_t* imageNode = list_Node(&items[type].images, 0) )
+		{
+			if ( const string_t* imagePath = static_cast<const string_t*>(imageNode->element);
+				imagePath && imagePath->data && imagePath->data[0] != '\0' )
+			{
+				return imagePath->data;
+			}
+		}
+		return nullptr;
+	};
+	if ( const char* runePath = firstImagePath(MAGIC_RUNE) )
+	{
+		return runePath;
+	}
+	if ( const char* obsidianPath = firstImagePath(GEM_OBSIDIAN) )
+	{
+		return obsidianPath;
+	}
+	return "items/images/null.png";
+}
+
+static std::string getMagicRuneSpritePath(const Item& rune)
+{
+	if ( !rune.runeIsValid() )
+	{
+		return getDefaultMagicRuneSpritePath();
+	}
+
+	const char* colourPrefix = nullptr;
+	switch ( rune.runeGetGemType() )
+	{
+		case RUNE_GEM_OBSIDIAN:
+		case RUNE_GEM_JETSTONE:
+			colourPrefix = "RuneBlack";
+			break;
+		case RUNE_GEM_AQUAMARINE:
+		case RUNE_GEM_SAPPHIRE:
+			colourPrefix = "RuneBlue";
+			break;
+		case RUNE_GEM_JADE:
+		case RUNE_GEM_EMERALD:
+			colourPrefix = "RuneGreen";
+			break;
+		case RUNE_GEM_AMBER:
+		case RUNE_GEM_JACINTH:
+			colourPrefix = "RuneOrange";
+			break;
+		case RUNE_GEM_FLUORITE:
+		case RUNE_GEM_AMETHYST:
+			colourPrefix = "RunePurple";
+			break;
+		case RUNE_GEM_GARNET:
+		case RUNE_GEM_RUBY:
+			colourPrefix = "RuneRed";
+			break;
+		case RUNE_GEM_OPAL:
+		case RUNE_GEM_DIAMOND:
+			colourPrefix = "RuneWhite";
+			break;
+		case RUNE_GEM_CITRINE:
+			colourPrefix = "RuneYellow";
+			break;
+		default:
+			return getDefaultMagicRuneSpritePath();
+	}
+
+	const char* schoolSuffix = nullptr;
+	switch ( rune.runeGetMagicSchool() )
+	{
+		case PRO_MYSTICISM:
+			schoolSuffix = "myst";
+			break;
+		case PRO_SORCERY:
+			schoolSuffix = "sorc";
+			break;
+		case PRO_THAUMATURGY:
+			schoolSuffix = "thaum";
+			break;
+		default:
+			return getDefaultMagicRuneSpritePath();
+	}
+
+	return std::string("items/images/runes/") + colourPrefix + "_" + schoolSuffix + ".png";
+}
+
 std::string getItemSpritePath(const int player, Item& item)
 {
-	if ( item.type == SPELL_ITEM )
+	if ( item.isMagicRune() )
+	{
+		return getMagicRuneSpritePath(item);
+	}
+	else if ( item.type == SPELL_ITEM )
 	{
 		return ItemTooltips.getSpellIconPath(player, item, -1);
 	}
@@ -4440,10 +4533,11 @@ int getContextMenuOptionOrder(const int player, ItemContextMenuPrompts prompt)
 void Player::HUD_t::updateFrameTooltip(Item* item, const int x, const int y, int justify, Frame* parentFrame)
 {
     const int player = this->player.playernum;
-    if ( !item )
-    {
-        return;
-    }
+	if ( !item )
+	{
+		return;
+	}
+	ScopedSpellPowerOverride runePowerScope(item->runeHasStoredPWR(), item->runeGetStoredPWR());
 
 	Frame* tooltipContainerFrame = nullptr;
 	Frame* frameMain = nullptr;
@@ -5326,9 +5420,9 @@ void Player::HUD_t::updateFrameTooltip(Item* item, const int x, const int y, int
                             icon.iconPath = ItemTooltips.getSpellIconPath(player, *item, -1);
                         }
                     }
-                    else if ( item->type == SPELL_ITEM )
-                    {
-                        if ( icon.conditionalAttribute == "SPELL_ICON_EFFECT" )
+					else if ( item->type == SPELL_ITEM || item->isMagicRune() )
+					{
+						if ( icon.conditionalAttribute == "SPELL_ICON_EFFECT" )
                         {
                             icon.iconPath = "images/ui/HUD/statusfx/magic_effect.png";
                         }
@@ -5750,7 +5844,8 @@ void Player::HUD_t::updateFrameTooltip(Item* item, const int x, const int y, int
                         continue;
                     }
                 }
-                else if ( itemCategory(item) == WEAPON || itemCategory(item) == ARMOR || itemCategory(item) == TOOL
+                else if ( itemCategory(item) == WEAPON || itemCategory(item) == ARMOR
+                         || (itemCategory(item) == TOOL && !item->isMagicRune())
                          || itemCategory(item) == AMULET || itemCategory(item) == RING || itemTypeIsQuiver(item->type)
                          || itemCategory(item) == GEM || itemCategory(item) == THROWN )
                 {
@@ -5940,10 +6035,19 @@ void Player::HUD_t::updateFrameTooltip(Item* item, const int x, const int y, int
                         }
                     }
                 }
-                else if ( itemCategory(item) == SPELL_CAT )
-                {
-                    spell_t* spell = getSpellFromItem(player, item, false);
+				else if ( itemCategory(item) == SPELL_CAT || item->isMagicRune() )
+				{
+					spell_t* spell = getSpellFromItem(player, item, false);
 					if ( !spell ) { continue; }
+					if ( item->isMagicRune()
+						&& (tag.compare("spell_cast_success") == 0
+							|| tag.compare("spell_cast_success1") == 0
+							|| tag.compare("spell_cast_success2") == 0
+							|| tag.compare("spell_extramana_chance") == 0
+							|| tag.compare("spell_newbie_newline") == 0) )
+					{
+						continue;
+					}
                     if ( tag.compare("spell_damage_bonus") == 0 )
                     {
                         if ( !ItemTooltips.bIsSpellDamageOrHealingType(spell) )

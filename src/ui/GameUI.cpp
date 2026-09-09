@@ -30308,6 +30308,8 @@ void Player::Inventory_t::ItemTooltipDisplay_t::updateItem(const int player, Ite
 		beatitude = newItem->beatitude;
 		count = newItem->count;
 		appearance = newItem->appearance;
+		runeStoredPWR = newItem->runeGetStoredPWRRaw();
+		runeCreatorPlayer = static_cast<Sint8>(newItem->runeGetCreatorPlayer());
 		identified = newItem->identified;
 
 		if ( players[player]->inventoryUI.appraisal.current_item == uid )
@@ -30366,6 +30368,8 @@ bool Player::Inventory_t::ItemTooltipDisplay_t::isItemSameAsCurrent(const int pl
 			&& newItem->beatitude == beatitude
 			&& newItem->count == count
 			&& newItem->appearance == appearance
+			&& newItem->runeGetStoredPWRRaw() == runeStoredPWR
+			&& newItem->runeGetCreatorPlayer() == runeCreatorPlayer
 			&& newItem->identified == identified
 			&& (wasAppraisalTarget == appraisingThisItem)
 			&& playernum == player
@@ -30394,6 +30398,8 @@ Player::Inventory_t::ItemTooltipDisplay_t::ItemTooltipDisplay_t()
 	beatitude = 0;
 	count = 0;
 	appearance = 0;
+	runeStoredPWR = Item::RUNE_STORED_PWR_INVALID;
+	runeCreatorPlayer = Item::RUNE_CREATOR_INVALID;
 	identified = false;
 	wasAppraisalTarget = false;
 	playernum = -1;
@@ -41379,6 +41385,8 @@ bool Player::WorldUI_t::WorldTooltipItem_t::isItemSameAsCurrent(Item* item)
 		&& item->beatitude == beatitude
 		&& item->count == count
 		&& item->appearance == appearance
+		&& item->runeGetStoredPWRRaw() == runeStoredPWR
+		&& item->runeGetCreatorPlayer() == runeCreatorPlayer
 		&& item->identified == identifiedItem
 		&& hasAppraiseCapstone == stats[player.playernum]->getModifiedProficiency(PRO_APPRAISAL) >= SKILL_LEVEL_LEGENDARY )
 	{
@@ -41405,6 +41413,8 @@ SDL_Surface* Player::WorldUI_t::WorldTooltipItem_t::blitItemWorldTooltip(Item* i
 	beatitude = item->beatitude;
 	count = item->count;
 	appearance = item->appearance;
+	runeStoredPWR = item->runeGetStoredPWRRaw();
+	runeCreatorPlayer = static_cast<Sint8>(item->runeGetCreatorPlayer());
 	identifiedItem = item->identified;
 	hasAppraiseCapstone = stats[player.playernum]->getModifiedProficiency(PRO_APPRAISAL) >= SKILL_LEVEL_LEGENDARY;
 

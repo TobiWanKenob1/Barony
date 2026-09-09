@@ -2116,6 +2116,14 @@
 		"spellbook_entrench": {
 			"name_identified": "spellbook of entrench",
 			"name_unidentified": "spellbook"
+		},
+		"magic_rune": {
+			"name_identified": "magic rune",
+			"name_unidentified": "engraved gemstone"
+		},
+		"rune_hammer": {
+			"name_identified": "Rune Hammer",
+			"name_unidentified": "rune hammer"
         }
     },
 	"spell_names": {
