@@ -1124,11 +1124,16 @@ bool magicOnSpellCastEvent(Entity* parent, Entity* projectile, Entity* hitentity
 	}
 
 	Sint8 runeCreatorPlayer = Item::RUNE_CREATOR_INVALID;
-	bool runeEvent = getActiveRuneCastSource(runeCreatorPlayer);
+	Uint32 runeInstanceId = Item::RUNE_INSTANCE_ID_INVALID;
+	Uint32 runeCreatorIdentity = Item::RUNE_CREATOR_IDENTITY_INVALID;
+	bool runeEvent = getActiveRuneCastSource(runeCreatorPlayer, &runeInstanceId,
+		&runeCreatorIdentity);
 	if ( !runeEvent && projectile && projectile->magicCastFromRune )
 	{
 		runeEvent = true;
 		runeCreatorPlayer = projectile->magicRuneCreatorPlayer;
+		runeInstanceId = projectile->magicRuneInstanceId;
+		runeCreatorIdentity = projectile->magicRuneCreatorIdentity;
 	}
 	if ( runeEvent )
 	{
@@ -1153,10 +1158,7 @@ bool magicOnSpellCastEvent(Entity* parent, Entity* projectile, Entity* hitentity
 				SDLNet_Write16(spellID, &net_packet->data[5]);
 				SDLNet_Write32(eventType, &net_packet->data[7]);
 				SDLNet_Write32(eventValue, &net_packet->data[11]);
-				Uint32 runeItemUid = 0;
-				Sint8 ignoredCreator = Item::RUNE_CREATOR_INVALID;
-				getActiveRuneCastSource(ignoredCreator, &runeItemUid);
-				SDLNet_Write32(runeEvent ? runeItemUid : 0, &net_packet->data[15]);
+				SDLNet_Write32(runeEvent ? runeInstanceId : 0, &net_packet->data[15]);
 
 				net_packet->address.host = net_server.host;
 				net_packet->address.port = net_server.port;
@@ -1325,20 +1327,20 @@ bool magicOnSpellCastEvent(Entity* parent, Entity* projectile, Entity* hitentity
 	bool skillIncreased = false;
 	if ( runeEvent )
 	{
-		if ( runeCreatorPlayer < 0 || runeCreatorPlayer >= MAXPLAYERS )
-		{
-			return false;
-		}
-		if ( runeCreatorPlayer == player )
+		const bool creatorValid = runeCreatorPlayer >= 0
+			&& runeCreatorPlayer < MAXPLAYERS && players[runeCreatorPlayer]
+			&& stats[runeCreatorPlayer] && players[runeCreatorPlayer]->entity
+			&& (players[runeCreatorPlayer]->isLocalPlayer()
+				|| !client_disconnected[runeCreatorPlayer])
+			&& runeCreatorIdentity != Item::RUNE_CREATOR_IDENTITY_INVALID
+			&& stats[runeCreatorPlayer]->runeCreatorIdentity == runeCreatorIdentity;
+		if ( creatorValid && runeCreatorPlayer == player )
 		{
 			return tryRuneSpellSchoolSkillup(player, *spell, eventType, allowedLevelup, 2);
 		}
 
 		skillIncreased = tryRuneSpellSchoolSkillup(player, *spell, eventType, allowedLevelup, 4);
-		const bool creatorPresent = players[runeCreatorPlayer] && stats[runeCreatorPlayer]
-			&& players[runeCreatorPlayer]->entity
-			&& (players[runeCreatorPlayer]->isLocalPlayer() || !client_disconnected[runeCreatorPlayer]);
-		if ( creatorPresent )
+		if ( creatorValid )
 		{
 			skillIncreased = tryRuneSpellSchoolSkillup(runeCreatorPlayer, *spell,
 				eventType, allowedLevelup, 4) || skillIncreased;
@@ -2919,7 +2921,7 @@ void actMagicMissile(Entity* my)   //TODO: Verify this function.
 					{
 						int spellCost = getCostOfSpell(spell) + 5 + local_rng.rand() % 6;
 						bool unsustain = false;
-						if ( spellIsReflectingMagic->runeItemUid != 0 )
+						if ( spellIsReflectingMagic->runeInstanceId != 0 )
 						{
 							unsustain = !consumeSustainedSpellResource(hit.entity,
 								spellIsReflectingMagic, spellCost);
@@ -19970,7 +19972,7 @@ void radiusMagicSetUID(Entity& fx, bool noupdate)
 }
 
 Entity* createRadiusMagic(int spellID, Entity* caster, real_t x, real_t y, real_t radius,
-	Uint32 lifetime, Entity* follow, Uint32 runeItemUid)
+	Uint32 lifetime, Entity* follow, Uint32 runeInstanceId)
 {
 	if ( !caster )
 	{
@@ -20107,7 +20109,7 @@ Entity* createRadiusMagic(int spellID, Entity* caster, real_t x, real_t y, real_
 	entity->parent = caster->getUID();
 	entity->actRadiusMagicID = spellID;
 	entity->actRadiusMagicDist = radius;
-	entity->actRadiusMagicRuneUid = runeItemUid;
+	entity->actRadiusMagicRuneInstanceId = runeInstanceId;
 	if ( follow )
 	{
 		entity->actRadiusMagicFollowUID = follow->getUID();
@@ -21025,7 +21027,7 @@ void actRadiusMagic(Entity* my)
 					if ( caster && caster->behavior == &actPlayer )
 					{
 						effectStrength |= ((caster->skill[2] + 1) << 4);
-						if ( my->actRadiusMagicRuneUid != 0 ) { effectStrength |= 0x80; }
+						if ( my->actRadiusMagicRuneInstanceId != 0 ) { effectStrength |= 0x80; }
 					}
 					else
 					{

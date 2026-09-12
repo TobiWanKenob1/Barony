@@ -37,6 +37,121 @@ std::vector<int> enchantedFeatherScrollsShuffled;
 bool overrideTinkeringLimit = false;
 int decoyBoxRange = 15;
 
+namespace
+{
+	Uint32 nextMagicRuneInstanceId = 1;
+	Uint32 nextRuneCreatorIdentity = 1;
+
+	Uint32 allocateNonzeroId(Uint32& nextId)
+	{
+		if ( nextId == 0 ) { nextId = 1; }
+		const Uint32 result = nextId++;
+		if ( nextId == 0 ) { nextId = 1; }
+		return result;
+	}
+}
+
+void reserveMagicRuneInstanceId(Uint32 runeInstanceId)
+{
+	if ( runeInstanceId != 0 && runeInstanceId >= nextMagicRuneInstanceId )
+	{
+		nextMagicRuneInstanceId = runeInstanceId + 1;
+		if ( nextMagicRuneInstanceId == 0 ) { nextMagicRuneInstanceId = 1; }
+	}
+}
+
+void reserveRuneCreatorIdentity(Uint32 creatorIdentity)
+{
+	if ( creatorIdentity != 0 && creatorIdentity >= nextRuneCreatorIdentity )
+	{
+		nextRuneCreatorIdentity = creatorIdentity + 1;
+		if ( nextRuneCreatorIdentity == 0 ) { nextRuneCreatorIdentity = 1; }
+	}
+}
+
+Uint32 ensureRuneCreatorIdentity(int player)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !stats[player] ) { return 0; }
+	if ( stats[player]->runeCreatorIdentity != 0 )
+	{
+		reserveRuneCreatorIdentity(stats[player]->runeCreatorIdentity);
+		return stats[player]->runeCreatorIdentity;
+	}
+	if ( multiplayer == CLIENT ) { return 0; }
+	stats[player]->runeCreatorIdentity = allocateNonzeroId(nextRuneCreatorIdentity);
+	return stats[player]->runeCreatorIdentity;
+}
+
+static bool itemQualifiesForGolemPolarityReversal(const Item& item)
+{
+	if ( item.type == AMULET_SEXCHANGE || items[item.type].item_slot == NO_EQUIP )
+	{
+		return false;
+	}
+
+	switch ( itemCategory(&item) )
+	{
+		case POTION:
+		case FOOD:
+		case SCROLL:
+		case SPELL_CAT:
+			return false;
+		default:
+			return true;
+	}
+}
+
+bool updateGolemPolarityFromComposition(int player)
+{
+	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS || !stats[player] )
+	{
+		return false;
+	}
+
+	Stat& playerStats = *stats[player];
+	// This identifies the persistent natural-Golem identity without consulting
+	// its temporary polymorph/shapeshift body. Only sex is changed below.
+	if ( playerStats.playerRace != RACE_GOLEM || playerStats.stat_appearance != 0 )
+	{
+		return false;
+	}
+
+	sex_t newPolarity = playerStats.sex;
+	if ( playerStats.sex == MALE
+		&& playerStats.golemBlessedComposition < GOLEM_POLARITY_SWITCH_POINT )
+	{
+		newPolarity = FEMALE;
+	}
+	else if ( playerStats.sex == FEMALE
+		&& playerStats.golemBlessedComposition > GOLEM_POLARITY_SWITCH_POINT )
+	{
+		newPolarity = MALE;
+	}
+
+	if ( newPolarity == playerStats.sex )
+	{
+		return false;
+	}
+	playerStats.sex = newPolarity;
+	serverUpdateSexChange(player);
+	return true;
+}
+
+void reverseGolemEquipmentBeatitudes(Stat& playerStats, const Item* excludedItem)
+{
+	// Player equipment slots point at these same inventory objects, so this single
+	// authoritative pass also updates equipped gear without double-flipping it.
+	for ( node_t* node = playerStats.inventory.first; node; node = node->next )
+	{
+		Item* inventoryItem = static_cast<Item*>(node->element);
+		if ( inventoryItem && inventoryItem != excludedItem
+			&& itemQualifiesForGolemPolarityReversal(*inventoryItem) )
+		{
+			inventoryItem->beatitude = -inventoryItem->beatitude;
+		}
+	}
+}
+
 bool autoHotbarSoftReserveItem(Item& item)
 {
 	Category cat = itemCategory(&item);
@@ -222,6 +337,8 @@ Item* newItem(const ItemType type, const Status status, const Sint16 beatitude, 
 	item->itemSpecialShopConsumable = false;
 	item->runeStoredPWR = Item::RUNE_STORED_PWR_INVALID;
 	item->runeCreatorPlayer = Item::RUNE_CREATOR_INVALID;
+	item->runeInstanceId = Item::RUNE_INSTANCE_ID_INVALID;
+	item->runeCreatorIdentity = Item::RUNE_CREATOR_IDENTITY_INVALID;
 	item->interactNPCUid = 0;
 	item->notifyIcon = false;
 	item->spellNotifyIcon = false;
@@ -1528,10 +1645,54 @@ void Item::runeSetCreatorPlayer(int player)
 		? static_cast<Sint8>(player) : RUNE_CREATOR_INVALID;
 }
 
+bool Item::runeHasInstanceId() const
+{
+	return isMagicRune() && runeInstanceId != RUNE_INSTANCE_ID_INVALID;
+}
+
+Uint32 Item::runeGetInstanceId() const
+{
+	return runeHasInstanceId() ? runeInstanceId : RUNE_INSTANCE_ID_INVALID;
+}
+
+void Item::runeSetInstanceId(Uint32 instanceId)
+{
+	runeInstanceId = isMagicRune() ? instanceId : RUNE_INSTANCE_ID_INVALID;
+	reserveMagicRuneInstanceId(runeInstanceId);
+}
+
+Uint32 Item::runeEnsureInstanceId()
+{
+	if ( !isMagicRune() ) { return RUNE_INSTANCE_ID_INVALID; }
+	if ( !runeHasInstanceId() && multiplayer != CLIENT )
+	{
+		runeInstanceId = allocateNonzeroId(nextMagicRuneInstanceId);
+	}
+	return runeInstanceId;
+}
+
+Uint32 Item::runeGetCreatorIdentity() const
+{
+	return isMagicRune() ? runeCreatorIdentity : RUNE_CREATOR_IDENTITY_INVALID;
+}
+
+void Item::runeSetCreatorIdentity(Uint32 identity)
+{
+	runeCreatorIdentity = isMagicRune() ? identity : RUNE_CREATOR_IDENTITY_INVALID;
+	reserveRuneCreatorIdentity(runeCreatorIdentity);
+}
+
+bool Item::runeCreatorMatchesPlayer(int player) const
+{
+	return runeHasCreator() && runeCreatorIdentity != RUNE_CREATOR_IDENTITY_INVALID
+		&& player == runeGetCreatorPlayer() && player >= 0 && player < MAXPLAYERS
+		&& stats[player] && stats[player]->runeCreatorIdentity == runeCreatorIdentity;
+}
+
 real_t getRuneDominateStorageEfficiency(const Item& rune)
 {
-	// Temporary, centralized first-pass retention curve: 60% at the least
-	// valuable supported gem, scaling linearly to 100% at the most valuable.
+	// Retain 60% at the least valuable supported gem, scaling linearly to 100%
+	// at the most valuable.
 	const real_t value = std::min(RUNE_GEM_VALUE_MAX,
 		std::max(RUNE_GEM_VALUE_MIN, static_cast<real_t>(items[rune.runeGetVisualGemItemType()].gold_value)));
 	return 0.60 + 0.40 * ((value - RUNE_GEM_VALUE_MIN) / (RUNE_GEM_VALUE_MAX - RUNE_GEM_VALUE_MIN));
@@ -1611,6 +1772,8 @@ bool applyMagicRuneStoredPWR(spell_t& spell, const Item& rune)
 	spell.hasSpellPowerOverride = true;
 	spell.spellPowerOverride = rune.runeGetStoredPWR();
 	spell.runeCreatorPlayer = static_cast<Sint8>(rune.runeGetCreatorPlayer());
+	spell.runeCreatorIdentity = rune.runeGetCreatorIdentity();
+	spell.runeInstanceId = rune.runeGetInstanceId();
 	return true;
 }
 
@@ -1664,20 +1827,23 @@ bool activateMagicRune(int player)
 	// packet is sent only when that animation reaches its completion/target stage.
 	if ( players[player]->isLocalPlayer() )
 	{
-		return castMagicRuneInit(player, spell, rune->uid);
+		return castMagicRuneInit(player, spell, rune->runeGetInstanceId());
 	}
 	return false;
 }
 
-Item* findMagicRuneByUid(Uint32 uid, int* ownerOut)
+Item* findMagicRuneByInstanceId(Uint32 runeInstanceId, int* ownerOut, int requiredOwner)
 {
-	for ( int player = 0; player < MAXPLAYERS; ++player )
+	const int firstPlayer = requiredOwner >= 0 ? requiredOwner : 0;
+	const int lastPlayer = requiredOwner >= 0 ? requiredOwner + 1 : MAXPLAYERS;
+	for ( int player = firstPlayer; player < lastPlayer; ++player )
 	{
-		if ( !stats[player] ) { continue; }
+		if ( player < 0 || player >= MAXPLAYERS || !stats[player] ) { continue; }
 		for ( node_t* node = stats[player]->inventory.first; node; node = node->next )
 		{
 			Item* candidate = static_cast<Item*>(node->element);
-			if ( candidate && candidate->uid == uid && candidate->isMagicRune() )
+			if ( candidate && candidate->isMagicRune()
+				&& candidate->runeGetInstanceId() == runeInstanceId )
 			{
 				if ( ownerOut ) { *ownerOut = player; }
 				return candidate;
@@ -1687,35 +1853,61 @@ Item* findMagicRuneByUid(Uint32 uid, int* ownerOut)
 	return nullptr;
 }
 
-bool breakMagicRune(Uint32 runeUid, const char* message)
+static void terminateSustainedSpellsForRune(Uint32 runeInstanceId)
+{
+	for ( int player = 0; player < MAXPLAYERS; ++player )
+	{
+		if ( !stats[player] ) { continue; }
+		for ( node_t* node = stats[player]->magic_effects.first; node; node = node->next )
+		{
+			spell_t* sustained = static_cast<spell_t*>(node->element);
+			if ( sustained && sustained->runeInstanceId == runeInstanceId )
+			{
+				sustained->sustain = false;
+			}
+		}
+		for ( node_t* node = channeledSpells[player].first; node; node = node->next )
+		{
+			spell_t* sustained = static_cast<spell_t*>(node->element);
+			if ( sustained && sustained->runeInstanceId == runeInstanceId )
+			{
+				sustained->sustain = false;
+			}
+		}
+	}
+}
+
+bool breakMagicRune(Uint32 runeInstanceId, const char* message)
 {
 	if ( multiplayer == CLIENT ) { return false; }
 	int owner = -1;
-	Item* rune = findMagicRuneByUid(runeUid, &owner);
+	Item* rune = findMagicRuneByInstanceId(runeInstanceId, &owner);
 	if ( !rune ) { return false; }
 	rune->status = BROKEN;
+	terminateSustainedSpellsForRune(runeInstanceId);
 	if ( message ) { messagePlayer(owner, MESSAGE_EQUIPMENT, "%s", message); }
 	if ( multiplayer == SERVER && owner > 0 && !players[owner]->isLocalPlayer() )
 	{
 		strcpy((char*)net_packet->data, "RUSD");
-		SDLNet_Write32(rune->uid, &net_packet->data[4]);
+		SDLNet_Write32(rune->runeGetInstanceId(), &net_packet->data[4]);
 		net_packet->data[8] = rune->status;
 		SDLNet_Write32(rune->appearance, &net_packet->data[9]);
 		SDLNet_Write32(static_cast<Uint32>(rune->runeGetStoredPWRRaw()), &net_packet->data[13]);
 		net_packet->data[17] = static_cast<Uint8>(rune->runeGetCreatorPlayer());
+		SDLNet_Write32(rune->runeGetCreatorIdentity(), &net_packet->data[18]);
 		net_packet->address.host = net_clients[owner - 1].host;
 		net_packet->address.port = net_clients[owner - 1].port;
-		net_packet->len = 18;
+		net_packet->len = 22;
 		sendPacketSafe(net_sock, -1, net_packet, owner - 1);
 	}
 	return true;
 }
 
-bool applyMagicRuneCastStress(Uint32 runeUid, int resourceEquivalent)
+bool applyMagicRuneCastStress(Uint32 runeInstanceId, int resourceEquivalent, int requiredOwner)
 {
 	if ( multiplayer == CLIENT ) { return true; }
 	int owner = -1;
-	Item* rune = findMagicRuneByUid(runeUid, &owner);
+	Item* rune = findMagicRuneByInstanceId(runeInstanceId, &owner, requiredOwner);
 	if ( !rune || rune->status == BROKEN ) { return false; }
 	spell_t* spell = getSpellFromID(rune->runeGetSpellID());
 	real_t breakChance = 0.0;
@@ -1739,29 +1931,24 @@ bool applyMagicRuneCastStress(Uint32 runeUid, int resourceEquivalent)
 		messagePlayer(owner, MESSAGE_EQUIPMENT, rune->status == BROKEN
 			? "The rune cracks and its magic goes dark."
 			: "The rune cracks slightly as it releases its magic.");
-		if ( rune->status == BROKEN && owner >= 0 && owner < MAXPLAYERS
-			&& players[owner] && players[owner]->entity && stats[owner] )
+		if ( rune->status == BROKEN )
 		{
-			// Mark every effect powered by this physical Rune for the existing
-			// sustain teardown path; never fall back to draining the user's MP.
-			for ( node_t* node = stats[owner]->magic_effects.first; node; node = node->next )
-			{
-				spell_t* sustained = static_cast<spell_t*>(node->element);
-				if ( sustained && sustained->runeItemUid == runeUid ) { sustained->sustain = false; }
-			}
+			// Teardown follows the original caster, regardless of current Rune owner.
+			terminateSustainedSpellsForRune(runeInstanceId);
 		}
 	}
 	if ( multiplayer == SERVER && owner > 0 && !players[owner]->isLocalPlayer() )
 	{
 		strcpy((char*)net_packet->data, "RUSD");
-		SDLNet_Write32(rune->uid, &net_packet->data[4]);
+		SDLNet_Write32(rune->runeGetInstanceId(), &net_packet->data[4]);
 		net_packet->data[8] = rune->status;
 		SDLNet_Write32(rune->appearance, &net_packet->data[9]);
 		SDLNet_Write32(static_cast<Uint32>(rune->runeGetStoredPWRRaw()), &net_packet->data[13]);
 		net_packet->data[17] = static_cast<Uint8>(rune->runeGetCreatorPlayer());
+		SDLNet_Write32(rune->runeGetCreatorIdentity(), &net_packet->data[18]);
 		net_packet->address.host = net_clients[owner - 1].host;
 		net_packet->address.port = net_clients[owner - 1].port;
-		net_packet->len = 18;
+		net_packet->len = 22;
 		sendPacketSafe(net_sock, -1, net_packet, owner - 1);
 	}
 	return rune->status != BROKEN;
@@ -1769,11 +1956,16 @@ bool applyMagicRuneCastStress(Uint32 runeUid, int resourceEquivalent)
 
 bool consumeSustainedSpellResource(Entity* caster, spell_t* spell, int manaCost)
 {
-	if ( !spell || spell->runeItemUid == 0 )
+	if ( !spell || spell->runeInstanceId == 0 )
 	{
 		return caster && caster->safeConsumeMP(manaCost);
 	}
-	if ( !applyMagicRuneCastStress(spell->runeItemUid, manaCost) )
+	const int originalPlayer = spell->runeCasterPlayer;
+	if ( originalPlayer < 0 || originalPlayer >= MAXPLAYERS || !caster
+		|| !players[originalPlayer] || players[originalPlayer]->entity != caster
+		|| caster->getUID() != spell->runeCasterEntityUid
+		|| !findMagicRuneByInstanceId(spell->runeInstanceId, nullptr, originalPlayer)
+		|| !applyMagicRuneCastStress(spell->runeInstanceId, manaCost, originalPlayer) )
 	{
 		spell->sustain = false;
 		return false;
@@ -1800,6 +1992,7 @@ Item* createMagicRune(RuneGemType gem, int spellID, Status status, Sint16 beatit
 	Item* rune = newItem(MAGIC_RUNE, status, beatitude, 1, 0, identified, inventory);
 	if ( rune )
 	{
+		rune->runeEnsureInstanceId();
 		rune->runeSetGemType(gem);
 		rune->runeSetSpellID(spellID);
 	}
@@ -2111,6 +2304,11 @@ int itemCompare(const Item* const item1, const Item* const item2, bool checkAppe
 	{
 		return 1;
 	}
+	if ( item1->isMagicRune() && (item1->runeGetInstanceId() != item2->runeGetInstanceId()
+		|| item1->runeGetCreatorIdentity() != item2->runeGetCreatorIdentity()) )
+	{
+		return 1;
+	}
 	if ( itemCategory(item1) != THROWN && !itemTypeIsQuiver(item1->type) )
 	{
 		if (item1->status != item2->status)
@@ -2256,6 +2454,8 @@ bool playerThrowDuck(const int player, Item* const item, int charge)
 		entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
 		entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
 		entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
+		entity->itemRuneInstanceId = static_cast<Sint32>(item->runeEnsureInstanceId());
+		entity->itemRuneCreatorIdentity = static_cast<Sint32>(item->runeGetCreatorIdentity());
 
 		real_t speed = 1.f + 4.f * (-30 + std::min(50, std::max(30, charge))) / (real_t)(20);
 		entity->vel_x = speed * cos(players[player]->entity->yaw);
@@ -2390,6 +2590,8 @@ bool playerGreasyDropItem(const int player, Item* const item)
 		entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
 		entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
 		entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
+		entity->itemRuneInstanceId = static_cast<Sint32>(item->runeEnsureInstanceId());
+		entity->itemRuneCreatorIdentity = static_cast<Sint32>(item->runeGetCreatorIdentity());
 		entity->parent = players[player]->entity->getUID();
 		entity->itemOriginalOwner = entity->parent;
 
@@ -2477,9 +2679,11 @@ bool dropItem(Item* const item, const int player, const bool notifyMessage, cons
 		net_packet->data[25] = clientnum;
 		SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[26]);
 		net_packet->data[30] = static_cast<Uint8>(item->runeGetCreatorPlayer());
+		SDLNet_Write32(item->runeGetInstanceId(), &net_packet->data[31]);
+		SDLNet_Write32(item->runeGetCreatorIdentity(), &net_packet->data[35]);
 		net_packet->address.host = net_server.host;
 		net_packet->address.port = net_server.port;
-		net_packet->len = 31;
+		net_packet->len = 39;
 		sendPacketSafe(net_sock, -1, net_packet, 0);
 		if ( item == players[player]->bookGUI.openBookItem )
 		{
@@ -2584,6 +2788,8 @@ bool dropItem(Item* const item, const int player, const bool notifyMessage, cons
 		entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
 		entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
 		entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
+		entity->itemRuneInstanceId = static_cast<Sint32>(item->runeEnsureInstanceId());
+		entity->itemRuneCreatorIdentity = static_cast<Sint32>(item->runeGetCreatorIdentity());
 		entity->parent = players[player]->entity->getUID();
 		entity->itemOriginalOwner = entity->parent;
 
@@ -2817,6 +3023,8 @@ Entity* dropItemMonster(Item* const item, Entity* const monster, Stat* const mon
 		entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
 		entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
 		entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
+		entity->itemRuneInstanceId = static_cast<Sint32>(item->runeEnsureInstanceId());
+		entity->itemRuneCreatorIdentity = static_cast<Sint32>(item->runeGetCreatorIdentity());
 		entity->itemOriginalOwner = item->ownerUid;
 		entity->parent = monster->getUID();
 
@@ -3342,6 +3550,8 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 		bool identified = false;
 		Sint32 runeStoredPWR = Item::RUNE_STORED_PWR_INVALID;
 		Sint8 runeCreatorPlayer = Item::RUNE_CREATOR_INVALID;
+		Uint32 runeInstanceId = 0;
+		Uint32 runeCreatorIdentity = 0;
 		bool sendToServer = false;
 		void setItem(Item& item)
 		{
@@ -3353,6 +3563,8 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 			identified = item.identified;
 			runeStoredPWR = item.runeGetStoredPWRRaw();
 			runeCreatorPlayer = static_cast<Sint8>(item.runeGetCreatorPlayer());
+			runeInstanceId = item.runeGetInstanceId();
+			runeCreatorIdentity = item.runeGetCreatorIdentity();
 			sendToServer = true;
 		}
 		void send()
@@ -3368,9 +3580,11 @@ void useItem(Item* item, const int player, Entity* usedBy, bool unequipForDroppi
 			net_packet->data[25] = clientnum;
 			SDLNet_Write32(static_cast<Uint32>(runeStoredPWR), &net_packet->data[26]);
 			net_packet->data[30] = static_cast<Uint8>(runeCreatorPlayer);
+			SDLNet_Write32(runeInstanceId, &net_packet->data[31]);
+			SDLNet_Write32(runeCreatorIdentity, &net_packet->data[35]);
 			net_packet->address.host = net_server.host;
 			net_packet->address.port = net_server.port;
-			net_packet->len = 31;
+			net_packet->len = 39;
 			sendPacketSafe(net_sock, -1, net_packet, 0);
 		}
 	};
@@ -4608,9 +4822,11 @@ Item* itemPickup(const int player, Item* const item, Item* addToSpecificInventor
 		net_packet->data[28] = item->identified ? 1 : 0;
 		SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[29]);
 		net_packet->data[33] = static_cast<Uint8>(item->runeGetCreatorPlayer());
+		SDLNet_Write32(item->runeGetInstanceId(), &net_packet->data[34]);
+		SDLNet_Write32(item->runeGetCreatorIdentity(), &net_packet->data[38]);
 		net_packet->address.host = net_clients[player - 1].host;
 		net_packet->address.port = net_clients[player - 1].port;
-		net_packet->len = 34;
+		net_packet->len = 42;
 		sendPacketSafe(net_sock, -1, net_packet, player - 1);
 	}
 	else
@@ -4757,6 +4973,8 @@ Item* itemPickup(const int player, Item* const item, Item* addToSpecificInventor
 		item2 = newItem(item->type, item->status, item->beatitude, item->count, item->appearance, item->identified, &stats[player]->inventory);
 		item2->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
 		item2->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+		item2->runeSetInstanceId(item->runeGetInstanceId());
+		item2->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
 		item2->ownerUid = item->ownerUid;
 		item2->notifyIcon = item->notifyIcon;
 
@@ -5166,6 +5384,9 @@ Item* newItemFromEntity(const Entity* const entity, bool discardUid)
 		? entity->itemRuneStoredPWR : Item::RUNE_STORED_PWR_INVALID);
 	item->runeSetCreatorPlayer(entity->itemRuneCreatorPlayerValid
 		? entity->itemRuneCreatorPlayer : Item::RUNE_CREATOR_INVALID);
+	item->runeSetInstanceId(static_cast<Uint32>(entity->itemRuneInstanceId));
+	item->runeSetCreatorIdentity(static_cast<Uint32>(entity->itemRuneCreatorIdentity));
+	if ( multiplayer != CLIENT ) { item->runeEnsureInstanceId(); }
 	item->interactNPCUid = static_cast<Uint32>(entity->interactedByMonster);
 	return item;
 }
@@ -7466,6 +7687,8 @@ void copyItem(Item* const itemToSet, const Item* const itemToCopy) //This should
 	itemToSet->appearance = itemToCopy->appearance;
 	itemToSet->runeSetStoredPWRRaw(itemToCopy->runeGetStoredPWRRaw());
 	itemToSet->runeSetCreatorPlayer(itemToCopy->runeGetCreatorPlayer());
+	itemToSet->runeSetInstanceId(itemToCopy->runeGetInstanceId());
+	itemToSet->runeSetCreatorIdentity(itemToCopy->runeGetCreatorIdentity());
 	itemToSet->identified = itemToCopy->identified;
 	itemToSet->uid = itemToCopy->uid;
 	itemToSet->ownerUid = itemToCopy->ownerUid;
@@ -7692,6 +7915,14 @@ bool shouldInvertEquipmentBeatitude(const Stat* const wielder)
 	if ( wielder->type == SUCCUBUS || wielder->type == INCUBUS )
 	{
 		return true;
+	}
+	for ( int player = 0; player < MAXPLAYERS; ++player )
+	{
+		if ( stats[player] == wielder && players[player] && players[player]->entity
+			&& players[player]->entity->isCursedGolemPlayer() )
+		{
+			return true;
+		}
 	}
 	return false;
 }
@@ -9345,6 +9576,8 @@ void playerTryEquipItemAndUpdateServer(const int player, Item* const item, bool 
 		const bool identified = item->identified;
 		const Sint32 runeStoredPWR = item->runeGetStoredPWRRaw();
 		const Sint8 runeCreatorPlayer = static_cast<Sint8>(item->runeGetCreatorPlayer());
+		const Uint32 runeInstanceId = item->runeGetInstanceId();
+		const Uint32 runeCreatorIdentity = item->runeGetCreatorIdentity();
 
 		const Category cat = itemCategory(item);
 
@@ -9367,13 +9600,15 @@ void playerTryEquipItemAndUpdateServer(const int player, Item* const item, bool 
 				if ( !cast_animation[player].active_spellbook )
 				{
 					clientSendEquipUpdateToServer(EQUIP_ITEM_SLOT_SHIELD, equipResult, player,
-						type, status, beatitude, count, appearance, identified, runeStoredPWR, runeCreatorPlayer);
+						type, status, beatitude, count, appearance, identified, runeStoredPWR, runeCreatorPlayer,
+						runeInstanceId, runeCreatorIdentity);
 				}
 			}
 			else
 			{
 				clientSendEquipUpdateToServer(EQUIP_ITEM_SLOT_WEAPON, equipResult, player,
-				type, status, beatitude, count, appearance, identified, runeStoredPWR, runeCreatorPlayer);
+				type, status, beatitude, count, appearance, identified, runeStoredPWR, runeCreatorPlayer,
+				runeInstanceId, runeCreatorIdentity);
 			}
 		}
 	}
@@ -9443,7 +9678,8 @@ void clientSendItemTypeUpdateToServer(const int player, Item* item, ItemType pre
 
 void clientSendEquipUpdateToServer(const EquipItemSendToServerSlot slot, const EquipItemResult equipType, const int player,
 	const ItemType type, const Status status, const Sint16 beatitude, const int count, const Uint32 appearance, const bool identified,
-	const Sint32 runeStoredPWR, const Sint8 runeCreatorPlayer)
+	const Sint32 runeStoredPWR, const Sint8 runeCreatorPlayer, const Uint32 runeInstanceId,
+	const Uint32 runeCreatorIdentity)
 {
 	if ( slot == EQUIP_ITEM_SLOT_SHIELD )
 	{
@@ -9468,9 +9704,11 @@ void clientSendEquipUpdateToServer(const EquipItemSendToServerSlot slot, const E
 	net_packet->data[27] = slot;
 	SDLNet_Write32(static_cast<Uint32>(runeStoredPWR), &net_packet->data[28]);
 	net_packet->data[32] = static_cast<Uint8>(runeCreatorPlayer);
+	SDLNet_Write32(runeInstanceId, &net_packet->data[33]);
+	SDLNet_Write32(runeCreatorIdentity, &net_packet->data[37]);
 	net_packet->address.host = net_server.host;
 	net_packet->address.port = net_server.port;
-	net_packet->len = 33;
+	net_packet->len = 41;
 	sendPacketSafe(net_sock, -1, net_packet, 0);
 }
 
@@ -9521,7 +9759,8 @@ void clientUnequipSlotAndUpdateServer(const int player, const EquipItemSendToSer
 
 	clientSendEquipUpdateToServer(slot, equipType, player,
 		item->type, item->status, item->beatitude, item->count, item->appearance, item->identified,
-		item->runeGetStoredPWRRaw(), static_cast<Sint8>(item->runeGetCreatorPlayer()));
+		item->runeGetStoredPWRRaw(), static_cast<Sint8>(item->runeGetCreatorPlayer()),
+		item->runeGetInstanceId(), item->runeGetCreatorIdentity());
 }
 
 int Item::getDuckPlayer() const

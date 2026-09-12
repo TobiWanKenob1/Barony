@@ -758,6 +758,20 @@ void initClassStats(const int classnum, void* myStats)
 	stat->OLDHP = stat->HP;
 }
 
+static bool shouldInvertStartingEquipmentBeatitude(const Stat* playerStats)
+{
+	if ( !playerStats || playerStats->stat_appearance != 0 )
+	{
+		return false;
+	}
+	if ( playerStats->playerRace == RACE_SUCCUBUS
+		|| playerStats->playerRace == RACE_INCUBUS )
+	{
+		return true;
+	}
+	return playerStats->playerRace == RACE_GOLEM && playerStats->sex == FEMALE;
+}
+
 void initClass(const int player)
 {
 	Item* item = nullptr;
@@ -778,12 +792,7 @@ void initClass(const int player)
 		players[player]->paperDoll.clear();
 	}
 
-	bool curseItems = false;
-	if ( (stats[player]->playerRace == RACE_SUCCUBUS || stats[player]->playerRace == RACE_INCUBUS)
-		&& stats[player]->stat_appearance == 0 )
-	{
-		curseItems = true;
-	}
+	const bool curseItems = shouldInvertStartingEquipmentBeatitude(stats[player]);
 
 	//stats[player]->STR += 1;
 

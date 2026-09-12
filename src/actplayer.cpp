@@ -6062,6 +6062,9 @@ int playerHeadSprite(Monster race, sex_t sex, int appearance, int frame, int pla
     else if (race == AUTOMATON) {
         return sex == FEMALE ? 770 : 742;
     }
+	else if ( race == GOLEM ) {
+		return sex == FEMALE ? GOLEM_MODEL_C_HEAD : GOLEM_MODEL_B_HEAD;
+	}
 	else if ( race == DRYAD ) {
 		return sex == FEMALE ? 1992 : 1963;
 	}
@@ -9468,6 +9471,9 @@ void actPlayer(Entity* my)
 			case SALAMANDER:
 				zOffset = -1.25;
 				break;
+			case GOLEM:
+				zOffset = -1.25;
+				break;
 			// mod add: Leonin body height
 			case LEONIN:
 				zOffset = -1.25;
@@ -9508,6 +9514,9 @@ void actPlayer(Entity* my)
 				case SKELETON:
 				case AUTOMATON:
 					my->z = 2.f;
+					break;
+				case GOLEM:
+					my->z = 3.0;
 					break;
 				case HUMAN:
 				case VAMPIRE:
@@ -11615,6 +11624,8 @@ void actPlayer(Entity* my)
 											entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
 											entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
 											entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
+											entity->itemRuneInstanceId = static_cast<Sint32>(item->runeEnsureInstanceId());
+											entity->itemRuneCreatorIdentity = static_cast<Sint32>(item->runeGetCreatorIdentity());
 											entity->parent = achievementObserver.playerUids[PLAYER_NUM];
 										}
 									}
@@ -11672,6 +11683,8 @@ void actPlayer(Entity* my)
 											entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
 											entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
 											entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
+											entity->itemRuneInstanceId = static_cast<Sint32>(item->runeEnsureInstanceId());
+											entity->itemRuneCreatorIdentity = static_cast<Sint32>(item->runeGetCreatorIdentity());
 										}
 										list_RemoveNode(node);
 									}
@@ -13546,6 +13559,12 @@ void actPlayer(Entity* my)
 							entity->focaly = limbs[playerRace][4][1] + 0.25; // 0
 							entity->focalz = limbs[playerRace][4][2] - 1; // 1
 						}
+						else if ( playerRace == GOLEM )
+						{
+							entity->focalx = limbs[playerRace][4][0] + 0.75;
+							entity->focaly = limbs[playerRace][4][1] + 0.25;
+							entity->focalz = limbs[playerRace][4][2] - 0.75;
+						}
 						else if ( playerRace == MYCONID || playerRace == SALAMANDER )
 						{
 							entity->focalx = limbs[playerRace][4][0] + 0.75;
@@ -13730,6 +13749,12 @@ void actPlayer(Entity* my)
 							entity->focaly = limbs[playerRace][5][1] - 0.25; // 0
 							entity->focalz = limbs[playerRace][5][2] - 1; // 1
 						}
+						else if ( playerRace == GOLEM )
+						{
+							entity->focalx = limbs[playerRace][5][0] + 0.75;
+							entity->focaly = limbs[playerRace][5][1] - 0.25;
+							entity->focalz = limbs[playerRace][5][2] - 0.75;
+						}
 						else if ( playerRace == MYCONID || playerRace == SALAMANDER )
 						{
 							entity->focalx = limbs[playerRace][5][0] + 0.75;
@@ -13876,6 +13901,13 @@ void actPlayer(Entity* my)
 						&& !meleeAnimating && !runeCastAnimating;
 					RuneHammerModelPositions.applyOffset(*entity,
 						RuneHammerModelPositions.hammerTransform(false, useTwoHandedTransform));
+					if ( useTwoHandedTransform )
+					{
+						if ( const auto* raceOffset = RuneHammerModelPositions.getThirdPersonTwoHandedRaceOffset(playerRace) )
+						{
+							RuneHammerModelPositions.applyOffset(*entity, *raceOffset);
+						}
+					}
 					const int inscriptionTick = players[PLAYER_NUM]->mechanics.runeHammerInscriptionTicks;
 					if ( inscriptionTick > 0 )
 					{
@@ -13973,6 +14005,16 @@ void actPlayer(Entity* my)
 					}
 				}
 				my->handleHumanoidShieldLimb(entity, shieldarm);
+				if ( stats[PLAYER_NUM]->shield
+					&& stats[PLAYER_NUM]->shield->isMagicRune()
+					&& (!stats[PLAYER_NUM]->weapon
+						|| stats[PLAYER_NUM]->weapon->type != RUNE_HAMMER) )
+				{
+					RuneHammerModelPositions.applyOffset(
+						*entity,
+						RuneHammerModelPositions.standaloneRuneTransform(false)
+					);
+				}
 				if ( runeHammerHasAttachedOffhand(stats[PLAYER_NUM])
 					&& stats[PLAYER_NUM]->weapon && stats[PLAYER_NUM]->weapon->type == RUNE_HAMMER )
 				{
@@ -16000,6 +16042,8 @@ bool Entity::isPlayerHeadSprite(const int sprite)
 		// mod add: Leonin player heads
 		case LEONIN_MODEL_HEAD_MALE:
 		case LEONIN_MODEL_HEAD_FEMALE:
+		case GOLEM_MODEL_B_HEAD:
+		case GOLEM_MODEL_C_HEAD:
 			return true;
 			break;
 		default:
@@ -16078,6 +16122,9 @@ Monster getMonsterFromPlayerRace(int playerRace)
 		// mod add end
 		case RACE_LEONIN: // mod add: distinct Leonin gameplay identity
 			return LEONIN;
+			break;
+		case RACE_GOLEM: // mod add: distinct Golem gameplay identity
+			return GOLEM;
 			break;
 		default:
 			return HUMAN;
@@ -16179,6 +16226,10 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 					break;
 				case AUTOMATON:
 					this->sprite = 743;
+					break;
+				case GOLEM:
+					this->sprite = stats[playernum]->sex == FEMALE
+						? GOLEM_MODEL_C_TORSO : GOLEM_MODEL_B_TORSO;
 					break;
 				case TROLL:
 					this->sprite = 818;
@@ -16299,6 +16350,10 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 				case AUTOMATON:
 					this->sprite = 749;
 					break;
+				case GOLEM:
+					this->sprite = stats[playernum]->sex == FEMALE
+						? GOLEM_MODEL_C_LEG_RIGHT : GOLEM_MODEL_B_LEG_RIGHT;
+					break;
 				case TROLL:
 					this->sprite = 822;
 					break;
@@ -16406,6 +16461,10 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 				case AUTOMATON:
 					this->sprite = 748;
 					break;
+				case GOLEM:
+					this->sprite = stats[playernum]->sex == FEMALE
+						? GOLEM_MODEL_C_LEG_LEFT : GOLEM_MODEL_B_LEG_LEFT;
+					break;
 				case TROLL:
 					this->sprite = 821;
 					break;
@@ -16498,6 +16557,10 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 					break;
 				case AUTOMATON:
 					this->sprite = 745;
+					break;
+				case GOLEM:
+					this->sprite = stats[playernum]->sex == FEMALE
+						? GOLEM_MODEL_C_ARM_RIGHT : GOLEM_MODEL_B_ARM_RIGHT;
 					break;
 				case TROLL:
 					this->sprite = 820;
@@ -16603,6 +16666,10 @@ void Entity::setDefaultPlayerModel(int playernum, Monster playerRace, int limbTy
 					break;
 				case AUTOMATON:
 					this->sprite = 744;
+					break;
+				case GOLEM:
+					this->sprite = stats[playernum]->sex == FEMALE
+						? GOLEM_MODEL_C_ARM_LEFT : GOLEM_MODEL_B_ARM_LEFT;
 					break;
 				case TROLL:
 					this->sprite = 819;

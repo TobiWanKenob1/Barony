@@ -194,6 +194,8 @@ namespace MainMenu {
 				return "gnome";
 			case RACE_LEONIN:
 				return "leonin";
+			case RACE_GOLEM:
+				return "golem";
 			default:
 				break;
 			}

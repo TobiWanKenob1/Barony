@@ -69,6 +69,8 @@ Stat::Stat(Sint32 sprite) :
 	this->LVL = 1;
 	this->GOLD = 0;
 	this->HUNGER = 800;
+	this->golemBlessedComposition = (this->sex == MALE) ? 10000 : 0;
+	this->runeCreatorIdentity = 0;
 
 	//random variables to add to base
 	this->RANDOM_LVL = 0;

@@ -57,7 +57,7 @@ bool potionUseAbundanceEffect(Item* item, Entity* entity, Entity* usedBy)
 								if ( costPercent > 0.01 )
 								{
 									mpCost = std::max(1.0, spell->mana * costPercent);
-									if ( (activeSpell && activeSpell->runeItemUid != 0)
+									if ( (activeSpell && activeSpell->runeInstanceId != 0)
 										|| stats[player]->MP >= mpCost )
 									{
 										hasCost = true;
@@ -82,10 +82,10 @@ bool potionUseAbundanceEffect(Item* item, Entity* entity, Entity* usedBy)
 									SDLNet_Write32((Uint32)0, &net_packet->data[5]);
 									SDLNet_Write32((Uint32)mpCost, &net_packet->data[9]);
 
-									Uint16 spellID = activeSpell && activeSpell->runeItemUid != 0
+									Uint16 spellID = activeSpell && activeSpell->runeInstanceId != 0
 										? SPELL_GREATER_ABUNDANCE : SPELL_NONE;
 									SDLNet_Write16(spellID, &net_packet->data[13]);
-									SDLNet_Write32(activeSpell ? activeSpell->runeItemUid : 0, &net_packet->data[15]);
+									SDLNet_Write32(activeSpell ? activeSpell->runeInstanceId : 0, &net_packet->data[15]);
 									net_packet->address.host = net_server.host;
 									net_packet->address.port = net_server.port;
 									net_packet->len = 19;
@@ -93,7 +93,7 @@ bool potionUseAbundanceEffect(Item* item, Entity* entity, Entity* usedBy)
 								}
 								else
 								{
-									if ( activeSpell && activeSpell->runeItemUid != 0 )
+									if ( activeSpell && activeSpell->runeInstanceId != 0 )
 									{
 										consumeSustainedSpellResource(players[player]->entity, activeSpell, mpCost);
 									}
@@ -147,7 +147,7 @@ bool foodUseAbundanceEffect(Item* item, int player)
 							if ( costPercent > 0.01 )
 							{
 								mpCost = std::max(1.0, spell->mana * costPercent);
-								if ( (activeSpell && activeSpell->runeItemUid != 0)
+								if ( (activeSpell && activeSpell->runeInstanceId != 0)
 									|| stats[player]->MP >= mpCost )
 								{
 									hasCost = true;
@@ -172,10 +172,10 @@ bool foodUseAbundanceEffect(Item* item, int player)
 								SDLNet_Write32((Uint32)0, &net_packet->data[5]);
 								SDLNet_Write32((Uint32)mpCost, &net_packet->data[9]);
 
-								Uint16 spellID = activeSpell && activeSpell->runeItemUid != 0
+								Uint16 spellID = activeSpell && activeSpell->runeInstanceId != 0
 									? SPELL_GREATER_ABUNDANCE : SPELL_NONE;
 								SDLNet_Write16(spellID, &net_packet->data[13]);
-								SDLNet_Write32(activeSpell ? activeSpell->runeItemUid : 0, &net_packet->data[15]);
+								SDLNet_Write32(activeSpell ? activeSpell->runeInstanceId : 0, &net_packet->data[15]);
 								net_packet->address.host = net_server.host;
 								net_packet->address.port = net_server.port;
 								net_packet->len = 19;
@@ -183,7 +183,7 @@ bool foodUseAbundanceEffect(Item* item, int player)
 							}
 							else
 							{
-								if ( activeSpell && activeSpell->runeItemUid != 0 )
+								if ( activeSpell && activeSpell->runeInstanceId != 0 )
 								{
 									consumeSustainedSpellResource(players[player]->entity, activeSpell, mpCost);
 								}
@@ -223,7 +223,7 @@ bool foodUseAbundanceEffect(Item* item, int player)
 							if ( costPercent > 0.01 )
 							{
 								mpCost = std::max(1.0, spell->mana * costPercent);
-								if ( (activeSpell && activeSpell->runeItemUid != 0)
+								if ( (activeSpell && activeSpell->runeInstanceId != 0)
 									|| stats[player]->MP >= mpCost )
 								{
 									hasCost = true;
@@ -248,10 +248,10 @@ bool foodUseAbundanceEffect(Item* item, int player)
 								SDLNet_Write32((Uint32)0, &net_packet->data[5]);
 								SDLNet_Write32((Uint32)mpCost, &net_packet->data[9]);
 
-								Uint16 spellID = activeSpell && activeSpell->runeItemUid != 0
+								Uint16 spellID = activeSpell && activeSpell->runeInstanceId != 0
 									? SPELL_ABUNDANCE : SPELL_NONE;
 								SDLNet_Write16(spellID, &net_packet->data[13]);
-								SDLNet_Write32(activeSpell ? activeSpell->runeItemUid : 0, &net_packet->data[15]);
+								SDLNet_Write32(activeSpell ? activeSpell->runeInstanceId : 0, &net_packet->data[15]);
 								net_packet->address.host = net_server.host;
 								net_packet->address.port = net_server.port;
 								net_packet->len = 19;
@@ -259,7 +259,7 @@ bool foodUseAbundanceEffect(Item* item, int player)
 							}
 							else
 							{
-								if ( activeSpell && activeSpell->runeItemUid != 0 )
+								if ( activeSpell && activeSpell->runeInstanceId != 0 )
 								{
 									consumeSustainedSpellResource(players[player]->entity, activeSpell, mpCost);
 								}
@@ -5161,6 +5161,20 @@ void item_Food(Item*& item, int player)
 		return;
 	}
 
+	// Natural Golems may still use food normally, but physical food supplies no
+	// magical charge. Enchanted food only feeds them through the separate Consume action.
+	if ( players[player] && players[player]->entity
+		&& players[player]->entity->isNaturalGolemPlayer() )
+	{
+		if ( players[player]->isLocalPlayer() )
+		{
+			messagePlayer(player, MESSAGE_STATUS, "Ordinary food provides no magical charge.");
+		}
+		foodUseAbundanceEffect(item, player);
+		consumeItem(item, player);
+		return;
+	}
+
 	if ( player >= 0 && stats[player]->type == AUTOMATON )
 	{
 		if ( players[player] && players[player]->entity )
@@ -5619,13 +5633,27 @@ void item_Food(Item*& item, int player)
 
 void item_FoodTin(Item*& item, int player)
 {
-	if ( !item )
+	if ( !item || player < 0 || player >= MAXPLAYERS || !stats[player] )
 	{
 		return;
 	}
 	int oldcount;
 	int pukeChance;
 	bool slippery = false;
+
+	// Tins follow the same natural-Golem diet rule as every other ordinary food:
+	// the vessel is consumed, but it supplies no magical Core charge.
+	if ( players[player] && players[player]->entity
+		&& players[player]->entity->isNaturalGolemPlayer() )
+	{
+		if ( players[player]->isLocalPlayer() )
+		{
+			messagePlayer(player, MESSAGE_STATUS, "Ordinary food provides no magical charge.");
+		}
+		foodUseAbundanceEffect(item, player);
+		consumeItem(item, player);
+		return;
+	}
 
 	if ( player >= 0 && stats[player]->type == AUTOMATON )
 	{
@@ -5993,6 +6021,8 @@ void item_FoodTin(Item*& item, int player)
 
 void item_AmuletSexChange(Item*& item, int player)
 {
+	const bool naturalGolem = players[player] && players[player]->entity
+		&& players[player]->entity->isNaturalGolemPlayer();
 	if ( !players[player]->isLocalPlayer() )
 	{
 		consumeItem(item, player);
@@ -6031,6 +6061,17 @@ void item_AmuletSexChange(Item*& item, int player)
 
 	stats[player]->amulet = NULL;
 	stats[player]->sex = static_cast<sex_t>((stats[player]->sex == 0));
+	if ( naturalGolem )
+	{
+		stats[player]->golemBlessedComposition = 10000
+			- std::min(10000, std::max(0, stats[player]->golemBlessedComposition));
+		if ( multiplayer != CLIENT )
+		{
+			reverseGolemEquipmentBeatitudes(*stats[player], item);
+			serverUpdateGolemEquipmentBeatitudes(player);
+		}
+		serverUpdateGolemComposition(player);
+	}
 
 	serverUpdateSexChange(player);
 
@@ -6057,7 +6098,13 @@ void item_AmuletSexChange(Item*& item, int player)
 	}
 	else
 	{
-		if ( stats[player]->type == AUTOMATON )
+		if ( naturalGolem )
+		{
+			messagePlayer(player, MESSAGE_HINT | MESSAGE_STATUS,
+				stats[player]->sex == MALE ? "Your polarity shifts to Blessed."
+					: "Your polarity shifts to Cursed.");
+		}
+		else if ( stats[player]->type == AUTOMATON )
 		{
 			messagePlayer(player, MESSAGE_HINT | MESSAGE_STATUS, Language::get(6914));
 		}
@@ -6881,6 +6928,99 @@ bool itemIsConsumableByAutomaton(const Item& item)
 			break;
 	}
 	return false;
+}
+
+bool itemIsConsumableByGolem(const Item& item)
+{
+	return item.type >= 0 && item.type < NUMITEMS
+		&& itemCategory(&item) != SPELL_CAT
+		&& item.beatitude != 0;
+}
+
+int getGolemChargeValue(const Item& item)
+{
+	return std::max(1, static_cast<int>(item.getGoldValue()));
+}
+
+void item_GolemConsume(Item*& item, int player)
+{
+	if ( !item || player < 0 || player >= MAXPLAYERS || !stats[player]
+		|| !players[player] || !players[player]->entity
+		|| !players[player]->entity->isNaturalGolemPlayer()
+		|| !itemIsConsumableByGolem(*item)
+		|| itemIsEquipped(item, player) )
+	{
+		return;
+	}
+
+	if ( multiplayer == CLIENT )
+	{
+		consumeItem(item, player);
+		return;
+	}
+
+	const int charge = getGolemChargeValue(*item);
+	const Sint64 oldRatio = std::max(0, std::min(10000,
+		stats[player]->golemBlessedComposition));
+	const Sint64 storedCharge = std::max<Sint64>(0,
+		std::min<Sint64>(GOLEM_CHARGE_MAX, stats[player]->HUNGER));
+
+	// Only an enchantment aligned with the Golem's current core can leave its
+	// physical vessel intact. This roll deliberately uses the pre-consumption
+	// composition so an item cannot improve its own chance to survive.
+	Sint32 survivalChance = 0;
+	if ( players[player]->entity->isBlessedGolemPlayer() && item->beatitude > 0 )
+	{
+		survivalChance = static_cast<Sint32>(std::max<Sint64>(0, oldRatio - 5000));
+	}
+	else if ( players[player]->entity->isCursedGolemPlayer() && item->beatitude < 0 )
+	{
+		const Sint64 cursedRatio = 10000 - oldRatio;
+		survivalChance = static_cast<Sint32>(std::max<Sint64>(0, cursedRatio - 5000));
+	}
+	const bool physicalItemSurvives = survivalChance > 0
+		&& local_rng.rand() % 10000 < survivalChance;
+
+	Item* survivingItem = nullptr;
+	if ( physicalItemSurvives )
+	{
+		// Copy everything the normal floor-item route serializes before
+		// consumeItem() is allowed to invalidate the original stack pointer.
+		survivingItem = newItem(item->type, item->status, 0, 1,
+			item->appearance, item->identified, nullptr);
+		survivingItem->ownerUid = players[player]->entity->getUID();
+		survivingItem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
+		survivingItem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+		survivingItem->runeSetInstanceId(item->runeGetInstanceId());
+		survivingItem->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
+	}
+
+	const Sint64 blessedCharge = (storedCharge * oldRatio + 5000) / 10000;
+	const Sint64 mixedCharge = storedCharge + charge;
+	const Sint64 mixedBlessed = blessedCharge + (item->beatitude > 0 ? charge : 0);
+	stats[player]->HUNGER = static_cast<Sint32>(std::min<Sint64>(GOLEM_CHARGE_MAX,
+		static_cast<Sint64>(stats[player]->HUNGER) + charge));
+	stats[player]->golemBlessedComposition = static_cast<Sint32>(
+		std::max<Sint64>(0, std::min<Sint64>(10000,
+			(mixedBlessed * 10000 + mixedCharge / 2) / mixedCharge)));
+	updateGolemPolarityFromComposition(player);
+
+	const int oldcount = item->count;
+	item->count = 1;
+	messagePlayer(player, MESSAGE_STATUS, "You consume the enchantment from %s.", item->description());
+	item->count = oldcount;
+	playSoundEntity(players[player]->entity, 167, 96);
+	serverUpdateHunger(player);
+	serverUpdateGolemComposition(player);
+	consumeItem(item, player);
+	if ( survivingItem )
+	{
+		if ( dropItemMonster(survivingItem, players[player]->entity, nullptr, 1) )
+		{
+			messagePlayer(player, MESSAGE_STATUS,
+				"The depleted item survives and falls to the ground.");
+		}
+	}
 }
 
 void updateHungerMessages(Entity* my, Stat* myStats, Item* eaten)

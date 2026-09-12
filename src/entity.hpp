@@ -638,6 +638,8 @@ public:
 	Sint32& itemRuneStoredPWRValid = skill[34];
 	Sint32& itemRuneCreatorPlayer = skill[35];
 	Sint32& itemRuneCreatorPlayerValid = skill[36];
+	Sint32& itemRuneInstanceId = skill[37];
+	Sint32& itemRuneCreatorIdentity = skill[38];
 	real_t& itemWaterBob; //fskill[2]
 	real_t& itemLevitate = fskill[3];
 	real_t& itemLevitateStartZ = fskill[4];
@@ -687,6 +689,10 @@ public:
 	real_t spellPowerOverride = 0.0;
 	bool magicCastFromRune = false;
 	Sint8 magicRuneCreatorPlayer = -1;
+	Uint32 magicRuneInstanceId = 0;
+	Uint32 magicRuneCreatorIdentity = 0;
+	// Transient provenance used to select only missiles spawned by one Golem surge cast.
+	bool golemWildMagicCastEntity = false;
 
 	Sint32& actfloorMagicType = skill[3];
 	Sint32& actfloorMagicClientReceived = skill[4];
@@ -698,7 +704,7 @@ public:
 	Sint32& actRadiusMagicDoPulseTick = skill[6];
 	Sint32& actRadiusMagicAutoPulseTick = skill[7];
 	Sint32& actRadiusMagicEffectPower = skill[8];
-	Sint32& actRadiusMagicRuneUid = skill[9];
+	Sint32& actRadiusMagicRuneInstanceId = skill[9];
 
 	Sint32& actParticleWaveStartFrame = skill[4];
 	Sint32& actParticleWaveLight = skill[7];
@@ -1103,6 +1109,10 @@ public:
 	int isEntityPlayer() const;
 	// mod add: Leonin racial mechanics
 	bool isNaturalLeoninPlayer() const;
+	bool isNaturalGolemPlayer() const;
+	bool isBlessedGolemPlayer() const;
+	bool isCursedGolemPlayer() const;
+	int getNaturalGolemAlliance(Monster otherType) const;
 	bool isLeoninNaturalClawAttack() const;
 	int getLeoninClawTier() const;
 	int getLeoninNaturalClawTier() const;

@@ -1262,7 +1262,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 				net_packet->data[31] = castSpellProps->optionalData;
 				net_packet->data[32] = castSpellProps->overcharge;
 				net_packet->data[33] = usingRune ? 1 : 0;
-				SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[34]);
+				SDLNet_Write32(usingRune ? spell->runeInstanceId : 0, &net_packet->data[34]);
 				net_packet->len = 38;
 			}
 			else
@@ -1314,6 +1314,11 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 		{
 			player = i; //Set the player.
 		}
+	}
+	if ( usingRune && player >= 0 )
+	{
+		spell->runeCasterPlayer = static_cast<Sint8>(player);
+		spell->runeCasterEntityUid = caster->getUID();
 	}
 
 	bool newbie = false;
@@ -2249,7 +2254,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 							net_packet->data[4] = 0;
 							net_packet->data[5] = 0;
 						}
-						SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[6]);
+						SDLNet_Write32(usingRune ? spell->runeInstanceId : 0, &net_packet->data[6]);
 						net_packet->address.host = net_clients[i - 1].host;
 						net_packet->address.port = net_clients[i - 1].port;
 						net_packet->len = 10;
@@ -2261,7 +2266,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 						if ( usingRune )
 						{
 							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX,
-								findMagicRuneByUid(spell->runeItemUid), 0, MAGIC_RUNE, SPELL_IDENTIFY);
+								findMagicRuneByInstanceId(spell->runeInstanceId), 0, MAGIC_RUNE, SPELL_IDENTIFY);
 						}
 						else if ( usingSpellbook )
 						{
@@ -2303,7 +2308,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 							net_packet->data[4] = 0;
 							net_packet->data[5] = 0;
 						}
-						SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[6]);
+						SDLNet_Write32(usingRune ? spell->runeInstanceId : 0, &net_packet->data[6]);
 						net_packet->address.host = net_clients[i - 1].host;
 						net_packet->address.port = net_clients[i - 1].port;
 						net_packet->len = 10;
@@ -2315,7 +2320,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 						if ( usingRune )
 						{
 							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX,
-								findMagicRuneByUid(spell->runeItemUid), 0, MAGIC_RUNE, SPELL_REMOVECURSE);
+								findMagicRuneByInstanceId(spell->runeInstanceId), 0, MAGIC_RUNE, SPELL_REMOVECURSE);
 						}
 						else if ( usingSpellbook )
 						{
@@ -2374,7 +2379,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 							net_packet->data[5] = 0;
 						}
 						SDLNet_Write32(spell->ID, &net_packet->data[6]);
-						SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[10]);
+						SDLNet_Write32(usingRune ? spell->runeInstanceId : 0, &net_packet->data[10]);
 						net_packet->address.host = net_clients[i - 1].host;
 						net_packet->address.port = net_clients[i - 1].port;
 						net_packet->len = 14;
@@ -2386,7 +2391,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 						if ( usingRune )
 						{
 							GenericGUI[i].openGUI(GUI_TYPE_ITEMFX,
-								findMagicRuneByUid(spell->runeItemUid), 0, MAGIC_RUNE, spell->ID);
+								findMagicRuneByInstanceId(spell->runeInstanceId), 0, MAGIC_RUNE, spell->ID);
 						}
 						else if ( usingSpellbook )
 						{
@@ -8842,7 +8847,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 					if ( Entity* fx = createRadiusMagic(SPELL_SANCTUARY, caster,
 						castSpellProps->target_x, castSpellProps->target_y, 32,
 						getSpellEffectDurationFromID(SPELL_SANCTUARY, caster, nullptr, caster), nullptr,
-						spell->runeItemUid) )
+						spell->runeInstanceId) )
 					{
 						playSoundEntity(fx, 167, 128);
 						messagePlayerColor(caster->isEntityPlayer(), MESSAGE_HINT, makeColorRGB(0, 255, 0), Language::get(6953));
@@ -9959,12 +9964,14 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 				net_packet->data[4] = clientnum;
 				SDLNet_Write32(spell->ID, &net_packet->data[5]);
 				net_packet->data[9] = usingRune ? 1 : 0;
-				SDLNet_Write32(usingRune ? spell->runeItemUid : 0, &net_packet->data[10]);
+				SDLNet_Write32(usingRune ? spell->runeInstanceId : 0, &net_packet->data[10]);
 				net_packet->data[14] = static_cast<Uint8>(usingRune
 					? spell->runeCreatorPlayer : Item::RUNE_CREATOR_INVALID);
+				SDLNet_Write32(usingRune ? spell->runeCreatorIdentity : 0,
+					&net_packet->data[15]);
 				net_packet->address.host = net_clients[target_client - 1].host;
 				net_packet->address.port = net_clients[target_client - 1].port;
-				net_packet->len = 15;
+				net_packet->len = 19;
 				sendPacketSafe(net_sock, -1, net_packet, target_client - 1);
 			}
 
@@ -9974,8 +9981,11 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 			}
 			if ( usingRune )
 			{
-				channeled_spell->runeItemUid = spell->runeItemUid;
+				channeled_spell->runeInstanceId = spell->runeInstanceId;
 				channeled_spell->runeCreatorPlayer = spell->runeCreatorPlayer;
+				channeled_spell->runeCreatorIdentity = spell->runeCreatorIdentity;
+				channeled_spell->runeCasterPlayer = spell->runeCasterPlayer;
+				channeled_spell->runeCasterEntityUid = spell->runeCasterEntityUid;
 			}
 
 			//Add this spell to the list of channeled spells.

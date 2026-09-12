@@ -13,6 +13,7 @@ See LICENSE for details.
 #include "menu.hpp"
 #include "classdescriptions.hpp"
 #include "draw.hpp"
+#include "monster.hpp"
 #include "player.hpp"
 #include "scores.hpp"
 #include "ui/Field.hpp"
@@ -8961,6 +8962,40 @@ void MonsterData_t::loadMonsterDataJSON()
 			entry.keyToSpriteLookup["player male"] = { LEONIN_MODEL_HEAD_MALE };
 			entry.keyToSpriteLookup["player female"] = { LEONIN_MODEL_HEAD_FEMALE };
 		}
+		// Standalone Golem player-model data. Icons can be supplied independently by
+		// mounted content; model ownership must never fall back to Automaton.
+		{
+			auto& entry = monsterDataEntries[GOLEM];
+			entry.monsterType = GOLEM;
+			entry.defaultIconPath = baseIconPath + "basic/Icon_GolemB_00.png";
+
+			static constexpr int golemModels[] =
+			{
+				GOLEM_MODEL_B_ARM_LEFT, GOLEM_MODEL_B_ARM_RIGHT,
+				GOLEM_MODEL_B_ARM_BENT_LEFT, GOLEM_MODEL_B_ARM_BENT_RIGHT,
+				GOLEM_MODEL_B_HEAD, GOLEM_MODEL_B_LEG_LEFT,
+				GOLEM_MODEL_B_LEG_RIGHT, GOLEM_MODEL_B_TORSO,
+				GOLEM_MODEL_C_ARM_LEFT, GOLEM_MODEL_C_ARM_RIGHT,
+				GOLEM_MODEL_C_ARM_BENT_LEFT, GOLEM_MODEL_C_ARM_BENT_RIGHT,
+				GOLEM_MODEL_C_HEAD, GOLEM_MODEL_C_LEG_LEFT,
+				GOLEM_MODEL_C_LEG_RIGHT, GOLEM_MODEL_C_TORSO
+			};
+			for ( const int model : golemModels )
+			{
+				entry.modelIndexes.insert(model);
+			}
+
+			entry.playerModelIndexes.insert(GOLEM_MODEL_B_HEAD);
+			entry.playerModelIndexes.insert(GOLEM_MODEL_C_HEAD);
+			entry.iconSpritesAndPaths[GOLEM_MODEL_B_HEAD].key = "player male";
+			entry.iconSpritesAndPaths[GOLEM_MODEL_B_HEAD].iconPath =
+				baseIconPath + "basic/Icon_GolemB_00.png";
+			entry.iconSpritesAndPaths[GOLEM_MODEL_C_HEAD].key = "player female";
+			entry.iconSpritesAndPaths[GOLEM_MODEL_C_HEAD].iconPath =
+				baseIconPath + "basic/Icon_GolemC_00.png";
+			entry.keyToSpriteLookup["player male"] = { GOLEM_MODEL_B_HEAD };
+			entry.keyToSpriteLookup["player female"] = { GOLEM_MODEL_C_HEAD };
+		}
 		// validate data
 		for ( int i = 0; i < NUMMONSTERS; ++i )
 		{
@@ -12592,6 +12627,24 @@ const RuneHammerModelPositions_t::Transform_t& RuneHammerModelPositions_t::attac
 	return firstPersonView ? firstPerson.attachedOffhand : thirdPerson.attachedOffhand;
 }
 
+const RuneHammerModelPositions_t::Transform_t*
+	RuneHammerModelPositions_t::getThirdPersonTwoHandedRaceOffset(Monster race) const
+{
+	for ( const auto& group : thirdPersonTwoHandedRaceGroups )
+	{
+		if ( std::find(group.races.begin(), group.races.end(), race) != group.races.end() )
+		{
+			return &group.offset;
+		}
+	}
+	return nullptr;
+}
+
+const RuneHammerModelPositions_t::Transform_t&
+    RuneHammerModelPositions_t::standaloneRuneTransform(bool firstPersonView) const
+{
+    return firstPersonView ? firstPerson.standaloneRune : thirdPerson.standaloneRune;
+}
 void RuneHammerModelPositions_t::applyOffset(Entity& entity, const Transform_t& t) const
 {
 	entity.x += t.x; entity.y += t.y; entity.z += t.z;
@@ -12657,7 +12710,7 @@ void RuneHammerModelPositions_t::readFromFile()
 		printlog("[JSON]: Error: Malformed Rune Hammer positions file %s", inputPath.c_str());
 		return;
 	}
-	auto readTransform = [](const rapidjson::Value& value, Transform_t& out)
+	auto readTransform = [](const rapidjson::Value& value, Transform_t& out, bool readScale)
 	{
 		if ( !value.IsObject() ) { return; }
 		auto number = [&](const char* key, real_t& dst)
@@ -12667,18 +12720,115 @@ void RuneHammerModelPositions_t::readFromFile()
 		number("x", out.x); number("y", out.y); number("z", out.z);
 		number("focalx", out.focalx); number("focaly", out.focaly); number("focalz", out.focalz);
 		number("yaw", out.yaw); number("pitch", out.pitch); number("roll", out.roll);
-		number("scalex", out.scalex); number("scaley", out.scaley); number("scalez", out.scalez);
+		if ( readScale )
+		{
+			number("scalex", out.scalex); number("scaley", out.scaley); number("scalez", out.scalez);
+		}
 	};
 	auto readView = [&](const char* key, View_t& view)
 	{
 		if ( !d.HasMember(key) || !d[key].IsObject() ) { return; }
 		const auto& value = d[key];
-		if ( value.HasMember("normal") ) { readTransform(value["normal"], view.normal); }
-		if ( value.HasMember("two_handed") ) { readTransform(value["two_handed"], view.twoHanded); }
-		if ( value.HasMember("attached_offhand") ) { readTransform(value["attached_offhand"], view.attachedOffhand); }
+		if ( value.HasMember("normal") ) { readTransform(value["normal"], view.normal, true); }
+		if ( value.HasMember("two_handed") ) { readTransform(value["two_handed"], view.twoHanded, true); }
+		if ( value.HasMember("attached_offhand") ) { readTransform(value["attached_offhand"], view.attachedOffhand, true); }
+		if ( value.HasMember("standalone_rune") ) {readTransform(value["standalone_rune"], view.standaloneRune, true);}
 	};
 	readView("first_person", firstPerson);
 	readView("third_person", thirdPerson);
+
+	if ( d.HasMember("third_person") && d["third_person"].IsObject() )
+	{
+		const auto& thirdPersonValue = d["third_person"];
+		if ( thirdPersonValue.HasMember("two_handed_race_groups") )
+		{
+			const auto& groups = thirdPersonValue["two_handed_race_groups"];
+			if ( !groups.IsObject() )
+			{
+				printlog("[JSON]: Warning: Rune Hammer two_handed_race_groups is not an object in %s",
+					inputPath.c_str());
+			}
+			else
+			{
+				for ( auto group = groups.MemberBegin(); group != groups.MemberEnd(); ++group )
+				{
+					const char* groupName = group->name.GetString();
+					if ( !group->value.IsObject()
+						|| !group->value.HasMember("races") || !group->value["races"].IsArray()
+						|| !group->value.HasMember("offset") || !group->value["offset"].IsObject() )
+					{
+						printlog("[JSON]: Warning: Ignoring malformed Rune Hammer race offset group '%s' in %s",
+							groupName, inputPath.c_str());
+						continue;
+					}
+
+					RaceOffsetGroup_t parsedGroup;
+					bool malformedRaces = false;
+					for ( const auto& raceValue : group->value["races"].GetArray() )
+					{
+						if ( !raceValue.IsString() )
+						{
+							malformedRaces = true;
+							break;
+						}
+
+						Monster parsedRace = NOTHING;
+						bool raceFound = false;
+						for ( int race = 0; race < NUMMONSTERS; ++race )
+						{
+							if ( !strcmp(raceValue.GetString(), monstertypename[race]) )
+							{
+								parsedRace = static_cast<Monster>(race);
+								raceFound = true;
+								break;
+							}
+						}
+						if ( raceFound )
+						{
+							parsedGroup.races.push_back(parsedRace);
+						}
+						else
+						{
+							printlog("[JSON]: Warning: Unknown Rune Hammer race '%s' in group '%s'",
+								raceValue.GetString(), groupName);
+							malformedRaces = true;
+							break;
+						}
+					}
+					if ( malformedRaces || parsedGroup.races.empty() )
+					{
+						printlog("[JSON]: Warning: Ignoring Rune Hammer race offset group '%s' with a malformed or empty race list in %s",
+							groupName, inputPath.c_str());
+						continue;
+					}
+
+					const auto& offset = group->value["offset"];
+					static constexpr const char* offsetKeys[] = {
+						"x", "y", "z", "focalx", "focaly", "focalz", "yaw", "pitch", "roll"
+					};
+					bool malformedOffset = false;
+					for ( const char* key : offsetKeys )
+					{
+						if ( offset.HasMember(key) && !offset[key].IsNumber() )
+						{
+							malformedOffset = true;
+							break;
+						}
+					}
+					if ( malformedOffset )
+					{
+						printlog("[JSON]: Warning: Ignoring Rune Hammer race offset group '%s' with a nonnumeric offset in %s",
+							groupName, inputPath.c_str());
+						continue;
+					}
+
+					// Race corrections are additive only; scale remains neutral and inherited.
+					readTransform(offset, parsedGroup.offset, false);
+					thirdPersonTwoHandedRaceGroups.push_back(std::move(parsedGroup));
+				}
+			}
+		}
+	}
 }
 
 int EquipmentModelOffsets_t::modelOffsetExists(int monster, int sprite, int monsterSprite)

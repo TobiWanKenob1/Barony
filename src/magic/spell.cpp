@@ -30,13 +30,16 @@ namespace
 	thread_local real_t activeSpellPowerBonus = 0.0;
 	thread_local bool activeRuneCastSource = false;
 	thread_local Sint8 activeRuneCreatorPlayer = -1;
-	thread_local Uint32 activeRuneItemUid = 0;
+	thread_local Uint32 activeRuneInstanceId = 0;
+	thread_local Uint32 activeRuneCreatorIdentity = 0;
+	thread_local bool activeGolemWildMagicProjectileCast = false;
 }
 
 ScopedSpellPowerOverride::ScopedSpellPowerOverride(bool enabled, real_t bonus)
 	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
 	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
-	previousRuneItemUid(activeRuneItemUid)
+	previousRuneInstanceId(activeRuneInstanceId),
+	previousRuneCreatorIdentity(activeRuneCreatorIdentity)
 {
 	if ( enabled )
 	{
@@ -53,7 +56,8 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const spell_t* spell)
 ScopedSpellPowerOverride::ScopedSpellPowerOverride(const spell_t* spell, bool replaceMissingOverride)
 	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
 	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
-	previousRuneItemUid(activeRuneItemUid)
+	previousRuneInstanceId(activeRuneInstanceId),
+	previousRuneCreatorIdentity(activeRuneCreatorIdentity)
 {
 	if ( spell && spell->hasSpellPowerOverride )
 	{
@@ -65,17 +69,19 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const spell_t* spell, bool re
 		activeSpellPowerOverride = false;
 		activeSpellPowerBonus = 0.0;
 	}
-	if ( spell && spell->runeItemUid != 0 )
+	if ( spell && spell->runeInstanceId != 0 )
 	{
 		activeRuneCastSource = true;
 		activeRuneCreatorPlayer = spell->runeCreatorPlayer;
-		activeRuneItemUid = spell->runeItemUid;
+		activeRuneInstanceId = spell->runeInstanceId;
+		activeRuneCreatorIdentity = spell->runeCreatorIdentity;
 	}
 	else if ( replaceMissingOverride )
 	{
 		activeRuneCastSource = false;
 		activeRuneCreatorPlayer = -1;
-		activeRuneItemUid = 0;
+		activeRuneInstanceId = 0;
+		activeRuneCreatorIdentity = 0;
 	}
 }
 
@@ -87,7 +93,8 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Entity* effectEntity)
 ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Entity* effectEntity, bool replaceMissingOverride)
 	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
 	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
-	previousRuneItemUid(activeRuneItemUid)
+	previousRuneInstanceId(activeRuneInstanceId),
+	previousRuneCreatorIdentity(activeRuneCreatorIdentity)
 {
 	if ( effectEntity && effectEntity->hasSpellPowerOverride )
 	{
@@ -103,13 +110,15 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Entity* effectEntity, b
 	{
 		activeRuneCastSource = true;
 		activeRuneCreatorPlayer = effectEntity->magicRuneCreatorPlayer;
-		activeRuneItemUid = 0;
+		activeRuneInstanceId = effectEntity->magicRuneInstanceId;
+		activeRuneCreatorIdentity = effectEntity->magicRuneCreatorIdentity;
 	}
 	else if ( replaceMissingOverride )
 	{
 		activeRuneCastSource = false;
 		activeRuneCreatorPlayer = -1;
-		activeRuneItemUid = 0;
+		activeRuneInstanceId = 0;
+		activeRuneCreatorIdentity = 0;
 	}
 }
 
@@ -121,7 +130,8 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem)
 ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem, bool replaceMissingOverride)
 	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
 	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
-	previousRuneItemUid(activeRuneItemUid)
+	previousRuneInstanceId(activeRuneInstanceId),
+	previousRuneCreatorIdentity(activeRuneCreatorIdentity)
 {
 	if ( runeItem && runeItem->isMagicRune() )
 	{
@@ -137,7 +147,8 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem, bool re
 		}
 		activeRuneCastSource = true;
 		activeRuneCreatorPlayer = static_cast<Sint8>(runeItem->runeGetCreatorPlayer());
-		activeRuneItemUid = runeItem->uid;
+		activeRuneInstanceId = runeItem->runeGetInstanceId();
+		activeRuneCreatorIdentity = runeItem->runeGetCreatorIdentity();
 	}
 	else if ( replaceMissingOverride )
 	{
@@ -145,7 +156,8 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem, bool re
 		activeSpellPowerBonus = 0.0;
 		activeRuneCastSource = false;
 		activeRuneCreatorPlayer = -1;
-		activeRuneItemUid = 0;
+		activeRuneInstanceId = 0;
+		activeRuneCreatorIdentity = 0;
 	}
 }
 
@@ -155,7 +167,8 @@ ScopedSpellPowerOverride::~ScopedSpellPowerOverride()
 	activeSpellPowerBonus = previousBonus;
 	activeRuneCastSource = previousRuneCast;
 	activeRuneCreatorPlayer = previousRuneCreatorPlayer;
-	activeRuneItemUid = previousRuneItemUid;
+	activeRuneInstanceId = previousRuneInstanceId;
+	activeRuneCreatorIdentity = previousRuneCreatorIdentity;
 }
 
 bool getActiveSpellPowerOverride(real_t& bonus)
@@ -175,22 +188,44 @@ void inheritActiveSpellPowerOverride(Entity& entity)
 	}
 }
 
-bool getActiveRuneCastSource(Sint8& creatorPlayer, Uint32* runeItemUid)
+bool getActiveRuneCastSource(Sint8& creatorPlayer, Uint32* runeInstanceId,
+	Uint32* creatorIdentity)
 {
 	if ( !activeRuneCastSource ) { return false; }
 	creatorPlayer = activeRuneCreatorPlayer;
-	if ( runeItemUid ) { *runeItemUid = activeRuneItemUid; }
+	if ( runeInstanceId ) { *runeInstanceId = activeRuneInstanceId; }
+	if ( creatorIdentity ) { *creatorIdentity = activeRuneCreatorIdentity; }
 	return true;
 }
 
 void inheritActiveRuneCastSource(Entity& entity)
 {
 	Sint8 creatorPlayer = -1;
-	if ( getActiveRuneCastSource(creatorPlayer) )
+	Uint32 runeInstanceId = 0;
+	Uint32 creatorIdentity = 0;
+	if ( getActiveRuneCastSource(creatorPlayer, &runeInstanceId, &creatorIdentity) )
 	{
 		entity.magicCastFromRune = true;
 		entity.magicRuneCreatorPlayer = creatorPlayer;
+		entity.magicRuneInstanceId = runeInstanceId;
+		entity.magicRuneCreatorIdentity = creatorIdentity;
 	}
+}
+
+ScopedGolemWildMagicProjectileCast::ScopedGolemWildMagicProjectileCast()
+	: previousActive(activeGolemWildMagicProjectileCast)
+{
+	activeGolemWildMagicProjectileCast = true;
+}
+
+ScopedGolemWildMagicProjectileCast::~ScopedGolemWildMagicProjectileCast()
+{
+	activeGolemWildMagicProjectileCast = previousActive;
+}
+
+void inheritGolemWildMagicProjectileCast(Entity& entity)
+{
+	entity.golemWildMagicCastEntity = activeGolemWildMagicProjectileCast;
 }
 
 spellElement_t spellElement_unintelligible;

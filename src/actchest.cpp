@@ -1099,9 +1099,11 @@ void Entity::actChest()
 							net_packet->data[27] = (Sint8)item->y;
 							SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
 							net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
+							SDLNet_Write32(item->runeGetInstanceId(), &net_packet->data[33]);
+							SDLNet_Write32(item->runeGetCreatorIdentity(), &net_packet->data[37]);
 							net_packet->address.host = net_clients[chestclicked - 1].host;
 							net_packet->address.port = net_clients[chestclicked - 1].port;
-							net_packet->len = 33;
+							net_packet->len = 41;
 							sendPacketSafe(net_sock, -1, net_packet, chestclicked - 1);
 						}
 					}
@@ -1341,7 +1343,9 @@ Item* Entity::addItemToVoidChest(int player, Item* item, bool forceNewStack, Ite
 			net_packet->data[27] = 1;
 			SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
 			net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
-			net_packet->len = 33;
+			SDLNet_Write32(item->runeGetInstanceId(), &net_packet->data[33]);
+			SDLNet_Write32(item->runeGetCreatorIdentity(), &net_packet->data[37]);
+			net_packet->len = 41;
 			sendPacketSafe(net_sock, -1, net_packet, 0);
 
 			return item;
@@ -1380,7 +1384,9 @@ Item* Entity::addItemToChest(Item* item, bool forceNewStack, Item* specificDesti
 		net_packet->data[27] = players[player]->inventoryUI.chestGUI.voidChest ? 1 : 0;
 		SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
 		net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
-		net_packet->len = 33;
+		SDLNet_Write32(item->runeGetInstanceId(), &net_packet->data[33]);
+		SDLNet_Write32(item->runeGetCreatorIdentity(), &net_packet->data[37]);
+		net_packet->len = 41;
 		sendPacketSafe(net_sock, -1, net_packet, 0);
 
 		return addItemToChestClientside(player, item, forceNewStack, specificDestinationStack);
@@ -1435,9 +1441,11 @@ Item* Entity::addItemToChest(Item* item, bool forceNewStack, Item* specificDesti
 		net_packet->data[27] = (Sint8)item->y;
 		SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
 		net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
+		SDLNet_Write32(item->runeGetInstanceId(), &net_packet->data[33]);
+		SDLNet_Write32(item->runeGetCreatorIdentity(), &net_packet->data[37]);
 		net_packet->address.host = net_clients[chestOpener - 1].host;
 		net_packet->address.port = net_clients[chestOpener - 1].port;
-		net_packet->len = 33;
+		net_packet->len = 41;
 		sendPacketSafe(net_sock, -1, net_packet, chestOpener - 1);
 	}
 	return item;
@@ -1496,6 +1504,8 @@ Item* Entity::addItemToChestFromInventory(int player, Item* item, int amount, bo
 	Item* newitem = newItem(item->type, item->status, item->beatitude, amount, item->appearance, item->identified, nullptr);
 	newitem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
 	newitem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+	newitem->runeSetInstanceId(item->runeGetInstanceId());
+	newitem->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
 	Item** slot = itemSlot(stats[player], item);
 	if ( multiplayer == CLIENT )
 	{
@@ -1634,6 +1644,8 @@ Item* Entity::getItemFromChest(Item* item, int amount, bool getInfoOnly)
 		newitem = newItem(item->type, item->status, item->beatitude, 1, item->appearance, item->identified, nullptr);
 		newitem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
 		newitem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+		newitem->runeSetInstanceId(item->runeGetInstanceId());
+		newitem->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
 
 		//Tell the server.
 		if ( !getInfoOnly )
@@ -1653,7 +1665,9 @@ Item* Entity::getItemFromChest(Item* item, int amount, bool getInfoOnly)
 			net_packet->data[27] = players[player]->inventoryUI.chestGUI.voidChest ? 1 : 0;
 			SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()), &net_packet->data[28]);
 			net_packet->data[32] = static_cast<Uint8>(item->runeGetCreatorPlayer());
-			net_packet->len = 33;
+			SDLNet_Write32(item->runeGetInstanceId(), &net_packet->data[33]);
+			SDLNet_Write32(item->runeGetCreatorIdentity(), &net_packet->data[37]);
+			net_packet->len = 41;
 			sendPacketSafe(net_sock, -1, net_packet, 0);
 		}
 	}
@@ -1675,6 +1689,8 @@ Item* Entity::getItemFromChest(Item* item, int amount, bool getInfoOnly)
 		newitem = newItem(item->type, item->status, item->beatitude, 1, item->appearance, item->identified, nullptr);
 		newitem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
 		newitem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+		newitem->runeSetInstanceId(item->runeGetInstanceId());
+		newitem->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
 	}
 
 	if ( getInfoOnly )
@@ -1829,6 +1845,8 @@ Item* Entity::addItemToVoidChestServer(int player, Item* item, bool forceNewStac
 					&stats[player]->inventory);
 				item2->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
 				item2->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+				item2->runeSetInstanceId(item->runeGetInstanceId());
+				item2->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
 				dropped = dropItem(item2, player, true, true);
 			}
 			
@@ -1857,6 +1875,8 @@ Item* Entity::addItemToVoidChestServer(int player, Item* item, bool forceNewStac
 				entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
 				entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
 				entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
+				entity->itemRuneInstanceId = static_cast<Sint32>(item->runeEnsureInstanceId());
+				entity->itemRuneCreatorIdentity = static_cast<Sint32>(item->runeGetCreatorIdentity());
 				entity->parent = 0;
 				entity->itemOriginalOwner = 0;
 
@@ -1935,6 +1955,8 @@ Item* Entity::addItemToVoidChestServer(int player, Item* item, bool forceNewStac
 				&stats[player]->inventory);
 			item2->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
 			item2->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+			item2->runeSetInstanceId(item->runeGetInstanceId());
+			item2->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
 			dropped = dropItem(item2, player, true, true);
 
 			if ( !dropped )
@@ -1962,6 +1984,8 @@ Item* Entity::addItemToVoidChestServer(int player, Item* item, bool forceNewStac
 				entity->itemRuneStoredPWRValid = item->runeHasStoredPWR() ? 1 : 0;
 				entity->itemRuneCreatorPlayer = item->runeGetCreatorPlayer();
 				entity->itemRuneCreatorPlayerValid = item->runeHasCreator() ? 1 : 0;
+				entity->itemRuneInstanceId = static_cast<Sint32>(item->runeEnsureInstanceId());
+				entity->itemRuneCreatorIdentity = static_cast<Sint32>(item->runeGetCreatorIdentity());
 				entity->parent = 0;
 				entity->itemOriginalOwner = 0;
 

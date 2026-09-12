@@ -176,14 +176,14 @@ bool spellEffectDominate(Entity& my, spellElement_t& element, Entity& caster, En
 		}
 	}
 
-	if ( spell && spell->runeItemUid != 0 )
+	if ( spell && spell->runeInstanceId != 0 )
 	{
-		Item* rune = findMagicRuneByUid(spell->runeItemUid);
+		Item* rune = findMagicRuneByInstanceId(spell->runeInstanceId, nullptr, caster.skill[2]);
 		const int initialCost = std::max(0, getCostOfSpell(getSpellFromID(SPELL_DOMINATE), &caster));
 		const int requiredCapacity = initialCost + std::max(0, hitstats->HP);
 		if ( !rune || rune->runeGetDominateCapacity() < requiredCapacity )
 		{
-			breakMagicRune(spell->runeItemUid,
+			breakMagicRune(spell->runeInstanceId,
 				"The Dominate rune cannot contain the required power and breaks apart.");
 			return false;
 		}
@@ -251,11 +251,11 @@ bool spellEffectDominate(Entity& my, spellElement_t& element, Entity& caster, En
 			}
 		}
 
-		if ( spell && spell->runeItemUid != 0 )
+		if ( spell && spell->runeInstanceId != 0 )
 		{
 			// Initial cast stress is applied by the Rune cast completion path. This
 			// represents Dominate's distinct successful-target resource event once.
-			applyMagicRuneCastStress(spell->runeItemUid, std::max(0, hitstats->HP));
+			applyMagicRuneCastStress(spell->runeInstanceId, std::max(0, hitstats->HP), caster.skill[2]);
 		}
 		else
 		{
@@ -1747,6 +1747,18 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 	}
 
 	Stat* targetStats = target->getStats();
+	const bool naturalCursedGolemPlayer = customMonster == NOTHING
+		&& target->behavior == &actPlayer
+		&& target->isCursedGolemPlayer();
+	const bool polymorphedCursedGolemDemonPlayer = customMonster == NOTHING
+		&& target->behavior == &actPlayer
+		&& targetStats->playerRace == RACE_GOLEM
+		&& targetStats->stat_appearance == 0
+		&& targetStats->sex == FEMALE
+		&& targetStats->getEffectActive(EFF_POLYMORPH)
+		&& (target->effectPolymorph == INCUBUS || target->effectPolymorph == SUCCUBUS);
+	const bool cursedGolemDemonicPolymorph = naturalCursedGolemPlayer
+		|| polymorphedCursedGolemDemonPlayer;
 
 	if ( customMonster == NOTHING )
 	{
@@ -2159,6 +2171,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 						(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 					summonedStats->weapon->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 					summonedStats->weapon->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+					summonedStats->weapon->runeSetInstanceId((*slot)->runeGetInstanceId());
+					summonedStats->weapon->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 				}
 			}
 
@@ -2170,6 +2184,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 				summonedStats->shield->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 				summonedStats->shield->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+				summonedStats->shield->runeSetInstanceId((*slot)->runeGetInstanceId());
+				summonedStats->shield->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 			}
 
 			// breastplate
@@ -2191,6 +2207,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 						(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 					summonedStats->breastplate->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 					summonedStats->breastplate->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+					summonedStats->breastplate->runeSetInstanceId((*slot)->runeGetInstanceId());
+					summonedStats->breastplate->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 				}
 			}
 
@@ -2202,6 +2220,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 				summonedStats->shoes->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 				summonedStats->shoes->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+				summonedStats->shoes->runeSetInstanceId((*slot)->runeGetInstanceId());
+				summonedStats->shoes->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 			}
 
 			// helm
@@ -2222,6 +2242,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 							(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 						summonedStats->helmet->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 						summonedStats->helmet->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+						summonedStats->helmet->runeSetInstanceId((*slot)->runeGetInstanceId());
+						summonedStats->helmet->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 					}
 					else
 					{
@@ -2238,6 +2260,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 						(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 					summonedStats->helmet->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 					summonedStats->helmet->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+					summonedStats->helmet->runeSetInstanceId((*slot)->runeGetInstanceId());
+					summonedStats->helmet->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 				}
 			}
 
@@ -2249,6 +2273,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 				summonedStats->amulet->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 				summonedStats->amulet->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+				summonedStats->amulet->runeSetInstanceId((*slot)->runeGetInstanceId());
+				summonedStats->amulet->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 			}
 
 			// ring
@@ -2259,6 +2285,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 				summonedStats->ring->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 				summonedStats->ring->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+				summonedStats->ring->runeSetInstanceId((*slot)->runeGetInstanceId());
+				summonedStats->ring->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 			}
 
 			// cloak
@@ -2269,6 +2297,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 					(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 				summonedStats->cloak->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 				summonedStats->cloak->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+				summonedStats->cloak->runeSetInstanceId((*slot)->runeGetInstanceId());
+				summonedStats->cloak->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 			}
 
 			// gloves
@@ -2290,6 +2320,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 						(*slot)->count, (*slot)->appearance, (*slot)->identified, nullptr);
 					summonedStats->gloves->runeSetStoredPWRRaw((*slot)->runeGetStoredPWRRaw());
 					summonedStats->gloves->runeSetCreatorPlayer((*slot)->runeGetCreatorPlayer());
+					summonedStats->gloves->runeSetInstanceId((*slot)->runeGetInstanceId());
+					summonedStats->gloves->runeSetCreatorIdentity((*slot)->runeGetCreatorIdentity());
 				}
 			}
 		}
@@ -2373,6 +2405,8 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 					Item* copiedItem = newItem(item->type, item->status, item->beatitude, item->count, item->appearance, item->identified, &summonedStats->inventory);
 					copiedItem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
 					copiedItem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+					copiedItem->runeSetInstanceId(item->runeGetInstanceId());
+					copiedItem->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
 				}
 				if ( item->node )
 				{
@@ -2459,7 +2493,13 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 			createParticleDropRising(target, 593, 1.f);
 			serverSpawnMiscParticles(target, PARTICLE_EFFECT_RISING_DROP, 593);
 
-			if ( targetStats->playerRace == RACE_HUMAN || (targetStats->playerRace != RACE_HUMAN && targetStats->stat_appearance != 0) )
+			if ( cursedGolemDemonicPolymorph )
+			{
+				// This runs only on the authoritative polymorph path; clients receive
+				// the selected form through effectPolymorph below.
+				target->effectPolymorph = local_rng.rand() % 2 == 0 ? INCUBUS : SUCCUBUS;
+			}
+			else if ( targetStats->playerRace == RACE_HUMAN || (targetStats->playerRace != RACE_HUMAN && targetStats->stat_appearance != 0) )
 			{
 				std::vector<int> chances =
 				{
@@ -3505,7 +3545,7 @@ bool Entity::spellEffectPreserveItem(Item* item)
 				}
 				if ( !consumeSustainedSpellResource(this, preserveSpell, cost) )
 				{
-					if ( preserveSpell->runeItemUid == 0 && myStats->MP > 0 )
+					if ( preserveSpell->runeInstanceId == 0 && myStats->MP > 0 )
 					{
 						modMP(-myStats->MP);
 					}
@@ -3786,7 +3826,7 @@ bool Entity::mistFormDodge(bool checkEffectActiveOnly, Entity* attacker)
 						cost = std::max(1, std::max(cost, getSpellDamageSecondaryFromID(SPELL_MIST_FORM, this, nullptr, this)));
 						if ( !consumeSustainedSpellResource(this, spell, cost) )
 						{
-							if ( spell->runeItemUid == 0 && myStats->MP > 0 )
+							if ( spell->runeInstanceId == 0 && myStats->MP > 0 )
 							{
 								modMP(-myStats->MP);
 							}

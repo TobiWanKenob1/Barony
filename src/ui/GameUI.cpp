@@ -5709,6 +5709,7 @@ bool StatusEffectQueue_t::insertEffect(int effectID, int spellID)
 		|| effectID == kEffectBread 
 		|| effectID == kEffectBloodHunger
 		|| effectID == kEffectAutomatonHunger
+		|| effectID == kEffectGolemHunger
 		|| effectID >= kSpellEffectOffset )
 	{
 		if ( StatusEffectDefinitions_t::effectDefinitionExists(effectID) )
@@ -6134,6 +6135,10 @@ void StatusEffectQueue_t::loadStatusEffectsJSON()
 	registerCustomEffect(EFF_RETRACTABLE_CLAWS, "retractable_claws", "Retractable Claws",
 		"Unarmed attacks gain +%d damage\nand have a %d%% chance to inflict Bleeding.",
 		"images/ui/HUD/statusfx/retractable_claws.png");
+	registerCustomEffect(kEffectGolemHunger, "golem_charge", "Golem Core",
+		"- Recharge by consuming enchanted items.\n"
+		"- Overcharging causes wild magic.\n"
+		"- Blessed to Cursed core ratio determines CON and CHR and item destruction chance.", "");
 }
 
 int StatusEffectQueue_t::getBaseEffectPosX()
@@ -6165,7 +6170,8 @@ int StatusEffectQueueEntry_t::getEffectSpriteNormalWidth()
 	{
 		return 76;
 	}
-	else if ( effect == StatusEffectQueue_t::kEffectAutomatonHunger )
+	else if ( effect == StatusEffectQueue_t::kEffectAutomatonHunger
+		|| effect == StatusEffectQueue_t::kEffectGolemHunger )
 	{
 		return 64;
 	}
@@ -6199,7 +6205,8 @@ int StatusEffectQueueEntry_t::getEffectSpriteNormalHeight()
 	{
 		return 60;
 	}
-	else if ( effect == StatusEffectQueue_t::kEffectAutomatonHunger )
+	else if ( effect == StatusEffectQueue_t::kEffectAutomatonHunger
+		|| effect == StatusEffectQueue_t::kEffectGolemHunger )
 	{
 		return 64;
 	}
@@ -6240,7 +6247,8 @@ real_t StatusEffectQueueEntry_t::getStatusEffectLargestScaling(int player)
 {
 	if ( effect == StatusEffectQueue_t::kEffectBread 
 		|| effect == StatusEffectQueue_t::kEffectBloodHunger 
-		|| effect == StatusEffectQueue_t::kEffectAutomatonHunger )
+		|| effect == StatusEffectQueue_t::kEffectAutomatonHunger
+		|| effect == StatusEffectQueue_t::kEffectGolemHunger )
 	{
 		return 2.0;
 	}
@@ -6251,7 +6259,8 @@ real_t StatusEffectQueueEntry_t::getStatusEffectMidScaling(int player)
 {
 	if ( effect == StatusEffectQueue_t::kEffectBread 
 		|| effect == StatusEffectQueue_t::kEffectBloodHunger
-		|| effect == StatusEffectQueue_t::kEffectAutomatonHunger )
+		|| effect == StatusEffectQueue_t::kEffectAutomatonHunger
+		|| effect == StatusEffectQueue_t::kEffectGolemHunger )
 	{
 		return 1.5;
 	}
@@ -7858,6 +7867,14 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 		// refreshes an already-open tooltip without recreating the status icon.
 		currentTooltipVariable = players[player]->entity->getLeoninClawTier();
 	}
+	else if ( entry.effect == kEffectGolemHunger
+		&& players[player] && players[player]->entity )
+	{
+		// Include current polarity in the refresh key so an open tooltip updates
+		// immediately after a Blessed/Cursed form change.
+		currentTooltipVariable = entry.customVariable * 2
+			+ (players[player]->entity->isBlessedGolemPlayer() ? 1 : 0);
+	}
 	bool refreshTooltip = (tooltipShowingEffectID != entry.effect)
 		|| (tooltipShowingEffectVariable != currentTooltipVariable);
 	if ( refreshTooltip )
@@ -7962,6 +7979,15 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 					snprintf(buf, sizeof(buf), definition.getDesc(-1).c_str(),
 						clawTier, clawTier * 5);
 					tooltipDesc->setText(buf);
+					tooltipInnerWidth = definition.tooltipWidth;
+				}
+				else if ( effectID == StatusEffectQueue_t::kEffectGolemHunger )
+				{
+					const bool blessed = players[player] && players[player]->entity
+						&& players[player]->entity->isBlessedGolemPlayer();
+					tooltipHeader->setText(blessed
+						? "BLESSED GOLEM CORE" : "CURSED GOLEM CORE");
+					tooltipDesc->setText(definition.getDesc(-1).c_str());
 					tooltipInnerWidth = definition.tooltipWidth;
 				}
 				else if ( effectID == EFF_SALAMANDER_HEART )
@@ -8361,6 +8387,7 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 				}
 
 				if ( effectID != StatusEffectQueue_t::kEffectAutomatonHunger
+					&& effectID != StatusEffectQueue_t::kEffectGolemHunger
 					&& effectID != StatusEffectQueue_t::kEffectWanted
 					&& effectID != StatusEffectQueue_t::kEffectWantedInShop
 					&& effectID != StatusEffectQueue_t::kEffectBountyTarget
@@ -8444,6 +8471,7 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 const int StatusEffectQueue_t::kEffectBread = -2;
 const int StatusEffectQueue_t::kEffectBloodHunger = -3;
 const int StatusEffectQueue_t::kEffectAutomatonHunger = -4;
+const int StatusEffectQueue_t::kEffectGolemHunger = -32;
 const int StatusEffectQueue_t::kEffectWanted = -5;
 const int StatusEffectQueue_t::kEffectWantedInShop = -6;
 const int StatusEffectQueue_t::kEffectBurning = -7;
@@ -9289,7 +9317,8 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 
 	bool hungerIconActive = (effectSet.find(kEffectBread) != effectSet.end() 
 		|| effectSet.find(kEffectBloodHunger) != effectSet.end()
-		|| effectSet.find(kEffectAutomatonHunger) != effectSet.end());
+		|| effectSet.find(kEffectAutomatonHunger) != effectSet.end()
+		|| effectSet.find(kEffectGolemHunger) != effectSet.end());
 	if ( !players[player]->entity )
 	{
 		if ( effectSet.find(kEffectBread) != effectSet.end() )
@@ -9303,6 +9332,10 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 		if ( effectSet.find(kEffectAutomatonHunger) != effectSet.end() )
 		{
 			effectsToSkipAnimThisFrame.push_back(kEffectAutomatonHunger);
+		}
+		if ( effectSet.find(kEffectGolemHunger) != effectSet.end() )
+		{
+			effectsToSkipAnimThisFrame.push_back(kEffectGolemHunger);
 		}
 	}
 
@@ -9750,7 +9783,7 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 			animatePosX = 0;
 			animatePosY = statusEffectFrame->getSize().h - q.getEffectSpriteNormalHeight();
 		}
-		else if ( q.effect == kEffectAutomatonHunger )
+		else if ( q.effect == kEffectAutomatonHunger || q.effect == kEffectGolemHunger )
 		{
 			animatePosX = 0;
 			animatePosY = 4 + statusEffectFrame->getSize().h - q.getEffectSpriteNormalHeight();
@@ -9808,7 +9841,8 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 				frameImg->disabled = true;
 			}
 		}
-		else if ( q.effect == kEffectBread || q.effect == kEffectBloodHunger || q.effect == kEffectAutomatonHunger )
+		else if ( q.effect == kEffectBread || q.effect == kEffectBloodHunger
+			|| q.effect == kEffectAutomatonHunger || q.effect == kEffectGolemHunger )
 		{
 			if ( q.effect == kEffectAutomatonHunger )
 			{
@@ -9880,7 +9914,8 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 
 		q.animate();
 
-		if ( q.effect == kEffectBread || q.effect == kEffectBloodHunger || q.effect == kEffectAutomatonHunger )
+		if ( q.effect == kEffectBread || q.effect == kEffectBloodHunger
+			|| q.effect == kEffectAutomatonHunger || q.effect == kEffectGolemHunger )
 		{
 			assert(grid.find(0 + 0 * 10000) == grid.end());
 			grid[0 + 0 * 10000] = &q;
@@ -9960,12 +9995,71 @@ void StatusEffectQueue_t::updateAllQueuedEffects()
 	requiresAnimUpdate = false;
 }
 
+static const char* getGolemChargeIconFamily(const Sint32 blessedComposition)
+{
+	const Sint32 composition = std::max<Sint32>(0, std::min<Sint32>(10000, blessedComposition));
+	if ( composition >= 8000 )
+	{
+		return "Blessings";
+	}
+	if ( composition >= 6000 )
+	{
+		return "BlessingsWeakened";
+	}
+	if ( composition >= 4001 )
+	{
+		return "EnchantmentNeutral";
+	}
+	if ( composition >= 2001 )
+	{
+		return "CursesWeakened";
+	}
+	return "Curses";
+}
+
+static char getGolemChargeIconVariant(const int player, const Sint32 hungerState)
+{
+	if ( hungerState >= getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_OVERSATIATED) )
+	{
+		return 'A';
+	}
+	// The normal hunger progression's weak barrier is the "almost starving"
+	// boundary. Both it and the starving state use the Golem's D artwork.
+	if ( hungerState <= getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_WEAK) )
+	{
+		return 'D';
+	}
+	if ( hungerState <= getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_HUNGRY) )
+	{
+		return 'C';
+	}
+	return 'B';
+}
+
+static std::string getGolemChargeIconPath(const int player, const Sint32 hungerState)
+{
+	if ( !stats[player] )
+	{
+		return "";
+	}
+	std::string path = "*#images/ui/HUD/CharSheet/HUD_CharSheet_";
+	path += getGolemChargeIconFamily(stats[player]->golemBlessedComposition);
+	path += "_00";
+	path += getGolemChargeIconVariant(player, hungerState);
+	path += ".png";
+	return path;
+}
+
 void StatusEffectQueue_t::updateEntryImage(StatusEffectQueueEntry_t& entry, Frame::image_t* img)
 {
 	if ( img )
 	{
 		img->path = "";
-		if ( entry.effect == kEffectBread || entry.effect == kEffectBloodHunger )
+		if ( entry.effect == kEffectGolemHunger )
+		{
+			img->path = getGolemChargeIconPath(player, entry.customVariable);
+		}
+		else if ( entry.effect == kEffectBread || entry.effect == kEffectBloodHunger )
 		{
 			if ( StatusEffectDefinitions_t::effectDefinitionExists(entry.effect) )
 			{
@@ -10131,13 +10225,20 @@ void updateStatusEffectQueue(const int player)
 	auto innerFrame = statusEffectFrame->findFrame("effects");
 	innerFrame->setSize(SDL_Rect{ 0, 0, statusEffectFrame->getSize().w, statusEffectFrame->getSize().h });
 
-	const int hungerEffectID = ((stats[player] && stats[player]->type == AUTOMATON) ? StatusEffectQueue_t::kEffectAutomatonHunger
-		: (playerRequiresBloodToSustain(player) ? StatusEffectQueue_t::kEffectBloodHunger : StatusEffectQueue_t::kEffectBread));
+	const bool naturalGolem = players[player]->entity
+		&& players[player]->entity->isNaturalGolemPlayer();
+	const int hungerEffectID = naturalGolem ? StatusEffectQueue_t::kEffectGolemHunger
+		: ((stats[player] && stats[player]->type == AUTOMATON) ? StatusEffectQueue_t::kEffectAutomatonHunger
+			: (playerRequiresBloodToSustain(player) ? StatusEffectQueue_t::kEffectBloodHunger : StatusEffectQueue_t::kEffectBread));
 
 	// hunger icon
 	if ( stats[player] && stats[player]->type != AUTOMATON )
 	{
 		statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectAutomatonHunger);
+	}
+	if ( !naturalGolem )
+	{
+		statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectGolemHunger);
 	}
 
 	bool effectsEnabled = true;
@@ -10151,11 +10252,16 @@ void updateStatusEffectQueue(const int player)
 	}
 
 	if ( effectsEnabled && stats[player] && stats[player]->type != AUTOMATON
-		&& (svFlags & SV_FLAG_HUNGER) 
-		&& (stats[player]->HUNGER <= getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_HUNGRY) 
-			|| stats[player]->HUNGER >= getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_OVERSATIATED)) )
+		&& (naturalGolem || ((svFlags & SV_FLAG_HUNGER)
+			&& (stats[player]->HUNGER <= getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_HUNGRY)
+				|| stats[player]->HUNGER >= getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_OVERSATIATED)))) )
 	{
 		statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectAutomatonHunger);
+		if ( hungerEffectID == StatusEffectQueue_t::kEffectGolemHunger )
+		{
+			statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectBread);
+			statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectBloodHunger);
+		}
 		if ( hungerEffectID == StatusEffectQueue_t::kEffectBloodHunger )
 		{
 			statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectBread); // delete opposite if present
@@ -10265,6 +10371,7 @@ void updateStatusEffectQueue(const int player)
 	{
 		statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectBloodHunger);
 		statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectBread);
+		statusEffectQueue.deleteEffect(StatusEffectQueue_t::kEffectGolemHunger);
 
 		if ( hungerEffectID == StatusEffectQueue_t::kEffectAutomatonHunger )
 		{
@@ -29866,22 +29973,39 @@ void Player::Inventory_t::activateItemContextMenuOption(Item* item, ItemContextM
 	else if ( prompt == PROMPT_CONSUME || prompt == PROMPT_CONSUME_ALTERNATE )
 	{
 		// consume item
+		const bool golemConsume = players[player] && players[player]->entity
+			&& players[player]->entity->isNaturalGolemPlayer();
 		if ( multiplayer == CLIENT )
 		{
-			strcpy((char*)net_packet->data, "FODA");
+			strcpy((char*)net_packet->data, golemConsume ? "GOLC" : "FODA");
 			SDLNet_Write32((Uint32)item->type, &net_packet->data[4]);
 			SDLNet_Write32((Uint32)item->status, &net_packet->data[8]);
 			SDLNet_Write32((Uint32)item->beatitude, &net_packet->data[12]);
-			SDLNet_Write32((Uint32)item->count, &net_packet->data[16]);
+			SDLNet_Write32((Uint32)(golemConsume ? 1 : item->count), &net_packet->data[16]);
 			SDLNet_Write32((Uint32)item->appearance, &net_packet->data[20]);
 			net_packet->data[24] = item->identified;
 			net_packet->data[25] = player;
+			if ( golemConsume )
+			{
+				SDLNet_Write32(static_cast<Uint32>(item->runeGetStoredPWRRaw()),
+					&net_packet->data[26]);
+				net_packet->data[30] = static_cast<Uint8>(item->runeGetCreatorPlayer());
+				SDLNet_Write32(item->runeGetInstanceId(), &net_packet->data[31]);
+				SDLNet_Write32(item->runeGetCreatorIdentity(), &net_packet->data[35]);
+			}
 			net_packet->address.host = net_server.host;
 			net_packet->address.port = net_server.port;
-			net_packet->len = 26;
+			net_packet->len = golemConsume ? 39 : 26;
 			sendPacketSafe(net_sock, -1, net_packet, 0);
 		}
-		item_FoodAutomaton(item, player);
+		if ( golemConsume )
+		{
+			item_GolemConsume(item, player);
+		}
+		else
+		{
+			item_FoodAutomaton(item, player);
+		}
 		return;
 	}
 	else if ( prompt == PROMPT_INTERACT 

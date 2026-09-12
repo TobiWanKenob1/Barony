@@ -362,6 +362,7 @@ void changeSettingsTab(int option)
 static constexpr const char* WHALER_UNLOCK_PATH = "savegames/merrow_whaler.unlock";
 static constexpr const char* WHALER_LEGACY_UNLOCK_PATH = "merrow_whaler.unlock";
 static constexpr const char* GUNSLINGER_UNLOCK_PATH = "savegames/leonin_gunslinger.unlock";
+static constexpr const char* RUNESMITH_UNLOCK_PATH = "savegames/golem_runesmith.unlock";
 static bool whalerLegacyUnlockRetainedThisSession = false;
 
 static bool customClassUnlockExists(const char* relativePath)
@@ -445,6 +446,11 @@ static bool isGunslingerGloballyUnlocked()
 	return customClassUnlockExists(GUNSLINGER_UNLOCK_PATH);
 }
 
+static bool isRunesmithGloballyUnlocked()
+{
+    return customClassUnlockExists(RUNESMITH_UNLOCK_PATH);
+}
+
 static bool writeWhalerUnlock()
 {
 	if ( customClassUnlockExists(WHALER_UNLOCK_PATH) )
@@ -474,6 +480,21 @@ static bool writeGunslingerUnlock()
 	printlog("[LEONIN]: Gunslinger class unlocked.");
 	return true;
 }
+
+static bool writeRunesmithUnlock()
+{
+    if ( customClassUnlockExists(RUNESMITH_UNLOCK_PATH) )
+    {
+        return true;
+    }
+    if ( !writeCustomClassUnlock(RUNESMITH_UNLOCK_PATH) )
+    {
+        printlog("[GOLEM]: Failed to save Runesmith unlock.");
+        return false;
+    }
+    printlog("[GOLEM]: Runesmith class unlocked.");
+    return true;
+}
 // mod add end
 
 bool isAchievementUnlockedForClassUnlock(int race)
@@ -487,6 +508,10 @@ bool isAchievementUnlockedForClassUnlock(int race)
 	{
 		return isGunslingerGloballyUnlocked();
 	}
+    else if ( race == RACE_GOLEM )
+    {
+        return isRunesmithGloballyUnlocked();
+    }
 	// mod add end
 #ifdef STEAMWORKS
 	bool unlocked = false;
@@ -729,6 +754,7 @@ int isCharacterValidFromDLC(Stat& myStats, int characterClass)
 			}
 			break;
 		case RACE_LEONIN: // mod add: Leonin has no DLC requirement
+		case RACE_GOLEM: // mod add: Golem has no DLC requirement
 			break;
 		default:
 			break;
@@ -759,12 +785,22 @@ int isCharacterValidFromDLC(Stat& myStats, int characterClass)
 			? VALID_OK_CHARACTER
 			: INVALID_REQUIRE_ACHIEVEMENT;
 	}
+	else if ( characterClass == CLASS_RUNESMITH )
+	{
+		if ( myStats.playerRace == RACE_GOLEM )
+		{
+			return VALID_OK_CHARACTER;
+		}
+		return isAchievementUnlockedForClassUnlock(RACE_GOLEM)
+			? VALID_OK_CHARACTER
+			: INVALID_REQUIRE_ACHIEVEMENT;
+	}
 	// mod add end
 	else if ( myStats.playerRace > RACE_HUMAN && myStats.stat_appearance == 1 )
 	{
 		return VALID_OK_CHARACTER; // aesthetic only option.
 	}
-	if ( characterClass <= CLASS_MONK || characterClass == CLASS_RUNESMITH )
+	if ( characterClass <= CLASS_MONK )
 	{
 		return VALID_OK_CHARACTER;
 	}
@@ -10330,6 +10366,15 @@ void doEndgame(bool saveHighscore, bool onServerDisconnect) {
 										< GenericGUIMenu::AssistShrineGUI_t::achievementDisabledLimit )
 								{
 									writeGunslingerUnlock();
+								}
+								break;
+							case RACE_GOLEM: // mod add: Golem / Runesmith
+								if ( !conductGameChallenges[CONDUCT_CHEATS_ENABLED]
+									&& !conductGameChallenges[CONDUCT_LIFESAVING]
+									&& conductGameChallenges[CONDUCT_ASSISTANCE_CLAIMED]
+										< GenericGUIMenu::AssistShrineGUI_t::achievementDisabledLimit )
+								{
+									writeRunesmithUnlock();
 								}
 								break;
 							// mod add end

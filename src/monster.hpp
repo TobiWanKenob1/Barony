@@ -76,6 +76,7 @@ enum Monster : int
 	MONSTER_UNUSED_8,
 	MERROW, //mod add merrow
 	LEONIN, // mod add: Leonin
+	GOLEM, // mod add: standalone playable Golem identity
 	MAX_MONSTER
 };
 const int NUMMONSTERS = MAX_MONSTER;
@@ -98,6 +99,38 @@ enum LeoninModel : Sint32
 	LEONIN_MODEL_HAND_LEFT_FP = 2457,
 	LEONIN_MODEL_HAND_RIGHT_FP = 2458
 };
+
+// mod add: dedicated Blessed/Cursed Golem player model IDs. These are the
+// zero-based positions of the appended entries in the mounted models.txt.
+enum GolemModel : Sint32
+{
+	GOLEM_MODEL_B_ARM_LEFT = 2461,
+	GOLEM_MODEL_B_ARM_RIGHT = 2462,
+	GOLEM_MODEL_B_ARM_BENT_LEFT = 2463,
+	GOLEM_MODEL_B_ARM_BENT_RIGHT = 2464,
+	GOLEM_MODEL_B_HEAD = 2465,
+	GOLEM_MODEL_B_LEG_LEFT = 2466,
+	GOLEM_MODEL_B_LEG_RIGHT = 2467,
+	GOLEM_MODEL_B_TORSO = 2468,
+	GOLEM_MODEL_B_HAND_RIGHT_FP = 2469,
+	GOLEM_MODEL_B_HAND_LEFT_FP = 2470,
+	GOLEM_MODEL_C_ARM_LEFT = 2471,
+	GOLEM_MODEL_C_ARM_RIGHT = 2472,
+	GOLEM_MODEL_C_ARM_BENT_LEFT = 2473,
+	GOLEM_MODEL_C_ARM_BENT_RIGHT = 2474,
+	GOLEM_MODEL_C_HEAD = 2475,
+	GOLEM_MODEL_C_LEG_LEFT = 2476,
+	GOLEM_MODEL_C_LEG_RIGHT = 2477,
+	GOLEM_MODEL_C_TORSO = 2478,
+	GOLEM_MODEL_C_HAND_RIGHT_FP = 2479,
+	GOLEM_MODEL_C_HAND_LEFT_FP = 2480
+};
+
+static_assert(GOLEM_MODEL_B_ARM_BENT_LEFT == GOLEM_MODEL_B_ARM_LEFT + 2
+	&& GOLEM_MODEL_B_ARM_BENT_RIGHT == GOLEM_MODEL_B_ARM_RIGHT + 2
+	&& GOLEM_MODEL_C_ARM_BENT_LEFT == GOLEM_MODEL_C_ARM_LEFT + 2
+	&& GOLEM_MODEL_C_ARM_BENT_RIGHT == GOLEM_MODEL_C_ARM_RIGHT + 2,
+	"Golem arm model ordering must preserve the humanoid +2 bent-arm convention.");
 
 static std::vector<Sint32> monsterSprites[NUMMONSTERS] = {
     // NOTHING
@@ -402,6 +435,17 @@ static std::vector<Sint32> monsterSprites[NUMMONSTERS] = {
 		LEONIN_MODEL_HEAD_MALE, LEONIN_MODEL_HEAD_FEMALE,
 		LEONIN_MODEL_LEG_LEFT, LEONIN_MODEL_LEG_RIGHT,
 		LEONIN_MODEL_TORSO, LEONIN_MODEL_TAIL, LEONIN_MODEL_MANE
+	},
+	// GOLEM
+	{
+		GOLEM_MODEL_B_ARM_LEFT, GOLEM_MODEL_B_ARM_RIGHT,
+		GOLEM_MODEL_B_ARM_BENT_LEFT, GOLEM_MODEL_B_ARM_BENT_RIGHT,
+		GOLEM_MODEL_B_HEAD, GOLEM_MODEL_B_LEG_LEFT,
+		GOLEM_MODEL_B_LEG_RIGHT, GOLEM_MODEL_B_TORSO,
+		GOLEM_MODEL_C_ARM_LEFT, GOLEM_MODEL_C_ARM_RIGHT,
+		GOLEM_MODEL_C_ARM_BENT_LEFT, GOLEM_MODEL_C_ARM_BENT_RIGHT,
+		GOLEM_MODEL_C_HEAD, GOLEM_MODEL_C_LEG_LEFT,
+		GOLEM_MODEL_C_LEG_RIGHT, GOLEM_MODEL_C_TORSO
 	}
 };
 
@@ -461,7 +505,8 @@ static char monstertypename[][32] =
 	"monster_unused_7",
 	"monster_unused_8",
 	"merrow", //mod add merrow
-	"leonin" // mod add: Leonin
+	"leonin", // mod add: Leonin
+	"golem" // mod add: Golem
 };
 
 // body part focal points
@@ -527,7 +572,8 @@ static char gibtype[NUMMONSTERS] =
 	1,  //MONSTER_UNUSED_7
 	1,  //MONSTER_UNUSED_8
 	1,  //MERROW modd add
-	1   // LEONIN: standard red blood
+	1,  // LEONIN: standard red blood
+	0   // GOLEM: construct
 };
 
 // columns go like this:
@@ -589,7 +635,8 @@ static double damagetables[NUMMONSTERS][7] =
 	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }, // monster_unused_7
 	{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f }, // monster_unused_8
 	{ 0.5, 1.f, 0.7, 1.2, 1.1, 1.4, 1.f }, // merrow mod add
-	{ 1.2, 0.8, 1.f, 1.3, 1.f, 0.6, 0.8 }  // leonin mod add
+	{ 1.2, 0.8, 1.f, 1.3, 1.f, 0.6, 0.8 }, // leonin mod add
+	{ 1.f, 1.4, 1.f, 0.6, 0.8, 1.f, 1.2 }  // golem mod add
 };
 
 enum DamageTableType : int

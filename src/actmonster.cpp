@@ -219,7 +219,8 @@ double sightranges[NUMMONSTERS] =
 	256, // MONSTER_UNUSED_7
 	256, // MONSTER_UNUSED_8
 	0,   // MERROW (preserve existing zero-initialized value)
-	256  // mod add: LEONIN uses Human sight range
+	256, // mod add: LEONIN uses Human sight range
+	256  // mod add: GOLEM uses humanoid sight range
 };
 
 int monsterGlobalAnimationMultiplier = 10;
@@ -231,6 +232,10 @@ std::string getMonsterLocalizedName(Monster creature, Stat* optionalStats)
 	if ( creature == LEONIN )
 	{
 		return "leonin";
+	}
+	if ( creature == GOLEM )
+	{
+		return "golem";
 	}
 
 	// mod add: Merrow
@@ -431,6 +436,11 @@ bool ShopkeeperPlayerHostility_t::isPlayerEnemy(const int player)
 bool ShopkeeperPlayerHostility_t::playerRaceCheckHostility(const int player, const Monster type) const
 {
 	if ( player < 0 || player >= MAXPLAYERS ) { return false; }
+	if ( type == GOLEM && players[player] && players[player]->entity
+		&& players[player]->entity->isNaturalGolemPlayer() )
+	{
+		return players[player]->entity->isBlessedGolemPlayer();
+	}
 	if ( type != HUMAN && type != AUTOMATON && type != DRYAD && type != MYCONID && type != SALAMANDER && type != GNOME
 		&& type != LEONIN ) //mod add: Leonins are welcomed by shopkeepers
 	{

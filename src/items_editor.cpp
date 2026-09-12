@@ -61,6 +61,8 @@ Item* newItem(const ItemType type, const Status status, const Sint16 beatitude, 
 	item->identified = identified;
 	item->runeStoredPWR = Item::RUNE_STORED_PWR_INVALID;
 	item->runeCreatorPlayer = Item::RUNE_CREATOR_INVALID;
+	item->runeInstanceId = Item::RUNE_INSTANCE_ID_INVALID;
+	item->runeCreatorIdentity = Item::RUNE_CREATOR_IDENTITY_INVALID;
 	item->uid = itemuids;
 	if ( inventory )
 	{

@@ -1226,7 +1226,7 @@ void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* a
 	animation_manager->active_count = 0;
 	animation_manager->overcharge = 0;
 	animation_manager->usingRune = false;
-	animation_manager->runeItemUid = 0;
+	animation_manager->runeInstanceId = 0;
 	animation_manager->hasSpellPowerOverride = false;
 	animation_manager->spellPowerOverride = 0.0;
 	//animation_manager->overcharge_init = 0;
@@ -1255,7 +1255,7 @@ void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* a
 	}
 }
 
-bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeItemUid)
+bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeInstanceId)
 {
 	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !players[player]->entity
 		|| !players[player]->isLocalPlayer() || !spell
@@ -1265,7 +1265,8 @@ bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeItemUid)
 	}
 	auto& animation = cast_animation[player];
 	Item* rune = stats[player] ? stats[player]->shield : nullptr;
-	if ( !rune || !rune->isMagicRune() || rune->uid != runeItemUid || !rune->runeHasStoredPWR() )
+	if ( !rune || !rune->isMagicRune()
+		|| rune->runeGetInstanceId() != runeInstanceId || !rune->runeHasStoredPWR() )
 	{
 		return false;
 	}
@@ -1279,7 +1280,7 @@ bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeItemUid)
 	animation.active = true;
 	animation.active_spellbook = false;
 	animation.usingRune = true;
-	animation.runeItemUid = runeItemUid;
+	animation.runeInstanceId = runeInstanceId;
 	animation.hasSpellPowerOverride = true;
 	animation.spellPowerOverride = rune->runeGetStoredPWR();
 	animation.stage = ANIM_SPELL_CIRCLE;
@@ -1364,7 +1365,7 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 		{
 			Item* equippedRune = stats[player] ? stats[player]->shield : nullptr;
 			if ( !equippedRune || !equippedRune->isMagicRune()
-				|| equippedRune->uid != animation_manager->runeItemUid
+				|| equippedRune->runeGetInstanceId() != animation_manager->runeInstanceId
 				|| !equippedRune->runeCanCast()
 				|| equippedRune->runeGetSpellID() != animation_manager->spell->ID )
 			{
@@ -1372,7 +1373,7 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 			}
 			spell_t* runeSpell = copySpell(animation_manager->spell);
 			if ( !runeSpell ) { return; }
-			runeSpell->runeItemUid = animation_manager->runeItemUid;
+			runeSpell->runeInstanceId = animation_manager->runeInstanceId;
 			if ( !applyMagicRuneStoredPWR(*runeSpell, *equippedRune) )
 			{
 				spellDeconstructor(runeSpell);
@@ -1386,7 +1387,7 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 			castSpell(animation_manager->caster, runeSpell, false, false, false, runeProps, false, true);
 			if ( multiplayer != CLIENT )
 			{
-				applyMagicRuneCastStress(animation_manager->runeItemUid, runeResource);
+				applyMagicRuneCastStress(animation_manager->runeInstanceId, runeResource, player);
 			}
 			spellDeconstructor(runeSpell);
 		}
@@ -1774,6 +1775,10 @@ void actLeftHandMagic(Entity* my)
 				break;
 			case SALAMANDER:
 				my->sprite = 2329;
+				break;
+			case GOLEM:
+				my->sprite = stats[HANDMAGIC_PLAYERNUM]->sex == FEMALE
+					? GOLEM_MODEL_C_HAND_LEFT_FP : GOLEM_MODEL_B_HAND_LEFT_FP;
 				break;
 			case LEONIN:
 				my->sprite = LEONIN_MODEL_HAND_LEFT_FP;
@@ -2622,6 +2627,10 @@ void actRightHandMagic(Entity* my)
 				break;
 			case SALAMANDER:
 				my->sprite = 2330;
+				break;
+			case GOLEM:
+				my->sprite = stats[HANDMAGIC_PLAYERNUM]->sex == FEMALE
+					? GOLEM_MODEL_C_HAND_RIGHT_FP : GOLEM_MODEL_B_HAND_RIGHT_FP;
 				break;
 			case LEONIN:
 				my->sprite = LEONIN_MODEL_HAND_RIGHT_FP;

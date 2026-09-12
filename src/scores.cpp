@@ -5443,6 +5443,10 @@ void SaveGameInfo::computeHash(const int playernum, Uint32& hash)
 		hash += (Uint32)((Uint32)stats->LVL << (shift % 32)); ++shift;
 		hash += (Uint32)((Uint32)stats->GOLD << (shift % 32)); ++shift;
 		hash += (Uint32)((Uint32)stats->HUNGER << (shift % 32)); ++shift;
+		if ( stats->rune_creator_identity != 0 )
+		{
+			hash += (Uint32)(stats->rune_creator_identity << (shift % 32)); ++shift;
+		}
 
 		for ( auto k : stats->PROFICIENCIES )
 		{
@@ -5555,6 +5559,9 @@ void SaveGameInfo::Player::stat_t::item_t::computeHash(Uint32& hash, Uint32& shi
 	hash += (Uint32)((Uint32)y << (shift % 32)); ++shift;
 	hash += (Uint32)((Uint32)runeStoredPWR << (shift % 32)); ++shift;
 	hash += (Uint32)((Uint32)runeCreatorPlayer << (shift % 32)); ++shift;
+	// Optional metadata must not perturb the legacy hash layout when absent.
+	if ( runeInstanceId != 0 ) { hash += (Uint32)(runeInstanceId << (shift % 32)); ++shift; }
+	if ( runeCreatorIdentity != 0 ) { hash += (Uint32)(runeCreatorIdentity << (shift % 32)); ++shift; }
 }
 
 int SaveGameInfo::populateFromSession(const int playernum)
@@ -5755,6 +5762,8 @@ int SaveGameInfo::populateFromSession(const int playernum)
 			player.stats.LVL = stats[c]->LVL;
 			player.stats.GOLD = stats[c]->GOLD;
 			player.stats.HUNGER = stats[c]->HUNGER;
+			player.stats.golem_blessed_composition = stats[c]->golemBlessedComposition;
+			player.stats.rune_creator_identity = stats[c]->runeCreatorIdentity;
 			player.stats.PROFICIENCIES.resize(NUMPROFICIENCIES);
 			for ( int i = 0; i < NUMPROFICIENCIES; ++i ) {
 				player.stats.PROFICIENCIES[i] = stats[c]->getProficiency(i);
@@ -5856,7 +5865,8 @@ int SaveGameInfo::populateFromSession(const int playernum)
 						0,
 						0,
 						item.runeGetStoredPWRRaw(),
-						static_cast<Sint8>(item.runeGetCreatorPlayer())));
+						static_cast<Sint8>(item.runeGetCreatorPlayer()),
+						item.runeGetInstanceId(), item.runeGetCreatorIdentity()));
 				}
 			}
 
@@ -5899,6 +5909,7 @@ int SaveGameInfo::populateFromSession(const int playernum)
 								slot.second->y,
 								slot.second->runeGetStoredPWRRaw(),
 								static_cast<Sint8>(slot.second->runeGetCreatorPlayer()),
+								slot.second->runeGetInstanceId(), slot.second->runeGetCreatorIdentity(),
 							}));
 					}
 				}
@@ -5926,6 +5937,7 @@ int SaveGameInfo::populateFromSession(const int playernum)
 					item->y,
 					item->runeGetStoredPWRRaw(),
 					static_cast<Sint8>(item->runeGetCreatorPlayer()),
+					item->runeGetInstanceId(), item->runeGetCreatorIdentity(),
 					});
 			}
 
@@ -5945,6 +5957,7 @@ int SaveGameInfo::populateFromSession(const int playernum)
 					item->y,
 					item->runeGetStoredPWRRaw(),
 					static_cast<Sint8>(item->runeGetCreatorPlayer()),
+					item->runeGetInstanceId(), item->runeGetCreatorIdentity(),
 					});
 			}
 
@@ -5973,6 +5986,8 @@ int SaveGameInfo::populateFromSession(const int playernum)
 					stats.LVL = follower->LVL;
 					stats.GOLD = follower->GOLD;
 					stats.HUNGER = follower->HUNGER;
+					stats.golem_blessed_composition = follower->golemBlessedComposition;
+					stats.rune_creator_identity = follower->runeCreatorIdentity;
 					stats.PROFICIENCIES.resize(NUMPROFICIENCIES);
 					for ( int i = 0; i < NUMPROFICIENCIES; ++i ) {
 						stats.PROFICIENCIES[i] = follower->getProficiency(i);
@@ -6020,6 +6035,7 @@ int SaveGameInfo::populateFromSession(const int playernum)
 									slot.second->y,
 									slot.second->runeGetStoredPWRRaw(),
 									static_cast<Sint8>(slot.second->runeGetCreatorPlayer()),
+									slot.second->runeGetInstanceId(), slot.second->runeGetCreatorIdentity(),
 								}));
 						}
 					}
@@ -6040,6 +6056,7 @@ int SaveGameInfo::populateFromSession(const int playernum)
 							item->y,
 							item->runeGetStoredPWRRaw(),
 							static_cast<Sint8>(item->runeGetCreatorPlayer()),
+							item->runeGetInstanceId(), item->runeGetCreatorIdentity(),
 							});
 					}
 
@@ -6365,6 +6382,32 @@ std::string SaveGameInfo::serializeToOnlineHiscore(const int playernum, const in
 	return os.GetString();
 }
 
+static void reserveSavedRuneMetadata(const SaveGameInfo::Player::stat_t& savedStats)
+{
+	reserveRuneCreatorIdentity(savedStats.rune_creator_identity);
+	auto reserveItem = [](const SaveGameInfo::Player::stat_t::item_t& item)
+	{
+		reserveMagicRuneInstanceId(item.runeInstanceId);
+		reserveRuneCreatorIdentity(item.runeCreatorIdentity);
+	};
+	for ( const auto& item : savedStats.inventory ) { reserveItem(item); }
+	for ( const auto& item : savedStats.void_chest_inventory ) { reserveItem(item); }
+	for ( const auto& item : savedStats.npc_equipment ) { reserveItem(item.second); }
+	for ( const auto& loot : savedStats.player_lootbags )
+	{
+		for ( const auto& item : loot.second.items ) { reserveItem(item); }
+	}
+}
+
+static void restoreSavedRuneMetadata(Item& item, const SaveGameInfo::Player::stat_t::item_t& savedItem)
+{
+	item.runeSetStoredPWRRaw(savedItem.runeStoredPWR);
+	item.runeSetCreatorPlayer(savedItem.runeCreatorPlayer);
+	item.runeSetInstanceId(savedItem.runeInstanceId);
+	item.runeSetCreatorIdentity(savedItem.runeCreatorIdentity);
+	item.runeEnsureInstanceId(); // Legacy saves receive a fresh, collision-safe physical Rune ID.
+}
+
 int loadGame(int player, const SaveGameInfo& info) {
 	if (player < 0 || player >= MAXPLAYERS) {
 		printlog("loadGame() failed: invalid player index");
@@ -6387,6 +6430,17 @@ int loadGame(int player, const SaveGameInfo& info) {
 			printlog("loadGame() failed: given player is not connected");
 		}
 		return 1;
+	}
+
+	// Reserve every persisted identifier before allocating IDs for legacy Runes.
+	// loadGame() is invoked per player, so this must cover the whole save each time.
+	for ( const auto& savedPlayer : info.players )
+	{
+		reserveSavedRuneMetadata(savedPlayer.stats);
+		for ( const auto& follower : savedPlayer.followers )
+		{
+			reserveSavedRuneMetadata(follower);
+		}
 	}
 
 	int statsPlayer = player;
@@ -6538,6 +6592,11 @@ int loadGame(int player, const SaveGameInfo& info) {
 	stats[statsPlayer]->LVL = p.LVL;
 	stats[statsPlayer]->GOLD = p.GOLD;
 	stats[statsPlayer]->HUNGER = p.HUNGER;
+	stats[statsPlayer]->golemBlessedComposition = p.golem_blessed_composition >= 0
+		? std::min(10000, std::max(0, p.golem_blessed_composition))
+		: (stats[statsPlayer]->sex == MALE ? 10000 : 0);
+	stats[statsPlayer]->runeCreatorIdentity = p.rune_creator_identity;
+	reserveRuneCreatorIdentity(stats[statsPlayer]->runeCreatorIdentity);
 	for (int c = 0; c < NUMPROFICIENCIES && c < p.PROFICIENCIES.size(); ++c) {
 		stats[statsPlayer]->setProficiency(c, p.PROFICIENCIES[c]);
 	}
@@ -6593,8 +6652,7 @@ int loadGame(int player, const SaveGameInfo& info) {
 			item.count = _item.count;
 			item.appearance = _item.appearance;
 			item.identified = _item.identified;
-			item.runeSetStoredPWRRaw(_item.runeStoredPWR);
-			item.runeSetCreatorPlayer(_item.runeCreatorPlayer);
+			restoreSavedRuneMetadata(item, _item);
 		}
 	}
 
@@ -6621,8 +6679,7 @@ int loadGame(int player, const SaveGameInfo& info) {
 		bool identified = item.identified;
 		Item* i = newItem(type, status, beatitude, count,
 			appearance, identified, &stats[statsPlayer]->inventory);
-		i->runeSetStoredPWRRaw(item.runeStoredPWR);
-		i->runeSetCreatorPlayer(item.runeCreatorPlayer);
+		restoreSavedRuneMetadata(*i, item);
 		i->x = item.x;
 		i->y = item.y;
 
@@ -6642,8 +6699,7 @@ int loadGame(int player, const SaveGameInfo& info) {
 		bool identified = item.identified;
 		Item* i = newItem(type, status, beatitude, count,
 			appearance, identified, &stats[statsPlayer]->void_chest_inventory);
-		i->runeSetStoredPWRRaw(item.runeStoredPWR);
-		i->runeSetCreatorPlayer(item.runeCreatorPlayer);
+		restoreSavedRuneMetadata(*i, item);
 		i->x = item.x;
 		i->y = item.y;
 	}
@@ -6692,8 +6748,7 @@ int loadGame(int player, const SaveGameInfo& info) {
 				bool identified = item.second.identified;
 				Item* i = newItem(type, status, beatitude, count,
 					appearance, identified, nullptr);
-				i->runeSetStoredPWRRaw(item.second.runeStoredPWR);
-				i->runeSetCreatorPlayer(item.second.runeCreatorPlayer);
+				restoreSavedRuneMetadata(*i, item.second);
 				i->x = item.second.x;
 				i->y = item.second.y;
 				slot = i;
@@ -6942,6 +6997,11 @@ list_t* loadGameFollowers(const SaveGameInfo& info) {
 			stats->LVL = follower.LVL;
 			stats->GOLD = follower.GOLD;
 			stats->HUNGER = follower.HUNGER;
+			stats->golemBlessedComposition = follower.golem_blessed_composition >= 0
+				? std::min(10000, std::max(0, follower.golem_blessed_composition))
+				: (stats->sex == MALE ? 10000 : 0);
+			stats->runeCreatorIdentity = follower.rune_creator_identity;
+			reserveRuneCreatorIdentity(stats->runeCreatorIdentity);
 			for (int c = 0; c < NUMPROFICIENCIES && c < follower.PROFICIENCIES.size(); ++c) {
 				stats->setProficiency(c, follower.PROFICIENCIES[c]);
 			}
@@ -6989,8 +7049,7 @@ list_t* loadGameFollowers(const SaveGameInfo& info) {
 				bool identified = item.identified;
 				Item* i = newItem(type, status, beatitude, count,
 					appearance, identified, &stats->inventory);
-				i->runeSetStoredPWRRaw(item.runeStoredPWR);
-				i->runeSetCreatorPlayer(item.runeCreatorPlayer);
+				restoreSavedRuneMetadata(*i, item);
 				i->x = item.x;
 				i->y = item.y;
 			}
@@ -7020,8 +7079,7 @@ list_t* loadGameFollowers(const SaveGameInfo& info) {
 					bool identified = item.second.identified;
 					Item* i = newItem(type, status, beatitude, count,
 						appearance, identified, nullptr);
-					i->runeSetStoredPWRRaw(item.second.runeStoredPWR);
-					i->runeSetCreatorPlayer(item.second.runeCreatorPlayer);
+					restoreSavedRuneMetadata(*i, item.second);
 					i->x = item.second.x;
 					i->y = item.second.y;
 					slot = i;
@@ -7108,6 +7166,7 @@ int SaveGameInfo::Player::isCharacterValidFromDLC()
 		}
 		break;
 	case RACE_LEONIN: // mod add: Leonin has no DLC requirement
+	case RACE_GOLEM: // mod add: Golem has no DLC requirement
 		break;
 	default:
 		break;
@@ -7138,12 +7197,22 @@ int SaveGameInfo::Player::isCharacterValidFromDLC()
 			? VALID_OK_CHARACTER
 			: INVALID_REQUIRE_ACHIEVEMENT;
 	}
+	else if ( this->char_class == CLASS_RUNESMITH )
+	{
+		if ( this->race == RACE_GOLEM )
+		{
+			return VALID_OK_CHARACTER;
+		}
+		return isAchievementUnlockedForClassUnlock(RACE_GOLEM)
+			? VALID_OK_CHARACTER
+			: INVALID_REQUIRE_ACHIEVEMENT;
+	}
 	// mod add end
 	else if ( this->race > RACE_HUMAN && this->stats.statscore_appearance == 1 )
 	{
 		return VALID_OK_CHARACTER; // aesthetic only option.
 	}
-	if ( this->char_class <= CLASS_MONK || this->char_class == CLASS_RUNESMITH )
+	if ( this->char_class <= CLASS_MONK )
 	{
 		return VALID_OK_CHARACTER;
 	}

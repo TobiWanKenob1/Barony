@@ -8617,7 +8617,7 @@ bind_failed:
 	}
 
 	// number of player selectable races
-	constexpr int num_races = 16; //mod add: add Leonin selectable race
+	constexpr int num_races = 17; // mod add: include Golem selectable race
 
 /******************************************************************************/
 	int getLangEntryForMainMenuRaceName(int race)
@@ -8656,6 +8656,10 @@ bind_failed:
 		{
 			return "Leonin";
 		}
+		if ( race == 16 ) // mod add: Golem's visible menu index
+		{
+			return "Golem";
+		}
 
 		return Language::get(getLangEntryForMainMenuRaceName(race));
 	}
@@ -8669,6 +8673,10 @@ bind_failed:
 		if ( race == RACE_LEONIN ) // mod add: no language-file dependency
 		{
 			return "Leonin";
+		}
+		if ( race == RACE_GOLEM )
+		{
+			return "Golem";
 		}
 
 		return Language::get(getLangEntryForPlayerRaceName(race));
@@ -13385,15 +13393,24 @@ failed:
 				data[CLASS_GUNSLINGER].text = "A resourceful marksman armed with a flintlock pistol and fieldcraft spellbooks.";
 			}
 		}
-		// TODO RUNESMITH: replace temporary Paladin class description/stat ratings.
+		// Keep Runesmith selectable when its mounted description data is absent.
 		if ( data.find(CLASS_RUNESMITH) == data.end() )
 		{
-			auto paladin = data.find(CLASS_PALADIN);
-			if ( paladin != data.end() )
-			{
-				data[CLASS_RUNESMITH] = paladin->second;
-				data[CLASS_RUNESMITH].internal_name = "runesmith";
-			}
+			auto& runesmith = data[CLASS_RUNESMITH];
+			runesmith.internal_name = "runesmith";
+			runesmith.text = "A runic artisan who binds spellbook magic into gemstones and wields a Rune Hammer.";
+			tmpStats.clearStats();
+			initClassStats(CLASS_RUNESMITH, &tmpStats);
+			runesmith.hp = tmpStats.HP;
+			runesmith.mp = tmpStats.MP;
+			runesmith.survivalComplexity = {
+				std::make_tuple(3, "***", average),
+				std::make_tuple(4, "****", poor)
+			};
+			runesmith.statRatingsStrings = {
+				"decent", "poor", "average", "decent", "poor", "average"
+			};
+			runesmith.statRatings = { decent, poor, average, decent, poor, average };
 		}
 		init = true;
 		printlog("[JSON]: Successfully read json file %s", inputPath.c_str());
@@ -13886,13 +13903,16 @@ failed:
 				? RaceDescriptions::getMonsterDescriptionData(MERROW)
 				: (race == RACE_LEONIN)
 					? RaceDescriptions::getMonsterDescriptionData(LEONIN)
+				: (race == RACE_GOLEM)
+					? RaceDescriptions::getMonsterDescriptionData(GOLEM)
 				: RaceDescriptions::getRaceDescriptionData(race);
 		// mod add end
 
 	    auto details_title = card.findField("details_title");
 	    if (details_title) {
 	        details_title->clearLinesToColor();
-	        details_title->setText(race == RACE_LEONIN ? "Leonin" : raceDescriptionData.title.c_str());
+	        details_title->setText(race == RACE_GOLEM ? "Golem"
+				: (race == RACE_LEONIN ? "Leonin" : raceDescriptionData.title.c_str()));
             details_title->setColor(color_race);
 	    }
 
@@ -13934,10 +13954,26 @@ failed:
 	static void race_achievement_required_error(int classnum)
 	{
 		// mod add: custom race / class unlocks
-		if ( classnum == CLASS_WHALER || classnum == CLASS_GUNSLINGER )
+		if ( classnum == CLASS_WHALER || classnum == CLASS_GUNSLINGER || classnum == CLASS_RUNESMITH)
 		{
-			const char* pairedRace = classnum == CLASS_WHALER ? "Merrow" : "Leonin";
-			const char* pairedClass = classnum == CLASS_WHALER ? "Whaler" : "Gunslinger";
+			const char* pairedRace = "";
+			const char* pairedClass = "";
+
+			if ( classnum == CLASS_WHALER )
+			{
+				pairedRace = "Merrow";
+				pairedClass = "Whaler";
+			}
+			else if ( classnum == CLASS_GUNSLINGER )
+			{
+				pairedRace = "Leonin";
+				pairedClass = "Gunslinger";
+			}
+			else if ( classnum == CLASS_RUNESMITH )
+			{
+				pairedRace = "Golem";
+				pairedClass = "Runesmith";
+			}
 			char customPrompt[128] = "";
 			snprintf(customPrompt, sizeof(customPrompt),
 				"Win the game as a %s to unlock %s for other races.", pairedRace, pairedClass);
@@ -14093,6 +14129,10 @@ failed:
 		else if ( race != RACE_LEONIN - 4 && challengeClass == CLASS_GUNSLINGER )
 		{
 			allowPick = isAchievementUnlockedForClassUnlock(RACE_LEONIN);
+		}
+		else if ( race != RACE_GOLEM - 4 && challengeClass == CLASS_RUNESMITH )
+		{
+			allowPick = isAchievementUnlockedForClassUnlock(RACE_GOLEM);
 		}
 		return allowPick;
 	}
@@ -16057,7 +16097,8 @@ failed:
 	    slider->setHideSelectors(true);
 
 		auto hover_image = subframe->addImage(
-			SDL_Rect{0, 4 + 36 * stats[index]->playerRace, 234, 30},
+			SDL_Rect{0, 4 + 36 * (stats[index]->playerRace > RACE_INSECTOID
+				? stats[index]->playerRace - 4 : stats[index]->playerRace), 234, 30},
 			0xffffffff,
 			"*#images/ui/Main Menus/Play/PlayerCreation/RaceSelection/sublist_item-hover.png",
 		    "hover");
@@ -16515,7 +16556,19 @@ failed:
 		male_button->setColor(stats[index]->sex == MALE ? makeColorRGB(255, 255, 255) : makeColorRGB(127, 127, 127));
 		male_button->setHighlightColor(stats[index]->sex == MALE ? makeColorRGB(255, 255, 255) : makeColorRGB(127, 127, 127));
 		male_button->setStyle(Button::style_t::STYLE_RADIO);
-		if (stats[index]->playerRace == RACE_AUTOMATON) {
+		if ( stats[index]->playerRace == RACE_GOLEM )
+		{
+			male_button->setFont(smallfont_outline);
+			male_button->setText("Blessed");
+		}
+		if ( stats[index]->playerRace == RACE_GOLEM )
+		{
+			male_button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemOn_00.png");
+			male_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolem_00.png");
+			male_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemHigh_00.png");
+			male_button->setBackgroundActivated("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemPress_00.png");
+		}
+		else if (stats[index]->playerRace == RACE_AUTOMATON) {
 			male_button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAutoOn_00.png");
 			male_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAuto_00.png");
 			male_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAutoHigh_00.png");
@@ -16570,7 +16623,15 @@ failed:
 		male_button->setTickCallback([](Widget& widget){
 			const int index = widget.getOwner();
 			auto button = static_cast<Button*>(&widget); assert(button);
-			if (stats[index]->playerRace == RACE_AUTOMATON) 
+			button->setText(stats[index]->playerRace == RACE_GOLEM ? "Blessed" : "");
+			if ( stats[index]->playerRace == RACE_GOLEM )
+			{
+				button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemOn_00.png");
+				button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolem_00.png");
+				button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemHigh_00.png");
+				button->setBackgroundActivated("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemPress_00.png");
+			}
+			else if (stats[index]->playerRace == RACE_AUTOMATON)
 			{
 				button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAutoOn_00.png");
 				button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAuto_00.png");
@@ -16605,7 +16666,19 @@ failed:
 		female_button->setColor(stats[index]->sex == FEMALE ? makeColorRGB(255, 255, 255) : makeColorRGB(127, 127, 127));
 		female_button->setHighlightColor(stats[index]->sex == FEMALE ? makeColorRGB(255, 255, 255) : makeColorRGB(127, 127, 127));
 		female_button->setStyle(Button::style_t::STYLE_RADIO);
-		if ( stats[index]->playerRace == RACE_AUTOMATON ) {
+		if ( stats[index]->playerRace == RACE_GOLEM )
+		{
+			female_button->setFont(smallfont_outline);
+			female_button->setText("Cursed");
+		}
+		if ( stats[index]->playerRace == RACE_GOLEM )
+		{
+			female_button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemOn_00.png");
+			female_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolem_00.png");
+			female_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemHigh_00.png");
+			female_button->setBackgroundActivated("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemPress_00.png");
+		}
+		else if ( stats[index]->playerRace == RACE_AUTOMATON ) {
 			female_button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAutoOn_00.png");
 			female_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAuto_00.png");
 			female_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAutoHigh_00.png");
@@ -16661,7 +16734,15 @@ failed:
 		female_button->setTickCallback([](Widget& widget){
 			const int index = widget.getOwner();
 			auto button = static_cast<Button*>(&widget); assert(button);
-			if (stats[index]->playerRace == RACE_AUTOMATON) {
+			button->setText(stats[index]->playerRace == RACE_GOLEM ? "Cursed" : "");
+			if ( stats[index]->playerRace == RACE_GOLEM )
+			{
+				button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemOn_00.png");
+				button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolem_00.png");
+				button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemHigh_00.png");
+				button->setBackgroundActivated("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemPress_00.png");
+			}
+			else if (stats[index]->playerRace == RACE_AUTOMATON) {
 				button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAutoOn_00.png");
 				button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAuto_00.png");
 				button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAutoHigh_00.png");
@@ -17719,7 +17800,14 @@ failed:
 		male_button->setColor(stats[index]->sex == MALE ? makeColorRGB(255, 255, 255) : makeColorRGB(127, 127, 127));
 		male_button->setHighlightColor(stats[index]->sex == MALE ? makeColorRGB(255, 255, 255) : makeColorRGB(127, 127, 127));
 		male_button->setStyle(Button::style_t::STYLE_RADIO);
-		if (stats[index]->playerRace == RACE_AUTOMATON) {
+		if ( stats[index]->playerRace == RACE_GOLEM )
+		{
+			male_button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemOn_00.png");
+			male_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolem_00.png");
+			male_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemHigh_00.png");
+			male_button->setBackgroundActivated("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemPress_00.png");
+		}
+		else if (stats[index]->playerRace == RACE_AUTOMATON) {
 			male_button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAutoOn_00.png");
 			male_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAuto_00.png");
 			male_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAutoHigh_00.png");
@@ -17770,7 +17858,14 @@ failed:
 		male_button->setTickCallback([](Widget& widget){
 			const int index = widget.getOwner();
 			auto button = static_cast<Button*>(&widget); assert(button);
-			if (stats[index]->playerRace == RACE_AUTOMATON) {
+			if ( stats[index]->playerRace == RACE_GOLEM )
+			{
+				button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemOn_00.png");
+				button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolem_00.png");
+				button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemHigh_00.png");
+				button->setBackgroundActivated("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonBGolemPress_00.png");
+			}
+			else if (stats[index]->playerRace == RACE_AUTOMATON) {
 				button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAutoOn_00.png");
 				button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAuto_00.png");
 				button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonMAutoHigh_00.png");
@@ -17804,7 +17899,14 @@ failed:
 		female_button->setColor(stats[index]->sex == FEMALE ? makeColorRGB(255, 255, 255) : makeColorRGB(127, 127, 127));
 		female_button->setHighlightColor(stats[index]->sex == FEMALE ? makeColorRGB(255, 255, 255) : makeColorRGB(127, 127, 127));
 		female_button->setStyle(Button::style_t::STYLE_RADIO);
-		if (stats[index]->playerRace == RACE_AUTOMATON) {
+		if ( stats[index]->playerRace == RACE_GOLEM )
+		{
+			female_button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemOn_00.png");
+			female_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolem_00.png");
+			female_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemHigh_00.png");
+			female_button->setBackgroundActivated("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemPress_00.png");
+		}
+		else if (stats[index]->playerRace == RACE_AUTOMATON) {
 			female_button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAutoOn_00.png");
 			female_button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAuto_00.png");
 			female_button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAutoHigh_00.png");
@@ -17856,7 +17958,14 @@ failed:
 		female_button->setTickCallback([](Widget& widget){
 			const int index = widget.getOwner();
 			auto button = static_cast<Button*>(&widget); assert(button);
-			if (stats[index]->playerRace == RACE_AUTOMATON) {
+			if ( stats[index]->playerRace == RACE_GOLEM )
+			{
+				button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemOn_00.png");
+				button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolem_00.png");
+				button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemHigh_00.png");
+				button->setBackgroundActivated("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonCGolemPress_00.png");
+			}
+			else if (stats[index]->playerRace == RACE_AUTOMATON) {
 				button->setIcon("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAutoOn_00.png");
 				button->setBackground("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAuto_00.png");
 				button->setBackgroundHighlighted("*images/ui/Main Menus/Play/PlayerCreation/RaceSelection/UI_RaceSelection_ButtonFAutoHigh_00.png");
@@ -18000,6 +18109,7 @@ failed:
 						chances[RACE_SALAMANDER] = 1;
 					}
 					chances[RACE_LEONIN] = 1; // mod add: Leonin is a no-DLC selectable race
+					chances[RACE_GOLEM] = 1; // mod add: Golem is a no-DLC selectable race
 					stats[index]->playerRace = RNG.discrete(chances.data(), chances.size());
 				}
 			}

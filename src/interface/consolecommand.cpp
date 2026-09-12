@@ -816,6 +816,17 @@ namespace ConsoleCommands {
 		showfps = (showfps == false);
 		});
 
+	static ConsoleCommand ccmd_golemstats("/golemstats", "toggle Golem debug HUD (cheat)", []CCMD{
+		if ( !(svFlags & SV_FLAG_CHEATS) )
+		{
+			messagePlayer(clientnum, MESSAGE_MISC, Language::get(277));
+			return;
+		}
+		showgolemstats = !showgolemstats;
+		messagePlayer(clientnum, MESSAGE_MISC, "Golem stats overlay %s.",
+			showgolemstats ? "enabled" : "disabled");
+		});
+
 	static ConsoleCommand ccmd_noclip("/noclip", "toggle noclip mode (cheat)", []CCMD{
 		if (!(svFlags & SV_FLAG_CHEATS))
 		{
@@ -6810,4 +6821,3 @@ namespace ConsoleCommands {
 		Player::Inventory_t::Appraisal_t::readFromFile();
 	});
 }
-

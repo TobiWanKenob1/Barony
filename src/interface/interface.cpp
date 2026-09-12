@@ -6600,7 +6600,8 @@ bool GenericGUIMenu::ItemEffectGUI_t::consumeResourcesForTransmute()
 					{
 						if ( rune )
 						{
-							applyMagicRuneCastStress(rune->uid, costEffectMPAmount);
+							applyMagicRuneCastStress(rune->runeGetInstanceId(),
+								costEffectMPAmount, parentGUI.gui_player);
 						}
 						else
 						{
@@ -6642,7 +6643,8 @@ bool GenericGUIMenu::ItemEffectGUI_t::consumeResourcesForTransmute()
 					}
 				}
 				SDLNet_Write16(spellID, &net_packet->data[13]);
-				SDLNet_Write32(rune ? rune->uid : 0, &net_packet->data[15]);
+				SDLNet_Write32(rune ? rune->runeGetInstanceId() : 0,
+					&net_packet->data[15]);
 				net_packet->address.host = net_server.host;
 				net_packet->address.port = net_server.port;
 				net_packet->len = 19;
@@ -8016,6 +8018,8 @@ void GenericGUIMenu::sendItemToVoid(Item* item)
 	Item* newitem = newItem(item->type, item->status, item->beatitude, item->count, item->appearance, item->identified, nullptr);
 	newitem->runeSetStoredPWRRaw(item->runeGetStoredPWRRaw());
 	newitem->runeSetCreatorPlayer(item->runeGetCreatorPlayer());
+	newitem->runeSetInstanceId(item->runeGetInstanceId());
+	newitem->runeSetCreatorIdentity(item->runeGetCreatorIdentity());
 	if ( Item* insertedItem = Entity::addItemToVoidChest(gui_player, newitem, false, nullptr) )
 	{
 		if ( insertedItem != newitem )
@@ -24673,7 +24677,7 @@ GenericGUIMenu::ItemEffectGUI_t::ItemEffectActions_t GenericGUIMenu::ItemEffectG
 					}
 				}
 			}
-			else if ( itemCategory(item) == MAGICSTAFF )
+			else if ( itemCategory(item) == MAGICSTAFF || item->type == MAGIC_RUNE  )
 			{
 				if ( item->status == EXCELLENT )
 				{
@@ -27935,7 +27939,8 @@ std::string CalloutRadialMenu::setCalloutText(Field* field, const char* iconName
 				bool hungerBlood = false;
 				for ( auto& eff : fx.effectQueue )
 				{
-					if ( eff.effect == StatusEffectQueue_t::kEffectBread || eff.effect == StatusEffectQueue_t::kEffectBloodHunger )
+					if ( eff.effect == StatusEffectQueue_t::kEffectBread
+						|| eff.effect == StatusEffectQueue_t::kEffectBloodHunger )
 					{
 						if ( eff.effect == StatusEffectQueue_t::kEffectBloodHunger )
 						{
@@ -32007,6 +32012,7 @@ void GenericGUIMenu::AssistShrineGUI_t::changeCurrentView(GenericGUIMenu::Assist
 	}
 
 	raceSlots.push_back(RACE_HUMAN);
+	raceSlots.push_back(RACE_GOLEM);
 	if ( enabledDLCPack1 )
 	{
 		raceSlots.push_back(RACE_SKELETON);

@@ -8271,6 +8271,22 @@ int main(int argc, char** argv)
 			{
 			    printTextFormatted(font16x16_bmp, 8, 8, "fps = %3.1f", fps);
 			}
+			if ( showgolemstats && players[clientnum] && players[clientnum]->entity
+				&& stats[clientnum]
+				&& players[clientnum]->entity->isNaturalGolemPlayer() )
+			{
+				const Sint32 blessed = std::max<Sint32>(0,
+					std::min<Sint32>(10000, stats[clientnum]->golemBlessedComposition));
+				const Sint32 cursed = 10000 - blessed;
+				const int overlayY = showfps ? 28 : 8;
+				printTextFormatted(font8x8_bmp, 8, overlayY,
+					"GOLEM HUNGER: %d / %d\n"
+					"BLESSED: %d (%d.%02d%%)\n"
+					"CURSED:  %d (%d.%02d%%)",
+					stats[clientnum]->HUNGER, GOLEM_CHARGE_MAX,
+					blessed, blessed / 100, blessed % 100,
+					cursed, cursed / 100, cursed % 100);
+			}
 			if ( enableDebugKeys )
 			{
 				printTextFormatted(font8x8_bmp, 8, 20, "gui module: %d\ngui mode: %d", players[0]->GUI.activeModule, players[0]->gui_mode);

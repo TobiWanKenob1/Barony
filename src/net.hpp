@@ -47,6 +47,8 @@ void serverUpdateBodypartIDs(Entity* entity);
 void serverUpdateEntityBodypart(Entity* entity, int bodypart);
 void serverUpdateEffects(int player);
 void serverUpdateHunger(int player);
+void serverUpdateGolemComposition(int player);
+void serverUpdateGolemEquipmentBeatitudes(int player);
 void serverUpdateSexChange(int player);
 void serverUpdatePlayerStats();
 void serverUpdatePlayerGameplayStats(int player, int gameplayStat, int changeval);

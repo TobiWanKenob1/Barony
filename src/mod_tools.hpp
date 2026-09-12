@@ -3601,12 +3601,21 @@ struct RuneHammerModelPositions_t
 		Transform_t normal;
 		Transform_t twoHanded;
 		Transform_t attachedOffhand;
+		Transform_t standaloneRune;
+	};
+	struct RaceOffsetGroup_t
+	{
+		std::vector<Monster> races;
+		Transform_t offset;
 	};
 	View_t firstPerson;
 	View_t thirdPerson;
+	std::vector<RaceOffsetGroup_t> thirdPersonTwoHandedRaceGroups;
 	void readFromFile();
 	const Transform_t& hammerTransform(bool firstPersonView, bool twoHanded) const;
 	const Transform_t& attachmentTransform(bool firstPersonView) const;
+	const Transform_t& standaloneRuneTransform(bool firstPersonView) const;
+	const Transform_t* getThirdPersonTwoHandedRaceOffset(Monster race) const;
 	void applyOffset(Entity& entity, const Transform_t& transform) const;
 	void attachTo(Entity& entity, const Entity& hammer, const Transform_t& transform) const;
 };

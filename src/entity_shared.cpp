@@ -2097,7 +2097,10 @@ char monsterEditorNameStrings[NUMMONSTERS][32] =
 	"duck_small",
 	"monster_unused_6",
 	"monster_unused_7",
-	"monster_unused_8"
+	"monster_unused_8",
+	"merrow",
+	"leonin",
+	"golem"
 };
 
 char tileEditorNameStrings[NUM_EDITOR_TILES][44] =
@@ -2431,6 +2434,9 @@ int canWearEquip(Entity* entity, int category)
 				case MYCONID:
 				case SALAMANDER:
 				case GREMLIN:
+					equipType = 3;
+					break;
+				case GOLEM:
 					equipType = 3;
 					break;
 

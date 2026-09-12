@@ -227,6 +227,10 @@ void Entity::initMonster(int mySprite)
 			monsterFootstepType = MONSTER_FOOTSTEP_USE_BOOTS;
 			monsterSpellAnimation = MONSTER_SPELLCAST_HUMANOID;
 			break;
+		case GOLEM:
+			monsterFootstepType = MONSTER_FOOTSTEP_USE_BOOTS;
+			monsterSpellAnimation = MONSTER_SPELLCAST_HUMANOID;
+			break;
 		case LICH_ICE:
 			monsterFootstepType = MONSTER_FOOTSTEP_NONE;
 			monsterSpellAnimation = MONSTER_SPELLCAST_HUMANOID;

@@ -11765,6 +11765,17 @@ std::vector<ItemContextMenuPrompts> getContextMenuOptionsForItem(const int playe
 		options.push_back(PROMPT_DROP);
 	}
 
+	// Golem consumption is an additional action: never replace the item's normal
+	// equip/use entry, and never offer it for equipped or pseudo-spell items.
+	if ( playerOwnedItem && !itemIsEquipped(item, player)
+		&& players[player] && players[player]->entity
+		&& players[player]->entity->isNaturalGolemPlayer()
+		&& itemIsConsumableByGolem(*item) )
+	{
+		options.insert(options.begin() + std::min<size_t>(1, options.size()),
+			PROMPT_CONSUME_ALTERNATE);
+	}
+
 	bool sellingToShop = false;
 	bool tinkerOpen = false;
 	bool alembicOpen = false;

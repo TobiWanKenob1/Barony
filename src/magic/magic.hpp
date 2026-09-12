@@ -804,8 +804,11 @@ typedef struct spell_t
 	bool sustain; //If a spell is channeled, should it be sustained? (NOTE: True by default. Set to false when the player decides to cancel/abandon a spell)
 	bool magicstaff; // if true the spell was cast from a magicstaff and thus it may have slightly different behavior
 	bool spellbook = false;
-	Uint32 runeItemUid = 0; // physical Rune powering this sustained spell, if any
+	Uint32 runeInstanceId = 0; // stable physical Rune powering this spell, if any
 	Sint8 runeCreatorPlayer = -1; // creator slot snapshotted when a Rune is released
+	Uint32 runeCreatorIdentity = 0; // verifies the creator still owns that slot
+	Sint8 runeCasterPlayer = -1; // original owner of a Rune-powered sustain
+	Uint32 runeCasterEntityUid = 0;
 	bool hasSpellPowerOverride = false;
 	real_t spellPowerOverride = 0.0; // bonus form: 0.0 is base/100% PWR
 	node_t* sustain_node = nullptr; //Node in the sustained/channeled spells list.
@@ -994,12 +997,25 @@ int spellGetCastSound(spell_t* spell);
 		real_t previousBonus = 0.0;
 		bool previousRuneCast = false;
 		Sint8 previousRuneCreatorPlayer = -1;
-		Uint32 previousRuneItemUid = 0;
+		Uint32 previousRuneInstanceId = 0;
+		Uint32 previousRuneCreatorIdentity = 0;
 	};
 	bool getActiveSpellPowerOverride(real_t& bonus);
 	void inheritActiveSpellPowerOverride(Entity& entity);
-	bool getActiveRuneCastSource(Sint8& creatorPlayer, Uint32* runeItemUid = nullptr);
+	bool getActiveRuneCastSource(Sint8& creatorPlayer, Uint32* runeInstanceId = nullptr,
+		Uint32* creatorIdentity = nullptr);
 	void inheritActiveRuneCastSource(Entity& entity);
+	class ScopedGolemWildMagicProjectileCast
+	{
+	public:
+		ScopedGolemWildMagicProjectileCast();
+		~ScopedGolemWildMagicProjectileCast();
+		ScopedGolemWildMagicProjectileCast(const ScopedGolemWildMagicProjectileCast&) = delete;
+		ScopedGolemWildMagicProjectileCast& operator=(const ScopedGolemWildMagicProjectileCast&) = delete;
+	private:
+		bool previousActive = false;
+	};
+	void inheritGolemWildMagicProjectileCast(Entity& entity);
 #ifndef EDITOR // editor doesn't know about stat*
 int getSpellcastingAbilityFromUsingSpellbook(spell_t* spell, Entity* caster, Stat* casterStats);
 bool isSpellcasterBeginnerFromSpellbook(int player, Entity* caster, Stat* stat, spell_t* spell, Item* spellbookItem);
@@ -1084,7 +1100,7 @@ static const int PINPOINT_PARTICLE_END = 1782;
 Entity* createParticleSpellPinpointTarget(Entity* parent, Uint32 casterUid, int sprite, int duration, int spellID);
 Entity* createFloorMagic(ParticleTimerEffect_t::EffectType particleType, int sprite, real_t x, real_t y, real_t z, real_t dir, Uint32 lifetime);
 Entity* createRadiusMagic(int spellID, Entity* caster, real_t x, real_t y, real_t radius,
-	Uint32 lifetime, Entity* follow, Uint32 runeItemUid = 0);
+	Uint32 lifetime, Entity* follow, Uint32 runeInstanceId = 0);
 void floorMagicClientReceive(Entity* my);
 void particleWaveClientReceive(Entity* my);
 void radiusMagicClientReceive(Entity* entity);
@@ -1164,7 +1180,7 @@ typedef struct spellcastingAnimationManager
 	int overcharge = 0;
 	int overcharge_init = 0;
 	bool usingRune = false;
-	Uint32 runeItemUid = 0;
+	Uint32 runeInstanceId = 0;
 	bool hasSpellPowerOverride = false;
 	real_t spellPowerOverride = 0.0;
 
@@ -1203,7 +1219,7 @@ extern spellcasting_animation_manager_t cast_animation[MAXPLAYERS];
 
 void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool usingTome);
 void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* animation_manager);
-bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeItemUid);
+bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeInstanceId);
 enum class RuneHammerCastVisualPhase : Uint8
 {
 	NONE,

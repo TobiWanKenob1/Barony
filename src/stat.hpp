@@ -343,6 +343,11 @@ public:
 	Sint32 STR, DEX, CON, INT, PER, CHR;
 	Sint32 EXP, LVL;
 	Sint32 GOLD, HUNGER;
+	// Natural Golem alignment, fixed point: 0 = fully cursed, 10000 = fully blessed.
+	Sint32 golemBlessedComposition = 10000;
+	// Stable identity for Rune creator credit. Persisted with the character so a
+	// later occupant of the same network slot cannot inherit that credit.
+	Uint32 runeCreatorIdentity = 0;
 	// randomised additional values to add to attributes
 	Sint32 RANDOM_STR, RANDOM_DEX, RANDOM_CON, RANDOM_INT, RANDOM_PER, RANDOM_CHR;
 	Sint32 RANDOM_MAXHP, RANDOM_HP, RANDOM_MAXMP, RANDOM_MP;

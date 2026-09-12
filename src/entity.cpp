@@ -1866,28 +1866,33 @@ void Entity::effectTimes()
 						}
 						break;
 					case EFF_VOMITING:
-						messagePlayer(player, MESSAGE_STATUS, Language::get(609));
-						if ( myStats->HUNGER > getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_OVERSATIATED) )
+						// Strength 2 marks the hidden Golem overcharge discharge. It
+						// retains the effect lifecycle but has no vomiting end presentation.
+						if ( effectStrength != 2 )
 						{
-							messagePlayer(player, MESSAGE_STATUS, Language::get(610));
-						}
-						else if ( myStats->HUNGER > getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_WEAK)
-							&& myStats->HUNGER <= getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_HUNGRY) )
-						{
-							messagePlayer(player, MESSAGE_STATUS, Language::get(611));
-							playSoundPlayer(player, 32, 128);
-						}
-						else if ( myStats->HUNGER > getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_STARVING) 
-							&& myStats->HUNGER <= getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_WEAK) )
-						{
-							messagePlayer(player, MESSAGE_STATUS, Language::get(612));
-							playSoundPlayer(player, 32, 128);
-						}
-						else if ( myStats->HUNGER <= getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_STARVING) )
-						{
-							myStats->HUNGER = 50;
-							messagePlayer(player, MESSAGE_STATUS, Language::get(613));
-							playSoundPlayer(player, 32, 128);
+							messagePlayer(player, MESSAGE_STATUS, Language::get(609));
+							if ( myStats->HUNGER > getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_OVERSATIATED) )
+							{
+								messagePlayer(player, MESSAGE_STATUS, Language::get(610));
+							}
+							else if ( myStats->HUNGER > getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_WEAK)
+								&& myStats->HUNGER <= getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_HUNGRY) )
+							{
+								messagePlayer(player, MESSAGE_STATUS, Language::get(611));
+								playSoundPlayer(player, 32, 128);
+							}
+							else if ( myStats->HUNGER > getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_STARVING)
+								&& myStats->HUNGER <= getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_WEAK) )
+							{
+								messagePlayer(player, MESSAGE_STATUS, Language::get(612));
+								playSoundPlayer(player, 32, 128);
+							}
+							else if ( myStats->HUNGER <= getEntityHungerInterval(player, this, myStats, HUNGER_INTERVAL_STARVING) )
+							{
+								myStats->HUNGER = 50;
+								messagePlayer(player, MESSAGE_STATUS, Language::get(613));
+								playSoundPlayer(player, 32, 128);
+							}
 						}
 						serverUpdateHunger(player);
 						break;
@@ -3833,6 +3838,372 @@ void Entity::monsterRollLevelUpStats(int increasestat[3])
 	increasestat[2] = r;
 }
 
+enum class GolemWildMagicSchool
+{
+	MYST,
+	THAUM,
+	SORC
+};
+
+static std::vector<Entity*> getGolemWildMagicTargets(Entity& source, const real_t radius)
+{
+	std::vector<Entity*> targets;
+	targets.push_back(&source);
+	for ( node_t* node = map.creatures->first; node; node = node->next )
+	{
+		Entity* target = static_cast<Entity*>(node->element);
+		if ( !target || target == &source
+			|| (target->behavior != &actPlayer && target->behavior != &actMonster)
+			|| !target->getStats() || target->getHP() <= 0 )
+		{
+			continue;
+		}
+		if ( entityDist(target, &source) <= radius )
+		{
+			targets.push_back(target);
+		}
+	}
+	return targets;
+}
+
+static GolemWildMagicSchool selectGolemWildMagicSchool(const Sint32 blessedComposition)
+{
+	const Sint32 composition = std::max<Sint32>(0, std::min<Sint32>(10000, blessedComposition));
+	if ( composition >= 4001 && composition <= 5999 && local_rng.rand() % 2 == 0 )
+	{
+		return GolemWildMagicSchool::SORC;
+	}
+	return (local_rng.rand() % 10000 < composition)
+		? GolemWildMagicSchool::THAUM
+		: GolemWildMagicSchool::MYST;
+}
+
+static void applyGolemWildMagicSizeEffect(Entity& source)
+{
+	auto targets = getGolemWildMagicTargets(source, 3.0 * 16.0);
+	if ( targets.empty() )
+	{
+		return;
+	}
+	Entity* target = targets[local_rng.rand() % targets.size()];
+	Stat* targetStats = target->getStats();
+	if ( !targetStats )
+	{
+		return;
+	}
+
+	const bool maximise = local_rng.rand() % 2 == 0;
+	const int effect = maximise ? EFF_MAXIMISE : EFF_MINIMISE;
+	const int oppositeEffect = maximise ? EFF_MINIMISE : EFF_MAXIMISE;
+	const int player = source.isEntityPlayer();
+	Uint8 strength = 1;
+	strength |= ((1 + ((player >= 0) ? player : MAXPLAYERS)) & 0xF) << 4;
+	if ( target->setEffect(effect, strength, 5 * TICKS_PER_SECOND, true, true, true, true) )
+	{
+		if ( targetStats->getEffectActive(oppositeEffect) )
+		{
+			target->setEffect(oppositeEffect, false, 0, true);
+		}
+		playSoundEntity(target, 167, 128);
+		spawnMagicEffectParticles(target->x, target->y, target->z, maximise ? 2335 : 2341);
+	}
+}
+
+static void spawnHostileGolemWildMagicSpiritWeapon(Entity& source)
+{
+	// The spell helper may search one tile around its requested point. Keeping
+	// that point in the adjacent 3x3 guarantees the final summon is within the
+	// requested three-tile surge radius.
+	const int targetTileX = static_cast<int>(source.x / 16.0) + (local_rng.rand() % 3) - 1;
+	const int targetTileY = static_cast<int>(source.y / 16.0) + (local_rng.rand() % 3) - 1;
+	Entity* spirit = spellEffectAdorcise(source, spellElementMap[SPELL_SPIRIT_WEAPON],
+		targetTileX * 16.0 + 8.0, targetTileY * 16.0 + 8.0, nullptr);
+	if ( !spirit )
+	{
+		return;
+	}
+	if ( Stat* spiritStats = spirit->getStats() )
+	{
+		spiritStats->leader_uid = 0;
+		spiritStats->monsterForceAllegiance = Stat::MONSTER_FORCE_PLAYER_ENEMY;
+		spiritStats->setAttribute("golem_wild_magic_hostile", "1");
+	}
+	spirit->parent = 0;
+	spirit->monsterAllyIndex = -1;
+	spirit->monsterTarget = 0;
+	spirit->flags[USERFLAG2] = false;
+	if ( entityDist(spirit, &source) > 3.0 * 16.0 )
+	{
+		spirit->x = source.x;
+		spirit->y = source.y;
+		TileEntityList.updateEntity(*spirit);
+	}
+	if ( multiplayer == SERVER )
+	{
+		serverUpdateEntitySkill(spirit, 42);
+		serverUpdateEntityFlag(spirit, USERFLAG2);
+	}
+}
+
+static bool golemWildMagicShamanFormUnlocked(const int player, const int spellID)
+{
+	if ( player < 0 || player >= MAXPLAYERS || !stats[player] )
+	{
+		return false;
+	}
+	int requiredLevel = INT_MAX;
+	switch ( spellID )
+	{
+		case SPELL_RAT_FORM: requiredLevel = 0; break;
+		case SPELL_SPIDER_FORM: requiredLevel = 3; break;
+		case SPELL_TROLL_FORM: requiredLevel = 6; break;
+		case SPELL_IMP_FORM: requiredLevel = 12; break;
+		default: break;
+	}
+	return stats[player]->LVL >= requiredLevel;
+}
+
+static void castGolemWildMagicShamanForm(Entity& source)
+{
+	const int player = source.isEntityPlayer();
+	const int formSpells[] = {
+		SPELL_RAT_FORM, SPELL_SPIDER_FORM, SPELL_TROLL_FORM, SPELL_IMP_FORM
+	};
+	std::vector<int> validForms;
+	for ( const int spellID : formSpells )
+	{
+		if ( golemWildMagicShamanFormUnlocked(player, spellID) )
+		{
+			validForms.push_back(spellID);
+		}
+	}
+	// Rat form is level-zero capability, so a valid player always has at least
+	// one candidate. Keep it as a defensive fallback instead of wasting a surge.
+	const int selectedSpell = validForms.empty() ? SPELL_RAT_FORM
+		: validForms[local_rng.rand() % validForms.size()];
+	castSpell(source.getUID(), getSpellFromID(selectedSpell), true, false);
+}
+
+static void applyGolemWildMagicHealingPulse(Entity& source)
+{
+	const int amount = std::max(1, getSpellDamageFromID(SPELL_HEALING,
+		&source, source.getStats(), &source, 0.0, false));
+	for ( Entity* target : getGolemWildMagicTargets(source, HEAL_RADIUS) )
+	{
+		const int oldHP = target->getHP();
+		spell_changeHealth(target, amount, false, false);
+		const int healed = std::max(0, target->getHP() - oldHP);
+		if ( healed > 0 )
+		{
+			spawnDamageGib(target, -healed, DamageGib::DMG_HEAL,
+				DamageGibDisplayType::DMG_GIB_NUMBER, true);
+		}
+		playSoundEntity(target, 168, 128);
+		spawnMagicEffectParticles(target->x, target->y, target->z, 169);
+	}
+}
+
+static bool cureGolemWildMagicTarget(Entity& target)
+{
+	Stat* targetStats = target.getStats();
+	if ( !targetStats )
+	{
+		return false;
+	}
+	bool changed = false;
+	for ( int effect = 0; effect < NUMEFFECTS; ++effect )
+	{
+		if ( !targetStats->getEffectActive(effect)
+			|| !targetStats->statusEffectRemovedByCureAilment(effect, &target) )
+		{
+			continue;
+		}
+		if ( effect == EFF_BLIND
+			&& (target.behavior == &actMonster || target.effectShapeshift == NOTHING)
+			&& targetStats->mask
+			&& (targetStats->mask->type == TOOL_BLINDFOLD
+				|| targetStats->mask->type == TOOL_BLINDFOLD_TELEPATHY
+				|| targetStats->mask->type == TOOL_BLINDFOLD_FOCUS) )
+		{
+			continue;
+		}
+		targetStats->clearEffect(effect);
+		if ( targetStats->EFFECTS_TIMERS[effect] > 0 )
+		{
+			targetStats->EFFECTS_TIMERS[effect] = 1;
+		}
+		changed = true;
+	}
+	if ( targetStats->getEffectActive(EFF_WITHDRAWAL) )
+	{
+		target.setEffect(EFF_WITHDRAWAL, false, EFFECT_WITHDRAWAL_BASE_TIME, true);
+		changed = true;
+	}
+	if ( target.flags[BURNING] )
+	{
+		target.flags[BURNING] = false;
+		serverUpdateEntityFlag(&target, BURNING);
+		changed = true;
+	}
+	if ( changed && target.behavior == &actPlayer )
+	{
+		serverUpdateEffects(target.skill[2]);
+	}
+	playSoundEntity(&target, 168, 128);
+	spawnMagicEffectParticles(target.x, target.y, target.z, 169);
+	return changed;
+}
+
+static void applyGolemWildMagicCurePulse(Entity& source)
+{
+	for ( Entity* target : getGolemWildMagicTargets(source, HEAL_RADIUS) )
+	{
+		cureGolemWildMagicTarget(*target);
+	}
+}
+
+static void useGolemWildMagicScroll(Entity& source, const ItemType scrollType)
+{
+	const int player = source.isEntityPlayer();
+	if ( player < 0 || player >= MAXPLAYERS )
+	{
+		return;
+	}
+	Item* scroll = newItem(scrollType, SERVICABLE, 0, 1, local_rng.rand(), true, nullptr);
+	if ( !scroll )
+	{
+		return;
+	}
+	if ( scrollType == SCROLL_LIGHT )
+	{
+		item_ScrollLight(scroll, player);
+	}
+	else if ( scrollType == SCROLL_FIRE )
+	{
+		item_ScrollFire(scroll, player);
+	}
+	free(scroll);
+}
+
+static void castGolemWildMagicProjectile(Entity& source, spell_t* spell)
+{
+	const real_t oldYaw = source.yaw;
+	source.yaw = (local_rng.rand() % 360) * PI / 180.0;
+	{
+		ScopedGolemWildMagicProjectileCast wildMagicCastScope;
+		castSpell(source.getUID(), spell, true, false);
+	}
+	source.yaw = oldYaw;
+	for ( node_t* node = map.entities->first; node; node = node->next )
+	{
+		Entity* projectile = static_cast<Entity*>(node->element);
+		if ( projectile && projectile->behavior == &actMagicMissile
+			&& projectile->golemWildMagicCastEntity )
+		{
+			projectile->actmagicAllowFriendlyFireHit = 1;
+			projectile->golemWildMagicCastEntity = false;
+		}
+	}
+}
+
+static void applyGolemWildMagicLightningSelfHit(Entity& source)
+{
+	Stat* sourceStats = source.getStats();
+	if ( !sourceStats || sourceStats->HP <= 0 )
+	{
+		return;
+	}
+	const int damage = std::max(1, getSpellDamageFromID(SPELL_LIGHTNING,
+		&source, sourceStats, &source, 0.0, false));
+	playSoundEntity(&source, 173, 128);
+	spawnMagicEffectParticles(source.x, source.y, source.z, 173);
+
+	// This is a direct overload, not a projectile collision. Applying the magic
+	// damage route directly deliberately bypasses getReflection()/projectile
+	// reflection while retaining ordinary magic resistance and hit handling.
+	if ( applyGenericMagicDamage(&source, &source, source, SPELL_LIGHTNING, damage, false) )
+	{
+		Uint8 staticStrength = sourceStats->getEffectActive(EFF_STATIC);
+		const int maxStrength = getSpellEffectDurationSecondaryFromID(SPELL_LIGHTNING,
+			&source, sourceStats, &source);
+		if ( staticStrength < maxStrength )
+		{
+			++staticStrength;
+		}
+		source.setEffect(EFF_STATIC, staticStrength,
+			getSpellEffectDurationFromID(SPELL_LIGHTNING, &source, sourceStats, &source),
+			true, true, false, false);
+	}
+}
+
+static void triggerGolemWildMagicSurge(Entity& source, Stat& sourceStats)
+{
+	if ( multiplayer == CLIENT || !source.isNaturalGolemPlayer() )
+	{
+		return;
+	}
+	playSoundEntity(&source, 170, 96);
+	spawnMagicEffectParticles(source.x, source.y, source.z, 174);
+
+	switch ( selectGolemWildMagicSchool(sourceStats.golemBlessedComposition) )
+	{
+		case GolemWildMagicSchool::MYST:
+			switch ( local_rng.rand() % 4 )
+			{
+				case 0:
+					source.setEffect(EFF_CONFUSED,
+						static_cast<Uint8>(source.isEntityPlayer() + 1),
+						getSpellEffectDurationFromID(SPELL_CONFUSE, &source, &sourceStats, &source),
+						true, true, true);
+					break;
+				case 1:
+					spawnHostileGolemWildMagicSpiritWeapon(source);
+					break;
+				case 2:
+					applyGolemWildMagicSizeEffect(source);
+					break;
+				case 3:
+					castGolemWildMagicShamanForm(source);
+					break;
+			}
+			break;
+		case GolemWildMagicSchool::THAUM:
+			switch ( local_rng.rand() % 4 )
+			{
+				case 0:
+					useGolemWildMagicScroll(source, SCROLL_LIGHT);
+					break;
+				case 1:
+					applyGolemWildMagicHealingPulse(source);
+					break;
+				case 2:
+					castSpell(source.getUID(), &spell_dash, true, false);
+					break;
+				case 3:
+					applyGolemWildMagicCurePulse(source);
+					break;
+			}
+			break;
+		case GolemWildMagicSchool::SORC:
+			switch ( local_rng.rand() % 4 )
+			{
+				case 0:
+					useGolemWildMagicScroll(source, SCROLL_FIRE);
+					break;
+				case 1:
+					castGolemWildMagicProjectile(source, &spell_forcebolt);
+					break;
+				case 2:
+					castGolemWildMagicProjectile(source, &spell_acidSpray);
+					break;
+				case 3:
+					applyGolemWildMagicLightningSelfHit(source);
+					break;
+			}
+			break;
+	}
+}
+
 static ConsoleVariable<bool> cvar_noxp("/noxp", false);
 
 void Entity::handleEffects(Stat* myStats)
@@ -5076,14 +5447,20 @@ void Entity::handleEffects(Stat* myStats)
 			}
 			else
 			{
-				messagePlayer(player, MESSAGE_STATUS, Language::get(634));
+				if ( !this->isNaturalGolemPlayer() )
+				{
+					messagePlayer(player, MESSAGE_STATUS, Language::get(634));
+				}
 				this->char_gonnavomit = 140 + local_rng.rand() % 60;
 			}
 		}
 		else if ( ticks % 60 == 0 && local_rng.rand() % 200 == 0 && myStats->getEffectActive(EFF_DRUNK) && myStats->type != GOATMAN )
 		{
 			// drunkenness
-			messagePlayer(player, MESSAGE_STATUS, Language::get(634));
+			if ( !this->isNaturalGolemPlayer() )
+			{
+				messagePlayer(player, MESSAGE_STATUS, Language::get(634));
+			}
 			this->char_gonnavomit = 140 + local_rng.rand() % 60;
 		}
 	}
@@ -5092,48 +5469,60 @@ void Entity::handleEffects(Stat* myStats)
 		this->char_gonnavomit--;
 		if ( this->char_gonnavomit == 0 && this->entityCanVomit() )
 		{
-			messagePlayer(player, MESSAGE_STATUS, Language::get(635));
-			myStats->setEffectActive(EFF_VOMITING, 1);
-			myStats->EFFECTS_TIMERS[EFF_VOMITING] = 50 + local_rng.rand() % 20;
-
-			std::vector<int> effectsToClear;
-			for ( int i = EFF_RATION_SPICY; i <= EFF_RATION_SWEET; ++i )
+			if ( this->isNaturalGolemPlayer() )
 			{
-				effectsToClear.push_back(i);
+				triggerGolemWildMagicSurge(*this, *myStats);
+				// Strength 2 distinguishes the hidden Golem discharge from
+				// ordinary visible vomiting, even if the surge changes form.
+				myStats->setEffectActive(EFF_VOMITING, 2);
+				myStats->EFFECTS_TIMERS[EFF_VOMITING] = 50 + local_rng.rand() % 20;
+				serverUpdateEffects(player);
 			}
-			effectsToClear.push_back(EFF_HP_MP_REGEN);
-			effectsToClear.push_back(EFF_BLESS_FOOD);
-			for ( auto effectID : effectsToClear )
+			else
 			{
-				if ( myStats->getEffectActive(effectID) )
+				messagePlayer(player, MESSAGE_STATUS, Language::get(635));
+				myStats->setEffectActive(EFF_VOMITING, 1);
+				myStats->EFFECTS_TIMERS[EFF_VOMITING] = 50 + local_rng.rand() % 20;
+
+				std::vector<int> effectsToClear;
+				for ( int i = EFF_RATION_SPICY; i <= EFF_RATION_SWEET; ++i )
 				{
-					myStats->clearEffect(effectID);
-					myStats->EFFECTS_TIMERS[effectID] = 0;
-					myStats->EFFECTS_ACCRETION_TIME[effectID] = 0;
+					effectsToClear.push_back(i);
 				}
-			}
+				effectsToClear.push_back(EFF_HP_MP_REGEN);
+				effectsToClear.push_back(EFF_BLESS_FOOD);
+				for ( auto effectID : effectsToClear )
+				{
+					if ( myStats->getEffectActive(effectID) )
+					{
+						myStats->clearEffect(effectID);
+						myStats->EFFECTS_TIMERS[effectID] = 0;
+						myStats->EFFECTS_ACCRETION_TIME[effectID] = 0;
+					}
+				}
 
-			serverUpdateEffects(player);
-			if ( player >= 0 && players[player]->isLocalPlayer() )
-			{
-				camera_shakey += 9;
-			}
-			else if ( player > 0 && multiplayer == SERVER && !players[player]->isLocalPlayer() )
-			{
-				strcpy((char*)net_packet->data, "SHAK");
-				net_packet->data[4] = 0; // turns into 0
-				net_packet->data[5] = 9;
-				net_packet->address.host = net_clients[player - 1].host;
-				net_packet->address.port = net_clients[player - 1].port;
-				net_packet->len = 6;
-				sendPacketSafe(net_sock, -1, net_packet, player - 1);
-			}
-			playSoundEntity(this, 78, 96);
-			serverUpdatePlayerGameplayStats(player, STATISTICS_TEMPT_FATE, 5);
+				serverUpdateEffects(player);
+				if ( player >= 0 && players[player]->isLocalPlayer() )
+				{
+					camera_shakey += 9;
+				}
+				else if ( player > 0 && multiplayer == SERVER && !players[player]->isLocalPlayer() )
+				{
+					strcpy((char*)net_packet->data, "SHAK");
+					net_packet->data[4] = 0; // turns into 0
+					net_packet->data[5] = 9;
+					net_packet->address.host = net_clients[player - 1].host;
+					net_packet->address.port = net_clients[player - 1].port;
+					net_packet->len = 6;
+					sendPacketSafe(net_sock, -1, net_packet, player - 1);
+				}
+				playSoundEntity(this, 78, 96);
+				serverUpdatePlayerGameplayStats(player, STATISTICS_TEMPT_FATE, 5);
 
-			if ( myStats->type == INSECTOID )
-			{
-				castSpell(uid, &spell_acidSpray, true, false);
+				if ( myStats->type == INSECTOID )
+				{
+					castSpell(uid, &spell_acidSpray, true, false);
+				}
 			}
 		}
 	}
@@ -5141,25 +5530,37 @@ void Entity::handleEffects(Stat* myStats)
 	// vomiting
 	if ( myStats->getEffectActive(EFF_VOMITING) && ticks % 2 == 0 )
 	{
-		Entity* entity = spawnGib(this);
-		if ( entity )
+		const bool hiddenGolemDischarge = myStats->getEffectActive(EFF_VOMITING) == 2;
+		Entity* entity = nullptr;
+		if ( !hiddenGolemDischarge )
 		{
-			entity->sprite = 29;
-            entity->ditheringDisabled = true;
-			entity->flags[SPRITE] = true;
-			entity->flags[GENIUS] = true;
-			entity->flags[INVISIBLE] = false;
-			entity->yaw = this->yaw - 0.1 + (local_rng.rand() % 20) * 0.01;
-			entity->pitch = (local_rng.rand() % 360) * PI / 180.0;
-			entity->roll = (local_rng.rand() % 360) * PI / 180.0;
-			double vel = (local_rng.rand() % 15) / 10.f;
-			entity->vel_x = vel * cos(entity->yaw);
-			entity->vel_y = vel * sin(entity->yaw);
-			entity->vel_z = -.5;
+			entity = spawnGib(this);
+			if ( entity )
+			{
+				entity->sprite = 29;
+                entity->ditheringDisabled = true;
+				entity->flags[SPRITE] = true;
+				entity->flags[GENIUS] = true;
+				entity->flags[INVISIBLE] = false;
+				entity->yaw = this->yaw - 0.1 + (local_rng.rand() % 20) * 0.01;
+				entity->pitch = (local_rng.rand() % 360) * PI / 180.0;
+				entity->roll = (local_rng.rand() % 360) * PI / 180.0;
+				double vel = (local_rng.rand() % 15) / 10.f;
+				entity->vel_x = vel * cos(entity->yaw);
+				entity->vel_y = vel * sin(entity->yaw);
+				entity->vel_z = -.5;
+			}
+		}
+
+		// Hidden Golem discharge reuses the normal vomiting charge loss without
+		// requiring or synchronizing a visible vomit gib.
+		if ( hiddenGolemDischarge || entity )
+		{
 			if ( (svFlags & SV_FLAG_HUNGER) )
 			{
-				if ( myStats->type != INSECTOID && myStats->type != AUTOMATON
-					&& myStats->type != SKELETON && effectShapeshift == NOTHING )
+				if ( hiddenGolemDischarge
+					|| (myStats->type != INSECTOID && myStats->type != AUTOMATON
+						&& myStats->type != SKELETON && effectShapeshift == NOTHING) )
 				{
 					myStats->HUNGER -= 40;
 					if ( myStats->HUNGER <= 50 )
@@ -5169,7 +5570,10 @@ void Entity::handleEffects(Stat* myStats)
 					}
 				}
 			}
-			serverSpawnGibForClient(entity);
+			if ( entity )
+			{
+				serverSpawnGibForClient(entity);
+			}
 		}
 	}
 
@@ -9147,6 +9551,22 @@ Sint32 Entity::getCON()
 	return statGetCON(entitystats, this);
 }
 
+static bool getNaturalGolemBaseCONCHR(Entity* entity, Stat* entitystats,
+	Sint32& baseCON, Sint32& baseCHR)
+{
+	if ( !entity || !entitystats || !entity->isNaturalGolemPlayer() )
+	{
+		return false;
+	}
+	const Sint32 pool = entitystats->CON + entitystats->CHR;
+	const Sint32 blessedRatio = std::min(8000, std::max(2000,
+		entitystats->golemBlessedComposition));
+	baseCON = static_cast<Sint32>(std::round(
+		static_cast<double>(pool) * blessedRatio / 10000.0));
+	baseCHR = pool - baseCON;
+	return true;
+}
+
 Sint32 statGetCON(Stat* entitystats, Entity* my)
 {
 	Sint32 CON;
@@ -9157,6 +9577,8 @@ Sint32 statGetCON(Stat* entitystats, Entity* my)
 	}
 
 	CON = entitystats->CON;
+	Sint32 golemCHR = entitystats->CHR;
+	getNaturalGolemBaseCONCHR(my, entitystats, CON, golemCHR);
 
 	bool cursedItemIsBuff = false;
 	bool shapeshifted = false;
@@ -9638,6 +10060,8 @@ Sint32 statGetCHR(Stat* entitystats, Entity* my)
 	}
 
 	CHR = entitystats->CHR;
+	Sint32 golemCON = entitystats->CON;
+	getNaturalGolemBaseCONCHR(my, entitystats, golemCON, CHR);
 
 	bool cursedItemIsBuff = false;
 	bool shapeshifted = false;
@@ -13926,6 +14350,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 						&& !itemTypeIsInstrument(hitstats->shield->type)
 						&& hitstats->shield->type != TOOL_DUCK
 						&& hitstats->shield->type != SPYGLASS // mod add: utility optics are not shields for degradation
+						&& hitstats->shield->type != MAGIC_RUNE // Rune durability is governed only by Rune casting stress.
 						&& parriedDamage == 0
 						&& hitstats->shield->type != TOOL_TINKERING_KIT
 						&& hitstats->shield->type != TOOL_FRYING_PAN )
@@ -19399,6 +19824,14 @@ bool Entity::checkEnemy(Entity* your)
 				{
 					result = yourStats->type == LEONIN ? false : result;
 				}
+				else if ( myStats->type == GOLEM )
+				{
+					const int alliance = getNaturalGolemAlliance(yourStats->type);
+					if ( alliance >= 0 )
+					{
+						result = alliance == 0;
+					}
+				}
 				else if ( (yourStats->type == HUMAN || yourStats->type == SHOPKEEPER)
 					&& !(myStats->type == AUTOMATON || myStats->type == DRYAD || myStats->type == MYCONID || myStats->type == SALAMANDER
 						|| myStats->type == GNOME) )
@@ -19543,6 +19976,14 @@ bool Entity::checkEnemy(Entity* your)
 				if ( yourStats->type == LEONIN ) // mod add: use Human hostility unchanged
 				{
 					result = myStats->type == LEONIN ? false : result;
+				}
+				else if ( yourStats->type == GOLEM )
+				{
+					const int alliance = your->getNaturalGolemAlliance(myStats->type);
+					if ( alliance >= 0 )
+					{
+						result = alliance == 0;
+					}
 				}
 				else if ( (myStats->type == HUMAN || myStats->type == SHOPKEEPER) &&
 					!(yourStats->type == AUTOMATON || yourStats->type == DRYAD || yourStats->type == MYCONID || yourStats->type == SALAMANDER
@@ -19767,6 +20208,16 @@ bool Entity::checkFriend(Entity* your)
 	Stat* yourStats = your->getStats();
 
 	if ( !myStats || !yourStats )
+	{
+		return false;
+	}
+
+	// Spirit weapons produced by a Golem overload are hazards, not summons.
+	// They have no friendly faction on either side of this relationship.
+	if ( (myStats->type == MONSTER_ADORCISED_WEAPON
+			&& myStats->getAttribute("golem_wild_magic_hostile") != "")
+		|| (yourStats->type == MONSTER_ADORCISED_WEAPON
+			&& yourStats->getAttribute("golem_wild_magic_hostile") != "") )
 	{
 		return false;
 	}
@@ -20027,6 +20478,11 @@ bool Entity::checkFriend(Entity* your)
 						result = monsterally[LEONIN][LEONIN];
 					}
 				}
+				else if ( myStats->type == GOLEM )
+				{
+					const int alliance = getNaturalGolemAlliance(yourStats->type);
+					result = alliance >= 0 && alliance != 0;
+				}
 				else if ( (yourStats->type == HUMAN || yourStats->type == SHOPKEEPER)
 					&& !(myStats->type == AUTOMATON || myStats->type == DRYAD || myStats->type == MYCONID || myStats->type == SALAMANDER
 						|| myStats->type == GNOME) )
@@ -20176,6 +20632,11 @@ bool Entity::checkFriend(Entity* your)
 					{
 						result = monsterally[LEONIN][LEONIN];
 					}
+				}
+				else if ( yourStats->type == GOLEM )
+				{
+					const int alliance = your->getNaturalGolemAlliance(myStats->type);
+					result = alliance >= 0 && alliance != 0;
 				}
 				else if ( (myStats->type == HUMAN || myStats->type == SHOPKEEPER)
 					&& !(yourStats->type == AUTOMATON || yourStats->type == DRYAD || yourStats->type == MYCONID || yourStats->type == SALAMANDER
@@ -21436,6 +21897,58 @@ bool Entity::isNaturalLeoninPlayer() const
 		&& effectShapeshift == NOTHING
 		&& !myStats->getEffectActive(EFF_POLYMORPH)
 		&& !myStats->getEffectActive(EFF_SHAPESHIFT);
+}
+
+// A natural Golem is its own gameplay identity and is not inferred from its
+// current rendering model.
+bool Entity::isNaturalGolemPlayer() const
+{
+	Stat* myStats = getStats();
+	if ( !myStats || behavior != &actPlayer )
+	{
+		return false;
+	}
+	return myStats->playerRace == RACE_GOLEM
+		&& myStats->stat_appearance == 0
+		&& myStats->type == GOLEM
+		&& effectPolymorph == NOTHING
+		&& effectShapeshift == NOTHING
+		&& !myStats->getEffectActive(EFF_POLYMORPH)
+		&& !myStats->getEffectActive(EFF_SHAPESHIFT);
+}
+
+bool Entity::isBlessedGolemPlayer() const
+{
+	Stat* myStats = getStats();
+	return myStats && isNaturalGolemPlayer() && myStats->sex == MALE;
+}
+
+bool Entity::isCursedGolemPlayer() const
+{
+	Stat* myStats = getStats();
+	return myStats && isNaturalGolemPlayer() && myStats->sex == FEMALE;
+}
+
+int Entity::getNaturalGolemAlliance(Monster otherType) const
+{
+	if ( !isNaturalGolemPlayer() )
+	{
+		return -1;
+	}
+
+	if ( otherType == AUTOMATON )
+	{
+		return 1;
+	}
+	if ( otherType == HUMAN )
+	{
+		return isBlessedGolemPlayer() ? 1 : 0;
+	}
+	if ( otherType == INCUBUS || otherType == SUCCUBUS )
+	{
+		return isCursedGolemPlayer() ? 1 : 0;
+	}
+	return -1;
 }
 
 bool Entity::isLeoninNaturalClawAttack() const
@@ -23489,6 +24002,10 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 			weaponLimb->z += 0.25;
 			switch ( monsterType )
 			{
+				case GOLEM:
+					weaponLimb->x += 0.5 * cos(weaponArmLimb->yaw + PI / 2);
+					weaponLimb->y += 0.5 * sin(weaponArmLimb->yaw + PI / 2);
+					break;
 				case SKELETON:
 				case AUTOMATON:
 				case GOATMAN:
@@ -23575,6 +24092,14 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 						weaponLimb->focaly += 0;
 						weaponLimb->focalz += 1.75;
 						break;
+					case GOLEM:
+						weaponLimb->x += -.1 * cos(weaponArmLimb->yaw + PI / 2) + 0.25 * cos(weaponArmLimb->yaw);
+						weaponLimb->y += -.1 * sin(weaponArmLimb->yaw + PI / 2) + 0.25 * sin(weaponArmLimb->yaw);
+						weaponLimb->z += -1;
+						weaponLimb->focalx += 0;
+						weaponLimb->focaly += 0;
+						weaponLimb->focalz += 1.25;
+						break;
 					case GOBLIN:
 					case GOATMAN:
 					case INSECTOID:
@@ -23633,6 +24158,14 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 							weaponLimb->focaly += 0;
 							weaponLimb->focalz += -0.5;
 						}
+						break;
+					case GOLEM:
+						weaponLimb->x += -.1 * cos(weaponArmLimb->yaw + PI / 2) + 0.5 * cos(weaponArmLimb->yaw);
+						weaponLimb->y += -.1 * sin(weaponArmLimb->yaw + PI / 2) + 0.5 * sin(weaponArmLimb->yaw);
+						weaponLimb->z += -1;
+						weaponLimb->focalx += 0;
+						weaponLimb->focaly += 0;
+						weaponLimb->focalz += 1.25;
 						break;
 					case GOBLIN:
 					case GOATMAN:
@@ -23698,6 +24231,14 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 						weaponLimb->focaly += 0;
 						weaponLimb->focalz += 1.75;
 						break;
+					case GOLEM:
+						weaponLimb->x += -.1 * cos(weaponArmLimb->yaw + PI / 2) + 0.5 * cos(weaponArmLimb->yaw);
+						weaponLimb->y += -.1 * sin(weaponArmLimb->yaw + PI / 2) + 0.5 * sin(weaponArmLimb->yaw);
+						weaponLimb->z += -1;
+						weaponLimb->focalx += 0;
+						weaponLimb->focaly += 0;
+						weaponLimb->focalz += 1.25;
+						break;
 					case GOBLIN:
 					case GOATMAN:
 					case INSECTOID:
@@ -23747,6 +24288,9 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 		{
 			switch ( monsterType )
 			{
+				case GOLEM:
+					weaponLimb->focaly -= 0.05;
+					break;
 				case SUCCUBUS:
 				case INCUBUS:
 				case HUMAN:
@@ -23766,7 +24310,16 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 					break;
 			}
 
-			if ( monsterType == DRYAD || monsterType == MYCONID || monsterType == SALAMANDER || monsterType == LEONIN || monsterType == GREMLIN
+			if ( monsterType == GOLEM )
+			{
+				weaponLimb->x += limbs[monsterType][17][0] * cos(weaponArmLimb->yaw + PI / 2) + limbs[monsterType][17][1] * cos(weaponArmLimb->yaw);
+				weaponLimb->y += limbs[monsterType][17][0] * sin(weaponArmLimb->yaw + PI / 2) + limbs[monsterType][17][1] * sin(weaponArmLimb->yaw);
+				weaponLimb->z += limbs[monsterType][17][2];
+
+				weaponLimb->focalx += 0.5;
+				weaponLimb->focalz -= 0.5;
+			}
+			else if ( monsterType == DRYAD || monsterType == MYCONID || monsterType == SALAMANDER || monsterType == LEONIN || monsterType == GREMLIN
 				|| monsterType == GNOME )
 			{
 				weaponLimb->x += limbs[monsterType][17][0] * cos(weaponArmLimb->yaw + PI / 2) + limbs[monsterType][17][1] * cos(weaponArmLimb->yaw);
@@ -23814,13 +24367,17 @@ void Entity::handleHumanoidWeaponLimb(Entity* weaponLimb, Entity* weaponArmLimb)
 		if ( weaponLimb->sprite == items[BOOMERANG].index )
 		{
 			weaponLimb->focalx += 2;
-			weaponLimb->focaly += 0.25;
-			weaponLimb->focalz += 2;
-			weaponLimb->x += -1.2 * cos(weaponArmLimb->yaw + PI / 2) + -.1 * cos(weaponArmLimb->yaw);
-			weaponLimb->y += -1.2 * sin(weaponArmLimb->yaw + PI / 2) + -.1 * sin(weaponArmLimb->yaw);
-			weaponLimb->z += 0.25;
-			switch ( monsterType )
-			{
+		weaponLimb->focaly += 0.25;
+		weaponLimb->focalz += 2;
+		weaponLimb->x += -1.2 * cos(weaponArmLimb->yaw + PI / 2) + -.1 * cos(weaponArmLimb->yaw);
+		weaponLimb->y += -1.2 * sin(weaponArmLimb->yaw + PI / 2) + -.1 * sin(weaponArmLimb->yaw);
+		weaponLimb->z += 0.25;
+		switch ( monsterType )
+		{
+				case GOLEM:
+					weaponLimb->x += 0.5 * cos(weaponArmLimb->yaw + PI / 2);
+					weaponLimb->y += 0.5 * sin(weaponArmLimb->yaw + PI / 2);
+					break;
 				case SKELETON:
 				case AUTOMATON:
 				case GOATMAN:
@@ -24041,6 +24598,10 @@ void doParticleEffectForTouchSpell(Entity& my, Entity* focalLimb, Monster monste
 		|| monsterType == MYCONID )
 	{
 		z += 0.5;
+	}
+	else if ( monsterType == GOLEM )
+	{
+		z += 1.0;
 	}
 	else if ( monsterType == SALAMANDER || monsterType == LEONIN )
 	{
@@ -27031,7 +27592,8 @@ bool Entity::degradeArmor(Stat& hitstats, Item& armor, int armornum)
 		|| armor.type == ARTIFACT_GLOVES
 		|| armor.type == ARTIFACT_BREASTPIECE
 		|| armor.type == MASK_ARTIFACT_VISOR
-		|| armor.type == SPYGLASS ) // mod add: offhand utility optics do not absorb attack durability loss
+		|| armor.type == SPYGLASS // mod add: offhand utility optics do not absorb attack durability loss
+		|| armor.type == MAGIC_RUNE ) // Rune durability is governed only by Rune casting stress.
 	{
 		return false;
 	}
@@ -30635,6 +31197,102 @@ void Entity::setHumanoidLimbOffset(Entity* limb, Monster race, int limbType)
 			}
 		}
 			break;
+		case GOLEM:
+		{
+			// Golems use Salamander-authored limb data, but keep an independent
+			// placement branch so future Golem offsets do not affect Salamanders.
+			const real_t sleepHeight = 3.0;
+
+			if ( limbType == LIMB_HUMANOID_LEFTLEG || limbType == LIMB_HUMANOID_RIGHTLEG )
+			{
+				limb->z += 0.75;
+				if ( limb->sprite == GOLEM_MODEL_B_LEG_LEFT
+					|| limb->sprite == GOLEM_MODEL_B_LEG_RIGHT
+					|| limb->sprite == GOLEM_MODEL_C_LEG_LEFT
+					|| limb->sprite == GOLEM_MODEL_C_LEG_RIGHT )
+				{
+					// Base feet are authored with the Salamander backward focal adjustment.
+					limb->focalx -= .5;
+				}
+			}
+			else if ( limbType == LIMB_HUMANOID_LEFTARM
+				|| limbType == LIMB_HUMANOID_RIGHTARM )
+			{
+				limb->z += .5;
+				limb->x += .25 * cos(this->yaw);
+				limb->y += .25 * sin(this->yaw);
+			}
+
+			if ( limbType == LIMB_HUMANOID_TORSO )
+			{
+				limb->x -= .25 * cos(this->yaw);
+				limb->y -= .25 * sin(this->yaw);
+				limb->z += 2;
+				limb->scalex = 1.01;
+				limb->scaley = 1.01;
+				limb->scalez = 1.01;
+
+				if ( limb->sprite != GOLEM_MODEL_B_TORSO
+					&& limb->sprite != GOLEM_MODEL_C_TORSO )
+				{
+					// Wearing armor: match the equipment alignment of the source body rig.
+					limb->focalx += 1.0;
+					limb->focalz += 0.75;
+				}
+				this->setTorsoLimbOffset(limb);
+			}
+			else if ( limbType == LIMB_HUMANOID_RIGHTLEG )
+			{
+				limb->x += 1 * cos(this->yaw + PI / 2) + .25 * cos(this->yaw);
+				limb->y += 1 * sin(this->yaw + PI / 2) + .25 * sin(this->yaw);
+				limb->z += 4;
+				if ( this->z >= (sleepHeight - 0.1) && this->z <= (sleepHeight + 0.1) )
+				{
+					limb->yaw += PI / 8;
+					limb->pitch = -PI / 2;
+				}
+				else if ( limb->pitch <= -PI / 3 )
+				{
+					limb->pitch = 0;
+				}
+			}
+			else if ( limbType == LIMB_HUMANOID_LEFTLEG )
+			{
+				limb->x -= 1 * cos(this->yaw + PI / 2) - .25 * cos(this->yaw);
+				limb->y -= 1 * sin(this->yaw + PI / 2) - .25 * sin(this->yaw);
+				limb->z += 4;
+				if ( this->z >= (sleepHeight - 0.1) && this->z <= (sleepHeight + 0.1) )
+				{
+					limb->yaw -= PI / 8;
+					limb->pitch = -PI / 2;
+				}
+				else if ( limb->pitch <= -PI / 3 )
+				{
+					limb->pitch = 0;
+				}
+			}
+			else if ( limbType == LIMB_HUMANOID_RIGHTARM )
+			{
+				limb->x += 2.5 * cos(this->yaw + PI / 2) - .20 * cos(this->yaw);
+				limb->y += 2.5 * sin(this->yaw + PI / 2) - .20 * sin(this->yaw);
+				limb->z += .5;
+				if ( this->z >= (sleepHeight - 0.1) && this->z <= (sleepHeight + 0.1) )
+				{
+					limb->pitch = 0;
+				}
+			}
+			else if ( limbType == LIMB_HUMANOID_LEFTARM )
+			{
+				limb->x -= 2.5 * cos(this->yaw + PI / 2) + .20 * cos(this->yaw);
+				limb->y -= 2.5 * sin(this->yaw + PI / 2) + .20 * sin(this->yaw);
+				limb->z += .5;
+				if ( this->z >= (sleepHeight - 0.1) && this->z <= (sleepHeight + 0.1) )
+				{
+					limb->pitch = 0;
+				}
+			}
+		}
+			break;
 		case GOBLIN:
 		case GOATMAN:
 		case INSECTOID:
@@ -31427,6 +32085,84 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 				}
 			}
 			break;
+		case GOLEM:
+			// Dedicated Salamander-derived offhand placement for the Golem rig.
+			shieldLimb->x -= 2.5 * cos(this->yaw + PI / 2) + .20 * cos(this->yaw);
+			shieldLimb->y -= 2.5 * sin(this->yaw + PI / 2) + .20 * sin(this->yaw);
+			shieldLimb->z += 2.5;
+			shieldLimb->yaw = shieldArmLimb->yaw;
+			shieldLimb->roll = 0;
+			shieldLimb->pitch = 0;
+
+			if ( shieldLimb->sprite == items[TOOL_LANTERN].index )
+			{
+				shieldLimb->z += 2;
+			}
+			if ( flickerLights || ticks % TICKS_PER_SECOND == 1 )
+			{
+				if ( shieldLimb->sprite == items[TOOL_TORCH].index )
+				{
+					if ( flameEntity = spawnFlame(shieldLimb, SPRITE_FLAME) )
+					{
+						flameEntity->x += 2 * cos(shieldLimb->yaw);
+						flameEntity->y += 2 * sin(shieldLimb->yaw);
+						flameEntity->z -= 2;
+					}
+				}
+				else if ( shieldLimb->sprite == items[TOOL_LANTERN].index )
+				{
+					if ( flameEntity = spawnFlame(shieldLimb, SPRITE_FLAME) )
+					{
+						flameEntity->x += 2 * cos(shieldLimb->yaw);
+						flameEntity->y += 2 * sin(shieldLimb->yaw);
+						flameEntity->z += 1;
+					}
+				}
+			}
+			if ( shieldLimb->sprite >= items[SPELLBOOK_LIGHT].index
+				&& shieldLimb->sprite < (items[SPELLBOOK_LIGHT].index + items[SPELLBOOK_LIGHT].variations) )
+			{
+				shieldLimb->pitch = shieldArmLimb->pitch - .25 + 3 * PI / 2;
+				shieldLimb->yaw += PI / 6;
+				shieldLimb->focalx -= 5.0;
+				shieldLimb->focalz -= .5;
+				shieldLimb->x += 0.5 * cos(this->yaw + PI / 2) + .5 * cos(this->yaw);
+				shieldLimb->y += 0.5 * sin(this->yaw + PI / 2) + .5 * sin(this->yaw);
+				shieldLimb->z -= 1.5;
+				shieldLimb->scalex = 0.8;
+				shieldLimb->scaley = 0.8;
+				shieldLimb->scalez = 0.8;
+			}
+			else if ( itemSpriteIsQuiverThirdPersonModel(shieldLimb->sprite) )
+			{
+				shieldLimb->scalex = 1.05;
+				shieldLimb->focalz += 3;
+				shieldLimb->x -= -0.25 * cos(this->yaw + PI / 2) + 1.0 * cos(this->yaw);
+				shieldLimb->y -= -0.25 * sin(this->yaw + PI / 2) + 1.0 * sin(this->yaw);
+				shieldLimb->z -= 1.78;
+			}
+
+			if ( this->fskill[8] > PI / 32 )
+			{
+				if ( shieldLimb->sprite != items[TOOL_TORCH].index
+					&& shieldLimb->sprite != items[TOOL_LANTERN].index
+					&& shieldLimb->sprite != items[TOOL_CRYSTALSHARD].index )
+				{
+					shieldLimb->roll += PI / 64;
+				}
+				else
+				{
+					shieldLimb->x += 0.25 * cos(this->yaw);
+					shieldLimb->y += 0.25 * sin(this->yaw);
+					shieldLimb->pitch += PI / 16;
+					if ( flameEntity )
+					{
+						flameEntity->x += 0.75 * cos(shieldArmLimb->yaw);
+						flameEntity->y += 0.75 * sin(shieldArmLimb->yaw);
+					}
+				}
+			}
+			break;
 		case GOBLIN:
 		case GOATMAN:
 		case INSECTOID:
@@ -31693,6 +32429,11 @@ void Entity::handleHumanoidShieldLimb(Entity* shieldLimb, Entity* shieldArmLimb)
 		if ( race == AUTOMATON )
 		{
 			shieldLimb->focaly -= 0.75;
+			shieldLimb->focalz -= 0.5;
+		}
+		else if ( race == GOLEM )
+		{
+			shieldLimb->focaly += 0.75;
 			shieldLimb->focalz -= 0.5;
 		}
 		else if ( race == SALAMANDER || race == LEONIN )
@@ -34066,21 +34807,21 @@ bool Entity::modifyDamageMultipliersFromEffects(Entity* hitentity, Entity* attac
 				players[caster]->mechanics.updateSustainedSpellEvent(SPELL_SANCTUARY, 30.0, 1.0, hitentity);
 				if ( sanctuaryEffect & 0x80 )
 				{
-					Uint32 runeItemUid = 0;
+					Uint32 runeInstanceId = 0;
 					for ( node_t* node = map.entities->first; node; node = node->next )
 					{
 						Entity* area = static_cast<Entity*>(node->element);
 						if ( area && area->behavior == &actRadiusMagic
 							&& area->actRadiusMagicID == SPELL_SANCTUARY
 							&& area->parent == players[caster]->entity->getUID()
-							&& area->actRadiusMagicRuneUid != 0
+							&& area->actRadiusMagicRuneInstanceId != 0
 							&& entityDist(area, hitentity) <= area->actRadiusMagicDist + 4.0 )
 						{
-							runeItemUid = static_cast<Uint32>(area->actRadiusMagicRuneUid);
+							runeInstanceId = static_cast<Uint32>(area->actRadiusMagicRuneInstanceId);
 							break;
 						}
 					}
-					if ( runeItemUid != 0 ) { applyMagicRuneCastStress(runeItemUid, 1); }
+					if ( runeInstanceId != 0 ) { applyMagicRuneCastStress(runeInstanceId, 1, caster); }
 				}
 				else
 				{

@@ -1802,6 +1802,7 @@ void actArrow(Entity* my)
 							&& !itemTypeIsFoci(hitstats->shield->type)
 							&& !(hitstats->shield->type >= INSTRUMENT_FLUTE && hitstats->shield->type <= INSTRUMENT_HORN)
 							&& hitstats->shield->type != SPYGLASS // mod add: utility optics are not shields for degradation
+							&& hitstats->shield->type != MAGIC_RUNE // Rune durability is governed only by Rune casting stress.
 							&& hitstats->shield->type != TOOL_TINKERING_KIT && hitstats->shield->type != TOOL_FRYING_PAN )
 						{
 							if ( hitstats->shield->type == TOOL_CRYSTALSHARD && hitstats->defending )

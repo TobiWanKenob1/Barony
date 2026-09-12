@@ -94,13 +94,14 @@ extern bool colorblind_lobby;
 
 // definitions
 extern bool showfps;
+extern bool showgolemstats;
 extern real_t time_diff;
 extern real_t t, ot, frameval[AVERAGEFRAMES];
 extern Uint32 cycles, pingtime;
 extern real_t fps;
 static const int NUMCLASSES = 29; // mod add: append Runesmith
-#define NUMRACES 20 // mod edit: include Merrow and Leonin race identities
-#define NUMPLAYABLERACES 14
+#define NUMRACES 21 // mod edit: include Merrow, Leonin, and Golem race identities
+#define NUMPLAYABLERACES 15
 extern char address[64];
 extern bool loadnextlevel;
 extern int skipLevelsOnLoad;
@@ -221,6 +222,7 @@ enum PlayerRaces : int
 	RACE_SALAMANDER,
 	RACE_MERROW, //mod add merrow
 	RACE_LEONIN, // mod add: Leonin
+	RACE_GOLEM, // mod add: Golem
 	RACE_ENUM_END
 };
 

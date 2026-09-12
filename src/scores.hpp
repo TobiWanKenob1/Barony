@@ -584,7 +584,9 @@ struct SaveGameInfo {
 					int _x,
 					int _y,
 					Sint32 _runeStoredPWR = (-2147483647 - 1),
-					int _runeCreatorPlayer = -1)
+					int _runeCreatorPlayer = -1,
+					Uint32 _runeInstanceId = 0,
+					Uint32 _runeCreatorIdentity = 0)
 				{
 					type = _type;
 					status = _status;
@@ -596,6 +598,8 @@ struct SaveGameInfo {
 					y = _y;
 					runeStoredPWR = _runeStoredPWR;
 					runeCreatorPlayer = _runeCreatorPlayer;
+					runeInstanceId = _runeInstanceId;
+					runeCreatorIdentity = _runeCreatorIdentity;
 				}
 
 				Uint32 type = 0;
@@ -608,6 +612,8 @@ struct SaveGameInfo {
 				int y = 0;
 				Sint32 runeStoredPWR = (-2147483647 - 1);
 				int runeCreatorPlayer = -1;
+				Uint32 runeInstanceId = 0;
+				Uint32 runeCreatorIdentity = 0;
 				bool serialize(FileInterface* fp) {
 					fp->property("type", type);
 					fp->property("status", status);
@@ -619,6 +625,8 @@ struct SaveGameInfo {
 					fp->property("y", y);
 					fp->property("rune_stored_pwr", runeStoredPWR);
 					fp->property("rune_creator_player", runeCreatorPlayer);
+					fp->property("rune_instance_id", runeInstanceId);
+					fp->property("rune_creator_identity", runeCreatorIdentity);
 					return true;
 				}
 				void computeHash(Uint32& hash, Uint32& shift);
@@ -675,6 +683,8 @@ struct SaveGameInfo {
 			int LVL = 0;
 			int GOLD = 0;
 			int HUNGER = 0;
+			int golem_blessed_composition = -1;
+			Uint32 rune_creator_identity = 0;
 			std::vector<int> PROFICIENCIES;
 			std::vector<int> EFFECTS;
 			std::vector<int> EFFECTS_TIMERS;
@@ -706,6 +716,8 @@ struct SaveGameInfo {
 				fp->property("LVL", LVL);
 				fp->property("GOLD", GOLD);
 				fp->property("HUNGER", HUNGER);
+				fp->property("golem_blessed_composition", golem_blessed_composition);
+				fp->property("rune_creator_identity", rune_creator_identity);
 				fp->property("PROFICIENCIES", PROFICIENCIES);
 				fp->property("EFFECTS", EFFECTS);
 				fp->property("EFFECTS_TIMERS", EFFECTS_TIMERS);

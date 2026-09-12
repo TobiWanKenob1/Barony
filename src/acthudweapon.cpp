@@ -320,6 +320,10 @@ void actHudArm(Entity* my)
 			case SALAMANDER:
 				my->sprite = 2330;
 				break;
+			case GOLEM:
+				my->sprite = stats[HUDARM_PLAYERNUM]->sex == FEMALE
+					? GOLEM_MODEL_C_HAND_RIGHT_FP : GOLEM_MODEL_B_HAND_RIGHT_FP;
+				break;
 			case LEONIN:
 				my->sprite = LEONIN_MODEL_HAND_RIGHT_FP;
 				break;
@@ -330,7 +334,7 @@ void actHudArm(Entity* my)
 			case MERROW:
 				if ( stats[HUDARM_PLAYERNUM]->sex == FEMALE )
 				{
-					my->sprite = 2435; //TO DO: female model! 
+					my->sprite = 2435;
 				}
 				else
 				{

@@ -422,6 +422,8 @@ void Stat::clearStats()
 	this->CHR = 0;
 	this->GOLD = 0;
 	this->HUNGER = 1000;
+	this->golemBlessedComposition = (this->sex == MALE) ? 10000 : 0;
+	this->runeCreatorIdentity = 0;
 	this->LVL = 1;
 	this->EXP = 0;
 	list_FreeAll(&this->FOLLOWERS);
@@ -657,6 +659,8 @@ Stat* Stat::copyStats()
 	newStat->LVL = this->LVL;
 	newStat->GOLD = this->GOLD;
 	newStat->HUNGER = this->HUNGER;
+	newStat->golemBlessedComposition = this->golemBlessedComposition;
+	newStat->runeCreatorIdentity = this->runeCreatorIdentity;
 
 	for (c = 0; c < NUMPROFICIENCIES; c++)
 	{
@@ -942,7 +946,8 @@ int Stat::pickRandomEquippedItemToDegradeOnHit(Item** returnItem, bool excludeWe
 		|| itemTypeIsFoci(shield->type)
 		|| itemTypeIsInstrument(shield->type)
 		|| shield->type == TOOL_DUCK
-		|| shield->type == SPYGLASS ) // mod add: utility optics do not absorb equipment degradation
+		|| shield->type == SPYGLASS // mod add: utility optics do not absorb equipment degradation
+		|| shield->type == MAGIC_RUNE ) // Rune durability is governed only by Rune casting stress.
 		 )
 	{
 		excludeShield = true;
@@ -1129,6 +1134,8 @@ void Stat::copyNPCStatsAndInventoryFrom(Stat& src)
 	this->LVL = src.LVL;
 
 	this->GOLD = src.GOLD;
+	this->golemBlessedComposition = src.golemBlessedComposition;
+	this->runeCreatorIdentity = src.runeCreatorIdentity;
 	bool oldIntro = intro;
 	if ( player >= 0 && players[player]->isLocalPlayer() )
 	{
@@ -1777,6 +1784,8 @@ bool Stat::emptyLootingBag(const int player, Uint32 key)
 					{
 						item2->runeSetStoredPWRRaw(item_loot.runeGetStoredPWRRaw());
 						item2->runeSetCreatorPlayer(item_loot.runeGetCreatorPlayer());
+						item2->runeSetInstanceId(item_loot.runeGetInstanceId());
+						item2->runeSetCreatorIdentity(item_loot.runeGetCreatorIdentity());
 						int pickedUpCount = item2->count;
 						Item* item = itemPickup(player, item2);
 						if ( item )

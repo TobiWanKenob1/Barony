@@ -155,26 +155,29 @@ bool inscribeFloorGemWithRuneHammer(int player, Entity* floorItem, int charge)
 		}
 	}
 	rune->runeSetCreatorPlayer(player);
-	commitInscriptionResources();
+	rune->runeSetCreatorIdentity(ensureRuneCreatorIdentity(player));
 
-	bool runeCreatedSuccessfully = false;
 	if ( floorItem->skill[13] > 1 )
 	{
+		// Spawn the standalone Rune before committing any irreversible cost.
+		// dropItemMonster consumes the temporary Item whether spawning succeeds.
+		Entity* runeEntity = dropItemMonster(rune, floorItem, nullptr, 1);
+		rune = nullptr;
+		if ( !runeEntity )
+		{
+			return false;
+		}
+		runeEntity->x = floorItem->x;
+		runeEntity->y = floorItem->y;
+		runeEntity->z = floorItem->z;
+		runeEntity->vel_x = runeEntity->vel_y = runeEntity->vel_z = 0.0;
+		commitInscriptionResources();
 		--floorItem->skill[13];
 		serverUpdateEntitySkill(floorItem, 13);
-		Entity* runeEntity = dropItemMonster(rune, floorItem, nullptr, 1);
-		rune = nullptr; // dropItemMonster consumes the standalone Item.
-		if ( runeEntity )
-		{
-			runeCreatedSuccessfully = true;
-			runeEntity->x = floorItem->x;
-			runeEntity->y = floorItem->y;
-			runeEntity->z = floorItem->z;
-			runeEntity->vel_x = runeEntity->vel_y = runeEntity->vel_z = 0.0;
-		}
 	}
 	else
 	{
+		// In-place conversion cannot fail once the Rune profile has been built.
 		floorItem->skill[10] = rune->type;
 		floorItem->skill[11] = rune->status;
 		floorItem->skill[12] = rune->beatitude;
@@ -185,6 +188,8 @@ bool inscribeFloorGemWithRuneHammer(int player, Entity* floorItem, int charge)
 		floorItem->itemRuneStoredPWRValid = rune->runeHasStoredPWR() ? 1 : 0;
 		floorItem->itemRuneCreatorPlayer = rune->runeGetCreatorPlayer();
 		floorItem->itemRuneCreatorPlayerValid = rune->runeHasCreator() ? 1 : 0;
+		floorItem->itemRuneInstanceId = static_cast<Sint32>(rune->runeGetInstanceId());
+		floorItem->itemRuneCreatorIdentity = static_cast<Sint32>(rune->runeGetCreatorIdentity());
 		for ( int skill = 10; skill <= 15; ++skill )
 		{
 			serverUpdateEntitySkill(floorItem, skill);
@@ -193,16 +198,15 @@ bool inscribeFloorGemWithRuneHammer(int player, Entity* floorItem, int charge)
 		serverUpdateEntitySkill(floorItem, 34);
 		serverUpdateEntitySkill(floorItem, 35);
 		serverUpdateEntitySkill(floorItem, 36);
+		serverUpdateEntitySkill(floorItem, 37);
+		serverUpdateEntitySkill(floorItem, 38);
 		floorItem->itemNotMoving = 0;
 		floorItem->itemNotMovingClient = 0;
 		floorItem->flags[INVISIBLE] = true;
-		runeCreatedSuccessfully = true;
+		commitInscriptionResources();
 	}
 	messagePlayer(player, MESSAGE_INTERACTION, "You press %s into the gemstone.", spell->getSpellName());
-	if ( runeCreatedSuccessfully )
-	{
-		magicOnGuaranteedSpellSchoolTraining(players[player]->entity, spellID);
-	}
+	magicOnGuaranteedSpellSchoolTraining(players[player]->entity, spellID);
 	if ( rune ) { free(rune); }
 	return true;
 }
@@ -221,7 +225,7 @@ bool itemProcessReturnItemEffect(Entity* my, bool fallingIntoVoid)
 			if ( cost > 0 && !consumeSustainedSpellResource(returnToParent, sustainSpell, cost) )
 			{
 				Stat* returnStats = returnToParent->getStats();
-				if ( (!sustainSpell || sustainSpell->runeItemUid == 0) && returnStats && returnStats->MP > 0 )
+				if ( (!sustainSpell || sustainSpell->runeInstanceId == 0) && returnStats && returnStats->MP > 0 )
 				{
 					returnToParent->modMP(-returnStats->MP);
 				}

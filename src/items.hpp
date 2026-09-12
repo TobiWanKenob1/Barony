@@ -684,6 +684,8 @@ public:
 	static constexpr Sint32 RUNE_STORED_PWR_INVALID = (-2147483647 - 1);
 	static constexpr real_t RUNE_STORED_PWR_SCALE = 1000000.0;
 	static constexpr Sint8 RUNE_CREATOR_INVALID = -1;
+	static constexpr Uint32 RUNE_INSTANCE_ID_INVALID = 0;
+	static constexpr Uint32 RUNE_CREATOR_IDENTITY_INVALID = 0;
 
 	ItemType type;
 	Status status;
@@ -706,6 +708,11 @@ public:
 	bool itemSpecialShopConsumable = false; // if item is extra non-standard inventory consumable
 	Sint32 runeStoredPWR = RUNE_STORED_PWR_INVALID;
 	Sint8 runeCreatorPlayer = RUNE_CREATOR_INVALID;
+	// Network/save-stable identity of this physical Rune. Generic uid remains
+	// peer-local and must never be used to identify a Rune across the network.
+	Uint32 runeInstanceId = RUNE_INSTANCE_ID_INVALID;
+	// Persistent character/session identity paired with runeCreatorPlayer.
+	Uint32 runeCreatorIdentity = RUNE_CREATOR_IDENTITY_INVALID;
 
 	// weight, category and other generic info reported by function calls
 
@@ -746,6 +753,13 @@ public:
 	bool runeHasCreator() const;
 	int runeGetCreatorPlayer() const;
 	void runeSetCreatorPlayer(int player);
+	bool runeHasInstanceId() const;
+	Uint32 runeGetInstanceId() const;
+	void runeSetInstanceId(Uint32 instanceId);
+	Uint32 runeEnsureInstanceId();
+	Uint32 runeGetCreatorIdentity() const;
+	void runeSetCreatorIdentity(Uint32 identity);
+	bool runeCreatorMatchesPlayer(int player) const;
 
 	//General Functions.
 	Sint32 weaponGetAttack(const Stat* wielder = nullptr) const; //Returns the tohit of the weapon.
@@ -940,6 +954,9 @@ Entity* item_ToolBeartrap(Item*& item, Entity* usedBy);
 void item_Food(Item*& item, int player);
 void item_FoodTin(Item*& item, int player);
 void item_FoodAutomaton(Item*& item, int player);
+static constexpr Sint32 GOLEM_CHARGE_MAX = 2000;
+static constexpr Sint32 GOLEM_POLARITY_SWITCH_POINT = 5000;
+void item_GolemConsume(Item*& item, int player);
 void item_Spellbook(Item*& item, int player);
 void item_ToolLootBag(Item*& item, int player);
 
@@ -956,9 +973,14 @@ real_t getRuneDominateStorageEfficiency(const Item& rune);
 real_t getRuneCrafterCompetence(const spell_t* spell, Entity* creator);
 bool initializeMagicRuneCraftingProfile(Item& rune, spell_t* spell, Entity* creator);
 bool applyMagicRuneStoredPWR(spell_t& spell, const Item& rune);
-bool applyMagicRuneCastStress(Uint32 runeUid, int resourceEquivalent);
-Item* findMagicRuneByUid(Uint32 runeUid, int* ownerOut = nullptr);
-bool breakMagicRune(Uint32 runeUid, const char* message = nullptr);
+bool applyMagicRuneCastStress(Uint32 runeInstanceId, int resourceEquivalent,
+	int requiredOwner = -1);
+Item* findMagicRuneByInstanceId(Uint32 runeInstanceId, int* ownerOut = nullptr,
+	int requiredOwner = -1);
+bool breakMagicRune(Uint32 runeInstanceId, const char* message = nullptr);
+void reserveMagicRuneInstanceId(Uint32 runeInstanceId);
+Uint32 ensureRuneCreatorIdentity(int player);
+void reserveRuneCreatorIdentity(Uint32 creatorIdentity);
 Item* uidToItem(Uint32 uid);
 ItemType itemLevelCurveEntity(Entity& my, Category cat, int minLevel, int maxLevel, BaronyRNG& rng);
 bool itemLevelCurvePostProcess(Entity* my, Item* item, BaronyRNG& rng, 
@@ -987,6 +1009,8 @@ Item** itemSlot(Stat* myStats, Item* item);
 enum Category itemCategory(const Item* item);
 Sint32 itemModel(const Item* item, bool shortModel = false, Entity* creature = nullptr);
 Sint32 itemModelFirstperson(const Item* item);
+bool updateGolemPolarityFromComposition(int player);
+void reverseGolemEquipmentBeatitudes(Stat& playerStats, const Item* excludedItem = nullptr);
 void consumeItem(Item*& item, int player); //NOTE: Items have to be unequipped before calling this function on them. NOTE: THIS CAN FREE THE ITEM POINTER. Sets item to nullptr if it does.
 bool dropItem(Item* item, int player, const bool notifyMessage = true, const bool dropAll = false); // return true on free'd item
 bool playerGreasyDropItem(const int player, Item* const item);
@@ -1016,7 +1040,9 @@ void playerTryEquipItemAndUpdateServer(const int player, Item* item, bool checkI
 void clientSendEquipUpdateToServer(EquipItemSendToServerSlot slot, EquipItemResult equipType, int player,
 	ItemType type, Status status, Sint16 beatitude, int count, Uint32 appearance, bool identified,
 	Sint32 runeStoredPWR = Item::RUNE_STORED_PWR_INVALID,
-	Sint8 runeCreatorPlayer = Item::RUNE_CREATOR_INVALID);
+	Sint8 runeCreatorPlayer = Item::RUNE_CREATOR_INVALID,
+	Uint32 runeInstanceId = Item::RUNE_INSTANCE_ID_INVALID,
+	Uint32 runeCreatorIdentity = Item::RUNE_CREATOR_IDENTITY_INVALID);
 void clientUnequipSlotAndUpdateServer(const int player, EquipItemSendToServerSlot slot, Item* item);
 void clientSendAppearanceUpdateToServer(const int player, Item* item, const bool onIdentify);
 void clientSendItemTypeUpdateToServer(const int player, Item* item, ItemType prevItemType);
@@ -1045,6 +1071,8 @@ bool itemIsEquipped(const Item* item, int player);
 bool shouldInvertEquipmentBeatitude(const Stat* wielder);
 bool isItemEquippableInShieldSlot(const Item* item);
 bool itemIsConsumableByAutomaton(const Item& item);
+bool itemIsConsumableByGolem(const Item& item);
+int getGolemChargeValue(const Item& item);
 
 extern const real_t potionDamageSkillMultipliers[6];
 extern const real_t thrownDamageSkillMultipliers[6];
