@@ -1342,7 +1342,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 			{
 				allowedSkillup = true;
 			}
-			else if ( (!using_magicstaff && !usingFoci && !usingRune) )
+			else if ( (!using_magicstaff && !usingFoci) )
 			{
 				allowedSkillup = true;
 			}
