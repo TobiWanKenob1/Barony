@@ -58,6 +58,56 @@ bool runeHammerUsesTwoHandedPose(const Stat* playerStats)
 	return playerStats && (!playerStats->shield || runeHammerHasAttachedOffhand(playerStats));
 }
 
+// Presentation only: remote clients receive equipment sprites, not complete Items.
+static Entity* runeHammerVisualLimb(Entity* body, int limb)
+{
+	node_t* node = body ? list_Node(&body->children, limb) : nullptr;
+	return node ? static_cast<Entity*>(node->element) : nullptr;
+}
+
+static bool runeHammerRemotePresentation(int player)
+{
+	return multiplayer == CLIENT && !players[player]->isLocalPlayer();
+}
+
+static bool runeHammerVisualWeapon(Entity* body, int player)
+{
+	if ( !runeHammerRemotePresentation(player) )
+	{
+		return stats[player] && stats[player]->weapon && stats[player]->weapon->type == RUNE_HAMMER;
+	}
+	Entity* limb = runeHammerVisualLimb(body, 6);
+	return limb && limb->sprite == items[RUNE_HAMMER].index;
+}
+
+static bool runeHammerVisualOffhand(Entity* body, int player, bool runeOnly = false)
+{
+	if ( !runeHammerRemotePresentation(player) )
+	{
+		return stats[player] && stats[player]->shield
+			&& (stats[player]->shield->isMagicRune()
+				|| (!runeOnly && itemTypeIsFoci(stats[player]->shield->type)));
+	}
+	Entity* limb = runeHammerVisualLimb(body, 7);
+	if ( !limb || limb->sprite <= 0 ) { return false; }
+	for ( int gem = 0; gem < RUNE_GEM_COUNT; ++gem )
+	{
+		if ( limb->sprite == items[itemTypeFromRuneGemType(static_cast<RuneGemType>(gem))].index )
+		{
+			return true;
+		}
+	}
+	return !runeOnly && itemSpriteIsFociThirdPersonModel(limb->sprite);
+}
+
+static bool runeHammerVisualTwoHandedPose(Entity* body, int player)
+{
+	if ( !runeHammerRemotePresentation(player) ) { return runeHammerUsesTwoHandedPose(stats[player]); }
+	Entity* offhand = runeHammerVisualLimb(body, 7);
+	// Invisibility can also mean swimming or an invisible wearer; only sprite 0 is empty.
+	return !offhand || offhand->sprite <= 0 || runeHammerVisualOffhand(body, player);
+}
+
 bool beginRuneHammerInscription(int player, Uint32 targetUid, int charge)
 {
 	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !stats[player]
@@ -9803,8 +9853,8 @@ void actPlayer(Entity* my)
 			players[PLAYER_NUM]->mechanics.firearmInNormalWater = inNormalWater;
 			if ( enteredNormalWater && multiplayer != CLIENT )
 			{
-				const Sint32 spoiled = spoilLoadedFirearmsInInventory(PLAYER_NUM, true);
-				if ( spoiled > 0 && multiplayer == SERVER && PLAYER_NUM > 0
+				spoilLoadedFirearmsInInventory(PLAYER_NUM, true);
+				if ( multiplayer == SERVER && PLAYER_NUM > 0
 					&& !players[PLAYER_NUM]->isLocalPlayer() )
 				{
 					// mod add: Owner-only authoritative inventory-state correction.
@@ -13891,13 +13941,13 @@ void actPlayer(Entity* my)
 					}
 				}
 				my->handleHumanoidWeaponLimb(entity, weaponarm);
-				if ( stats[PLAYER_NUM]->weapon && stats[PLAYER_NUM]->weapon->type == RUNE_HAMMER )
+				if ( runeHammerVisualWeapon(my, PLAYER_NUM) )
 				{
 					const bool meleeAnimating = PLAYER_ATTACK > 0
 						&& PLAYER_ATTACK < MONSTER_POSE_MAGIC_WINDUP1;
 					const bool runeCastAnimating = runeHammerCastVisualPhase
 						!= RuneHammerCastVisualPhase::NONE;
-					const bool useTwoHandedTransform = runeHammerUsesTwoHandedPose(stats[PLAYER_NUM])
+					const bool useTwoHandedTransform = runeHammerVisualTwoHandedPose(my, PLAYER_NUM)
 						&& !meleeAnimating && !runeCastAnimating;
 					RuneHammerModelPositions.applyOffset(*entity,
 						RuneHammerModelPositions.hammerTransform(false, useTwoHandedTransform));
@@ -14005,18 +14055,16 @@ void actPlayer(Entity* my)
 					}
 				}
 				my->handleHumanoidShieldLimb(entity, shieldarm);
-				if ( stats[PLAYER_NUM]->shield
-					&& stats[PLAYER_NUM]->shield->isMagicRune()
-					&& (!stats[PLAYER_NUM]->weapon
-						|| stats[PLAYER_NUM]->weapon->type != RUNE_HAMMER) )
+				if ( runeHammerVisualOffhand(my, PLAYER_NUM, true)
+					&& !runeHammerVisualWeapon(my, PLAYER_NUM) )
 				{
 					RuneHammerModelPositions.applyOffset(
 						*entity,
 						RuneHammerModelPositions.standaloneRuneTransform(false)
 					);
 				}
-				if ( runeHammerHasAttachedOffhand(stats[PLAYER_NUM])
-					&& stats[PLAYER_NUM]->weapon && stats[PLAYER_NUM]->weapon->type == RUNE_HAMMER )
+				if ( runeHammerVisualOffhand(my, PLAYER_NUM)
+					&& runeHammerVisualWeapon(my, PLAYER_NUM) )
 				{
 					if ( node_t* weaponNode = list_Node(&my->children, 6) )
 					{

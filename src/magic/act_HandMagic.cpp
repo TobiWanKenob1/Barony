@@ -86,6 +86,7 @@ static ConsoleVariable<int> cvar_vibe_spell_y("/vibe_spell_y", 0);
 static ConsoleVariable<int> cvar_vibe_spell_s("/vibe_spell_s", 0);
 void spellcasting_animation_manager_t::executeAttackSpell(bool swingweapon)
 {
+	if ( entrenchAwaitingResult && spell && spell->ID == SPELL_ENTRENCH ) { return; }
 	if ( player < 0 || player >= MAXPLAYERS ) { return; }
 	if ( !spellWaitingAttackInput() )
 	{
@@ -393,9 +394,7 @@ void spellcasting_animation_manager_t::setRangeFinderLocation()
 	rangefinder = spell->rangefinder;
 	// mod add: Entrench's second stage targets a cardinal floor tile.
 	if ( spell->ID == SPELL_ENTRENCH && players[player]
-		&& (players[player]->mechanics.entrenchCarriedUid != 0
-			|| (players[player]->entity
-				&& players[player]->entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] != 0)) )
+		&& players[player]->mechanics.entrenchCarriedUid != 0 )
 	{
 		rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
 	}
@@ -1199,8 +1198,71 @@ void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, 
 	spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_WINDUP1, animation_manager->times_to_circle + HANDMAGIC_TICKS_PER_CIRCLE);
 }
 
+static void requestEntrenchCancel(int player)
+{
+	if ( multiplayer == CLIENT )
+	{
+		strcpy((char*)net_packet->data, "ENTC");
+		net_packet->data[4] = player;
+		net_packet->len = 5;
+		net_packet->address.host = net_server.host;
+		net_packet->address.port = net_server.port;
+		sendPacketSafe(net_sock, -1, net_packet, 0);
+		cast_animation[player].entrenchAwaitingResult = true;
+		cast_animation[player].entrenchCancelPending = true;
+	}
+	else { restoreEntrenchCarriedObject(player); }
+}
+
+void receiveEntrenchOwnerState(Uint32 carriedUid, Uint32 revision)
+{
+	if ( !players[clientnum] ) { return; }
+	auto& state = players[clientnum]->mechanics;
+	if ( revision <= state.entrenchOwnerRevision ) { return; }
+	state.entrenchOwnerRevision = revision;
+	state.entrenchCarriedUid = carriedUid; // UI state comes only from an owner acknowledgement.
+	auto& animation = cast_animation[clientnum];
+	animation.entrenchAwaitingResult = false;
+	if ( animation.entrenchCancelPending )
+	{
+		animation.entrenchCancelPending = false;
+		if ( carriedUid != 0 ) { requestEntrenchCancel(clientnum); }
+		return;
+	}
+	if ( !animation.spell || animation.spell->ID != SPELL_ENTRENCH ) { return; }
+	if ( carriedUid == 0 )
+	{
+		spellcastingAnimationManager_deactivate(&animation);
+		return;
+	}
+	animation.active = true;
+	animation.active_spellbook = false;
+	animation.usingRune = false;
+	animation.stage = ANIM_SPELL_TOUCH;
+	animation.rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
+	animation.targetUid = 0;
+	animation.throw_count = 0;
+	animation.setRangeFinderLocation();
+	spellcastAnimationUpdate(clientnum, MONSTER_POSE_MAGIC_WINDUP2, 0);
+}
+
 void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* animation_manager)
 {
+	if ( animation_manager->spell && animation_manager->spell->ID == SPELL_ENTRENCH
+		&& animation_manager->player >= 0 && animation_manager->player < MAXPLAYERS
+		&& players[animation_manager->player] )
+	{
+		if ( animation_manager->entrenchAwaitingResult )
+		{
+			// Wait for the in-flight cast before cancelling, so cancellation cannot overtake pickup.
+			animation_manager->entrenchCancelPending = true;
+		}
+		else if ( players[animation_manager->player]->mechanics.entrenchCarriedUid != 0 )
+		{
+			requestEntrenchCancel(animation_manager->player);
+		}
+	}
+
 	if ( animation_manager->usingRune && animation_manager->player >= 0
 		&& animation_manager->player < MAXPLAYERS && players[animation_manager->player]
 		&& players[animation_manager->player]->entity
@@ -1348,7 +1410,7 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 	const bool entrenchPlacementStage = animation_manager->spell
 		&& animation_manager->spell->ID == SPELL_ENTRENCH
 		&& animation_manager->rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE;
-	const Uint32 entrenchPickupUid = animation_manager->targetUid;
+	if ( (entrenchFirstStage || entrenchPlacementStage) && animation_manager->entrenchAwaitingResult ) { return; }
 	if ( animation_manager->stage == ANIM_SPELL_TOUCH_THROW
 		|| animation_manager->stage == ANIM_SPELL_OVERCHARGE_THROW )
 	{
@@ -1492,32 +1554,23 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 		completeCast(nullptr);
 	}
 
-	if ( entrenchFirstStage )
+	if ( entrenchFirstStage || entrenchPlacementStage )
 	{
-		//mod add: remain in the native targeting pose after pickup. The next
-		// attack release places the carried object and then ends the cast.
+		// The paid continuation no longer depends on an equipped spellbook or Rune.
+		animation_manager->active = true;
+		animation_manager->active_spellbook = false;
+		animation_manager->usingRune = false;
 		animation_manager->stage = ANIM_SPELL_TOUCH;
-		animation_manager->rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
-		animation_manager->targetUid = 0;
-		if ( players[player] && players[player]->entity )
+		animation_manager->throw_count = 0;
+		if ( multiplayer == CLIENT && animation_manager->entrenchAwaitingResult ) { return; }
+		if ( players[player]->mechanics.entrenchCarriedUid != 0 )
 		{
-			// Local prediction keeps floor targeting active until the authoritative
-			// carried UID arrives on this same replicated skill.
-			players[player]->entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL]
-				= static_cast<Sint32>(entrenchPickupUid);
+			animation_manager->rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
+			animation_manager->targetUid = 0;
+			animation_manager->setRangeFinderLocation();
+			spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_WINDUP2, 0);
 		}
-		animation_manager->throw_count = 0;
-		animation_manager->setRangeFinderLocation();
-		spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_WINDUP2, 0);
-	}
-	else if ( entrenchPlacementStage && players[player] && players[player]->entity
-		&& players[player]->entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] != 0 )
-	{
-		// Invalid placement retains the object and immediately resumes targeting.
-		// Remote clients also wait here for the server's success marker to clear.
-		animation_manager->stage = ANIM_SPELL_TOUCH;
-		animation_manager->throw_count = 0;
-		animation_manager->setRangeFinderLocation();
+		else { spellcastingAnimationManager_deactivate(animation_manager); }
 	}
 	else if ( deactivate )
 	{
@@ -1862,13 +1915,15 @@ void actLeftHandMagic(Entity* my)
 	if ( (cast_animation[HANDMAGIC_PLAYERNUM].active || cast_animation[HANDMAGIC_PLAYERNUM].active_spellbook) )
 	{
 		if ( cast_animation[HANDMAGIC_PLAYERNUM].spell
-			&& cast_animation[HANDMAGIC_PLAYERNUM].spell->ID == SPELL_ENTRENCH
-			&& cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE
-			&& players[HANDMAGIC_PLAYERNUM]->entity
-				->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] == 0 )
+			&& cast_animation[HANDMAGIC_PLAYERNUM].spell->ID == SPELL_ENTRENCH )
 		{
-			spellcastingAnimationManager_deactivate(&cast_animation[HANDMAGIC_PLAYERNUM]);
-			return;
+			if ( cast_animation[HANDMAGIC_PLAYERNUM].entrenchAwaitingResult ) { return; }
+			if ( cast_animation[HANDMAGIC_PLAYERNUM].rangefinder == RANGEFINDER_TOUCH_FLOOR_TILE
+				&& players[HANDMAGIC_PLAYERNUM]->mechanics.entrenchCarriedUid == 0 )
+			{
+				spellcastingAnimationManager_deactivate(&cast_animation[HANDMAGIC_PLAYERNUM]);
+				return;
+			}
 		}
 		cast_animation[HANDMAGIC_PLAYERNUM].setRangeFinderLocation();
 		switch ( cast_animation[HANDMAGIC_PLAYERNUM].stage)

@@ -2695,6 +2695,14 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		client_keepalive[0] = ticks;
 	}},
 
+	{'ENAK', [](){
+		if ( net_packet->len == 12 )
+		{
+			receiveEntrenchOwnerState(SDLNet_Read32(&net_packet->data[4]), SDLNet_Read32(&net_packet->data[8]));
+		}
+	}},
+	{'ETRN', [](){ receiveEntrenchEntityTransform(); }},
+
 	// entity update
 	{'ENTU', [](){
 		client_keepalive[0] = ticks; // don't timeout
@@ -9094,18 +9102,23 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	}},
 
 	//The client cast a spell.
+	{'ENTC', [](){
+		if ( net_packet->len != 5 ) { return; }
+		const int player = net_packet->data[4];
+		if ( player > 0 && player < MAXPLAYERS ) { restoreEntrenchCarriedObject(player); }
+	}},
 	{'SPEL', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
-		if ( playerIsPanicking(player) )
-		{
-			return;
-		}
-
 		spell_t* thespell = getSpellFromID(SDLNet_Read32(&net_packet->data[5]));
-		if ( !thespell )
+		// Acknowledge every Entrench request, including early validation rejection.
+		struct EntrenchReply
 		{
-			return;
-		}
+			int player;
+			bool enabled;
+			~EntrenchReply() { if ( enabled ) { serverSendEntrenchOwnerState(player); } }
+		} reply{player, thespell && thespell->ID == SPELL_ENTRENCH};
+		if ( !thespell || playerIsPanicking(player) ) { return; }
+
 		if ( players[player] && players[player]->entity )
 		{
 			bool spellbookCast = net_packet->data[9] == 1;

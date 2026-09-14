@@ -4634,7 +4634,7 @@ static int merrowTowelPolishDurationTicks(Sint16 beatitude)
 		seconds -= 15;
 	}
 
-	return std::max(0, seconds) * TICKS_PER_SECOND;
+	return 2 * std::max(0, seconds) * TICKS_PER_SECOND;
 }
 
 void item_ToolTowel(Item*& item, int player)
@@ -7013,6 +7013,11 @@ void item_GolemConsume(Item*& item, int player)
 	serverUpdateHunger(player);
 	serverUpdateGolemComposition(player);
 	consumeItem(item, player);
+	if ( !(svFlags & SV_FLAG_HUNGER) )
+	{
+		players[player]->entity->modHP(5);
+	}
+
 	if ( survivingItem )
 	{
 		if ( dropItemMonster(survivingItem, players[player]->entity, nullptr, 1) )

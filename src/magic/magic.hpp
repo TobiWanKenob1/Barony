@@ -1162,6 +1162,9 @@ void spell_changeHealth(Entity* entity, int amount, bool overdrewFromHP = false,
 void actLeftHandMagic(Entity* my);
 void actRightHandMagic(Entity* my);
 void actMagicRangefinder(Entity* my);
+void serverSendEntrenchOwnerState(int player);
+void receiveEntrenchOwnerState(Uint32 carriedUid, Uint32 revision);
+void receiveEntrenchEntityTransform();
 
 typedef struct spellcastingAnimationManager
 {
@@ -1175,6 +1178,8 @@ typedef struct spellcastingAnimationManager
 	int stage; //The current stage of the animation.
 	int circle_count; //How many times it's circled around in the circle stage.
 	int times_to_circle; //How many times to circle around in the circle stage.
+	bool entrenchAwaitingResult = false;
+	bool entrenchCancelPending = false;
 	int throw_count = 0;
 	int active_count = 0;
 	int overcharge = 0;

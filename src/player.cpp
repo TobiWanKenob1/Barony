@@ -3259,6 +3259,11 @@ void Player::init() // for use on new/restart game, UI related
 	// mod add: A new map/run discards stale Entrench bookkeeping without touching
 	// an entity from the previous map; removal cleanup performs restoration first.
 	mechanics.entrenchCarriedUid = 0;
+	mechanics.entrenchVisualCarriedUid = 0;
+	mechanics.entrenchOwnerRevision = 0;
+	mechanics.entrenchVisualRevision = 0;
+	cast_animation[playernum].entrenchAwaitingResult = false;
+	cast_animation[playernum].entrenchCancelPending = false;
 	mechanics.entrenchOriginX = 0.0;
 	mechanics.entrenchOriginY = 0.0;
 	mechanics.entrenchOriginZ = 0.0;

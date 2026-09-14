@@ -12756,6 +12756,15 @@ void Entity::attack(int pose, int charge, Entity* target)
 					damage = 0;
 				}
 
+				// Double the final normal melee result, including charge and collider resistance.
+				if ( !shapeshifted && myStats->weapon && myStats->weapon->type == RUNE_HAMMER
+					&& !mimic && (hit.entity->behavior == &actDoor
+						|| hit.entity->behavior == &::actFurniture || hit.entity->behavior == &::actChest
+						|| (hit.entity->isDamageableCollider() && hit.entity->isColliderDamageableByMelee())) )
+				{
+					damage *= 2;
+				}
+
 				int& entityHP = hit.entity->behavior == &actColliderDecoration ? hit.entity->colliderCurrentHP :
 					(hit.entity->behavior == &::actChest ? hit.entity->chestHealth :
 					((hit.entity->behavior == &actDoor || hit.entity->behavior == &::actIronDoor) ? hit.entity->doorHealth :
@@ -14870,7 +14879,9 @@ void Entity::attack(int pose, int charge, Entity* target)
 								break;
 						}
 
-						if ( weaponskill == PRO_POLEARM )
+						const bool runeHammerCapstone = weaponskill == PRO_POLEARM && !shapeshifted
+							&& myStats->weapon && myStats->weapon->type == RUNE_HAMMER;
+						if ( weaponskill == PRO_POLEARM && !runeHammerCapstone )
 						{
 							// knockback.
 							if ( chance > 0 )
@@ -14905,7 +14916,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 								hit.entity->modHP(-capstoneDamage); // do the damage
 							}
 						}
-						else if ( weaponskill == PRO_MACE && hitstats->HP > 0 && !(flail && pose == MONSTER_POSE_FLAIL_SWING) )
+						else if ( (weaponskill == PRO_MACE || runeHammerCapstone) && hitstats->HP > 0 && !(flail && pose == MONSTER_POSE_FLAIL_SWING) )
 						{
 							// paralyze.
 							if ( chance > 0 ) // chance based paralyze
@@ -14920,7 +14931,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 										spawnMagicEffectParticles(hit.entity->x, hit.entity->y, hit.entity->z, 170);
 										if ( behavior == &actPlayer )
 										{
-											Compendium_t::Events_t::eventUpdateCodex(skill[2], Compendium_t::CPDM_SKILL_LEGENDARY_PROCS, "mace skill", 1);
+											Compendium_t::Events_t::eventUpdateCodex(skill[2], Compendium_t::CPDM_SKILL_LEGENDARY_PROCS, runeHammerCapstone ? "polearm skill" : "mace skill", 1);
 										}
 									}
 								}
@@ -22237,8 +22248,8 @@ bool Entity::tryCleanMerrowReflectingScales()
 	myStats->MISC_FLAGS[STAT_FLAG_MERROW_SCALE_COOLDOWN]
 		= MERROW_SCALE_SWIM_COOLDOWN;
 
-	// Original 50% success chance.
-	if ( local_rng.rand() % 100 >= MERROW_SCALE_CLEAN_CHANCE )
+	// Cleaning from zero is guaranteed once the normal cooldown is ready.
+	if ( currentScales > 0 && local_rng.rand() % 100 >= MERROW_SCALE_CLEAN_CHANCE )
 	{
 		return false;
 	}

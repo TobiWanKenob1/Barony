@@ -148,25 +148,113 @@ static void clearEntrenchCarrySnapshot(Player::PlayerMechanics_t& state)
 	state.entrenchOriginDeployedReward = 0;
 }
 
-static void serverSyncEntrenchEntityTransform(Entity* entity)
+void serverSendEntrenchOwnerState(int player)
 {
-	if ( multiplayer != SERVER || !entity )
-	{
-		return;
-	}
-	//mod add: Entrench moves an existing normally-static world entity. Mark it
-	// for ordinary transform replication and guarantee the accepted transition
-	// immediately so remote collision and tile-list state use the server position.
-	entity->flags[UPDATENEEDED] = true;
+	if ( multiplayer != SERVER || player <= 0 || player >= MAXPLAYERS
+		|| !players[player] || players[player]->isLocalPlayer() || client_disconnected[player] ) { return; }
+	strcpy((char*)net_packet->data, "ENAK");
+	SDLNet_Write32(players[player]->mechanics.entrenchCarriedUid, &net_packet->data[4]);
+	SDLNet_Write32(++players[player]->mechanics.entrenchOwnerRevision, &net_packet->data[8]);
+	net_packet->len = 12;
+	net_packet->address.host = net_clients[player - 1].host;
+	net_packet->address.port = net_clients[player - 1].port;
+	sendPacketSafe(net_sock, -1, net_packet, player - 1);
+}
+
+static void serverSyncEntrenchEntityTransform(Entity* entity, int player)
+{
+	if ( multiplayer != SERVER || !entity ) { return; }
+	// An atomic, versioned Entrench snapshot avoids separately arriving flags,
+	// carry markers and interpolated transforms disagreeing on static scenery.
+	static Uint32 transitionRevision = 0;
+	entity->entrenchSyncRevision = ++transitionRevision;
+	const real_t values[] = {entity->x, entity->y, entity->z, entity->yaw,
+		entity->pitch, entity->roll, entity->focalx, entity->focaly, entity->focalz,
+		entity->sizex, entity->sizey, entity->doorStartAng};
 	for ( int c = 1; c < MAXPLAYERS; ++c )
 	{
-		sendEntityUDP(entity, c, true);
+		if ( client_disconnected[c] || players[c]->isLocalPlayer() ) { continue; }
+		strcpy((char*)net_packet->data, "ETRN");
+		SDLNet_Write32(entity->getUID(), &net_packet->data[4]);
+		SDLNet_Write32(entity->entrenchSyncRevision, &net_packet->data[8]);
+		for ( int i = 0; i < 12; ++i )
+		{
+			SDLNet_Write32(static_cast<Sint32>(values[i] * 65536.0), &net_packet->data[12 + i * 4]);
+		}
+		net_packet->data[60] = (entity->flags[PASSABLE] ? 1 : 0)
+			| (entity->flags[INVISIBLE] ? 2 : 0) | (entity->flags[UNCLICKABLE] ? 4 : 0)
+			| (entity->flags[BLOCKSIGHT] ? 8 : 0);
+		const int skills[] = {ENTRENCH_CARRIED_OWNER_SKILL,
+			ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL, 3, 5, 0};
+		for ( int i = 0; i < 5; ++i )
+		{
+			SDLNet_Write32(entity->skill[skills[i]], &net_packet->data[61 + i * 4]);
+		}
+		net_packet->data[81] = player;
+		SDLNet_Write32((Uint32)ticks, &net_packet->data[82]);
+		net_packet->len = 86;
+		net_packet->address.host = net_clients[c - 1].host;
+		net_packet->address.port = net_clients[c - 1].port;
+		sendPacketSafe(net_sock, -1, net_packet, c - 1);
 	}
+}
+
+void receiveEntrenchEntityTransform()
+{
+	if ( multiplayer != CLIENT || net_packet->len != 86 ) { return; }
+	Entity* entity = uidToEntity(SDLNet_Read32(&net_packet->data[4]));
+	if ( !entity ) { return; } // Entrench only moves existing world objects.
+	const Uint32 revision = SDLNet_Read32(&net_packet->data[8]);
+	if ( revision <= entity->entrenchSyncRevision ) { return; }
+	entity->entrenchSyncRevision = revision;
+	real_t values[12];
+	for ( int i = 0; i < 12; ++i )
+	{
+		values[i] = static_cast<Sint32>(SDLNet_Read32(&net_packet->data[12 + i * 4])) / 65536.0;
+	}
+	entity->x = entity->new_x = values[0];
+	entity->y = entity->new_y = values[1];
+	entity->z = entity->new_z = values[2];
+	entity->yaw = entity->new_yaw = values[3];
+	entity->pitch = entity->new_pitch = values[4];
+	entity->roll = entity->new_roll = values[5];
+	entity->focalx = values[6]; entity->focaly = values[7]; entity->focalz = values[8];
+	entity->sizex = values[9]; entity->sizey = values[10];
+	if ( entity->behavior == &actDoor ) { entity->doorStartAng = values[11]; }
+	entity->vel_x = entity->vel_y = entity->vel_z = 0.0;
+	entity->flags[PASSABLE] = (net_packet->data[60] & 1) != 0;
+	entity->flags[INVISIBLE] = (net_packet->data[60] & 2) != 0;
+	entity->flags[UNCLICKABLE] = (net_packet->data[60] & 4) != 0;
+	entity->flags[BLOCKSIGHT] = (net_packet->data[60] & 8) != 0;
+	const int skills[] = {ENTRENCH_CARRIED_OWNER_SKILL,
+		ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL, 3, 5, 0};
+	for ( int i = 0; i < 5; ++i )
+	{
+		// Door fields alias unrelated furniture/collider data; only copy them for doors.
+		if ( i < 2 || entity->behavior == &actDoor )
+		{
+			entity->skill[skills[i]] = SDLNet_Read32(&net_packet->data[61 + i * 4]);
+		}
+	}
+	const int player = net_packet->data[81];
+	if ( player >= 0 && player < MAXPLAYERS && players[player]
+		&& revision > players[player]->mechanics.entrenchVisualRevision )
+	{
+		auto& state = players[player]->mechanics;
+		state.entrenchVisualRevision = revision;
+		state.entrenchVisualCarriedUid = entity->skill[ENTRENCH_CARRIED_OWNER_SKILL] == player + 1
+			? entity->getUID() : 0;
+	}
+	TileEntityList.updateEntity(*entity);
+	// ENTU rejects ticks strictly below lastupdateserver. Exclude queued updates
+	// from this snapshot's tick too, while allowing normal updates from later ticks.
+	const Uint32 serverTick = SDLNet_Read32(&net_packet->data[82]);
+	entity->lastupdateserver = std::max(entity->lastupdateserver, serverTick + 1);
 }
 
 void restoreEntrenchCarriedObject(int player)
 {
-	if ( player < 0 || player >= MAXPLAYERS || !players[player] )
+	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS || !players[player] )
 	{
 		return;
 	}
@@ -198,20 +286,7 @@ void restoreEntrenchCarriedObject(int player)
 		{
 			generatePathMaps();
 		}
-		if ( multiplayer == SERVER )
-		{
-			serverUpdateEntityFlag(entity, PASSABLE);
-			serverUpdateEntityFlag(entity, INVISIBLE);
-			serverUpdateEntityFlag(entity, UNCLICKABLE);
-			serverUpdateEntitySkill(entity, ENTRENCH_CARRIED_OWNER_SKILL);
-			if ( entity->behavior == &actDoor )
-			{
-				serverUpdateEntitySkill(entity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
-				serverUpdateEntitySkill(entity, 3);
-				serverUpdateEntitySkill(entity, 5);
-			}
-			serverSyncEntrenchEntityTransform(entity);
-		}
+		serverSyncEntrenchEntityTransform(entity, player);
 	}
 	clearEntrenchCarrySnapshot(state);
 	if ( players[player]->entity )
@@ -222,6 +297,7 @@ void restoreEntrenchCarriedObject(int player)
 			serverUpdateEntitySkill(players[player]->entity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
 		}
 	}
+	serverSendEntrenchOwnerState(player);
 }
 
 void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity)
@@ -262,18 +338,7 @@ void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity)
 			entity->colliderKillerUid = 0;
 		}
 		TileEntityList.updateEntity(*entity);
-		if ( multiplayer == SERVER )
-		{
-			serverUpdateEntityFlag(entity, PASSABLE);
-			serverUpdateEntityFlag(entity, INVISIBLE);
-			serverUpdateEntityFlag(entity, UNCLICKABLE);
-			serverUpdateEntitySkill(entity, ENTRENCH_CARRIED_OWNER_SKILL);
-			if ( entity->behavior == &actDoor )
-			{
-				serverUpdateEntitySkill(entity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
-				serverUpdateEntitySkill(entity, 4);
-			}
-		}
+		serverSyncEntrenchEntityTransform(entity, player);
 	}
 	clearEntrenchCarrySnapshot(state);
 	playerEntity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
@@ -281,6 +346,7 @@ void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity)
 	{
 		serverUpdateEntitySkill(playerEntity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
 	}
+	serverSendEntrenchOwnerState(player);
 }
 
 void updateEntrenchCarriedObject(int player)
@@ -290,13 +356,11 @@ void updateEntrenchCarriedObject(int player)
 		return;
 	}
 	Entity* caster = players[player]->entity;
-	Uint32 carriedUid = players[player]->mechanics.entrenchCarriedUid;
-	if ( carriedUid == 0 )
-	{
-		carriedUid = static_cast<Uint32>(caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL]);
-	}
+	const Uint32 carriedUid = multiplayer == CLIENT
+		? players[player]->mechanics.entrenchVisualCarriedUid
+		: players[player]->mechanics.entrenchCarriedUid;
 	Entity* carried = uidToEntity(carriedUid);
-	if ( !carried || !isEntrenchCarriedObject(carried) )
+	if ( !carried || carried->skill[ENTRENCH_CARRIED_OWNER_SKILL] != player + 1 )
 	{
 		return;
 	}
@@ -305,22 +369,29 @@ void updateEntrenchCarriedObject(int player)
 	carried->z = caster->z - 12.0 + sin(ticks * 0.08) * 1.25;
 	carried->yaw += 0.015;
 	while ( carried->yaw >= 2 * PI ) { carried->yaw -= 2 * PI; }
+	if ( multiplayer == CLIENT )
+	{
+		carried->new_x = carried->x; carried->new_y = carried->y; carried->new_z = carried->z;
+		carried->new_yaw = carried->yaw;
+	}
 	TileEntityList.updateEntity(*carried);
 }
 
-static bool entrenchDestinationOccupied(Entity* carried, int tilex, int tiley)
+static bool entrenchDestinationOccupied(Entity* carried, int tilex, int tiley, real_t sizex, real_t sizey)
 {
 	const real_t x = tilex * 16 + 8;
 	const real_t y = tiley * 16 + 8;
 	for ( node_t* node = map.entities->first; node; node = node->next )
 	{
 		Entity* entity = static_cast<Entity*>(node->element);
-		if ( !entity || entity == carried || entity->flags[PASSABLE] || entity->flags[INVISIBLE] )
+		const bool creature = entity && (entity->behavior == &actPlayer || entity->behavior == &actMonster);
+		if ( !entity || entity == carried
+			|| (!creature && (entity->flags[PASSABLE] || entity->flags[INVISIBLE])) )
 		{
 			continue;
 		}
-		if ( fabs(entity->x - x) < entity->sizex + carried->sizex
-			&& fabs(entity->y - y) < entity->sizey + carried->sizey )
+		if ( fabs(entity->x - x) < entity->sizex + sizex
+			&& fabs(entity->y - y) < entity->sizey + sizey )
 		{
 			return true;
 		}
@@ -374,7 +445,7 @@ static bool entrenchPlacementHasLineOfSight(Entity* caster, real_t x, real_t y)
 
 static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 {
-	if ( !caster || player < 0 || player >= MAXPLAYERS || !players[player] || multiplayer == CLIENT )
+	if ( !caster || player < 0 || player >= MAXPLAYERS || !players[player] || multiplayer == CLIENT || caster->getHP() <= 0 )
 	{
 		return;
 	}
@@ -451,19 +522,14 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		if ( multiplayer == SERVER )
 		{
 			serverUpdateEntitySkill(caster, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
-			serverUpdateEntityFlag(target, PASSABLE);
-			serverUpdateEntityFlag(target, INVISIBLE);
-			serverUpdateEntityFlag(target, UNCLICKABLE);
-			serverUpdateEntitySkill(target, ENTRENCH_CARRIED_OWNER_SKILL);
-			serverUpdateEntitySkill(target, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
-			serverUpdateEntitySkill(target, 5);
+			serverSyncEntrenchEntityTransform(target, player);
 		}
 		messagePlayer(player, MESSAGE_HINT, Language::get(7010));
 		return;
 	}
 
 	Entity* carried = uidToEntity(state.entrenchCarriedUid);
-	if ( !carried )
+	if ( !carried || carried->skill[ENTRENCH_CARRIED_OWNER_SKILL] != player + 1 )
 	{
 		clearEntrenchCarrySnapshot(state);
 		caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
@@ -496,8 +562,7 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		return;
 	}
 	const int index = tiley * MAPLAYERS + tilex * MAPLAYERS * map.height;
-	if ( !map.tiles[index] || map.tiles[OBSTACLELAYER + index]
-		|| entrenchDestinationOccupied(carried, tilex, tiley) )
+	if ( !map.tiles[index] || map.tiles[OBSTACLELAYER + index] )
 	{
 		messagePlayer(player, MESSAGE_HINT, Language::get(7013));
 		return;
@@ -520,11 +585,21 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		return;
 	}
 
+	// Validate the final rotated footprint, including passable/invisible creatures.
+	const bool doorDir = bridge ? alongX : !alongX;
+	const real_t destinationSizeX = carried->behavior == &actDoor ? (doorDir ? 8 : 1) : carried->sizex;
+	const real_t destinationSizeY = carried->behavior == &actDoor ? (doorDir ? 1 : 8) : carried->sizey;
+	if ( entrenchDestinationOccupied(carried, tilex, tiley, destinationSizeX, destinationSizeY) )
+	{
+		messagePlayer(player, MESSAGE_HINT, Language::get(7013));
+		return;
+	}
+
 	carried->x = placementX;
 	carried->y = placementY;
 	carried->flags[INVISIBLE] = false;
 	carried->flags[UNCLICKABLE] = false;
-	carried->flags[PASSABLE] = bridge ? true : state.entrenchOriginPassable;
+	carried->flags[PASSABLE] = bridge || (carried->behavior != &actDoor && state.entrenchOriginPassable);
 	carried->skill[ENTRENCH_CARRIED_OWNER_SKILL] = 0;
 	carried->skill[ENTRENCH_DEPLOYED_OWNER_SKILL] = bridge ? 0 : player + 1;
 	carried->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] = bridge ? 0 : 1;
@@ -559,18 +634,7 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		// mod add: bridges are rare player actions; rebuild native grounded zones once.
 		generatePathMaps();
 	}
-	if ( multiplayer == SERVER )
-	{
-		serverUpdateEntityFlag(carried, PASSABLE);
-		serverUpdateEntityFlag(carried, INVISIBLE);
-		serverUpdateEntityFlag(carried, UNCLICKABLE);
-		serverUpdateEntityFlag(carried, BLOCKSIGHT);
-		serverUpdateEntitySkill(carried, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
-		serverUpdateEntitySkill(carried, ENTRENCH_CARRIED_OWNER_SKILL);
-		serverUpdateEntitySkill(carried, 3);
-		serverUpdateEntitySkill(carried, 5);
-		serverSyncEntrenchEntityTransform(carried);
-	}
+	serverSyncEntrenchEntityTransform(carried, player);
 	if ( !bridge )
 	{
 		updateEnemyBar(caster, carried, Language::get(674), carried->doorHealth,
@@ -655,6 +719,8 @@ void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool 
 			return; //Can't cast spells while attacking.
 		}
 	}
+
+	if ( player >= 0 && spell && spell->ID == SPELL_ENTRENCH && cast_animation[player].entrenchAwaitingResult ) { return; }
 
 	if ( cast_animation[player].active || cast_animation[player].active_spellbook )
 	{
@@ -1270,23 +1336,25 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 				net_packet->len = 10;
 			}
 		}
+		if ( spell->ID == SPELL_ENTRENCH ) { cast_animation[clientnum].entrenchAwaitingResult = true; }
 		net_packet->address.host = net_server.host;
 		net_packet->address.port = net_server.port;
 		sendPacketSafe(net_sock, -1, net_packet, 0);
 		return NULL;
 	}
 
-	//mod add: Entrench placement is the second click of the original cast.
-	// Reuse the staff bypass only when authoritative carry state confirms that
-	// stage; a client-supplied optionalData byte alone must never waive mana.
+	// Placement completes an already-paid cast, independent of the book/rune surviving.
 	const int entrenchPlayer = caster->behavior == &actPlayer ? caster->skill[2] : -1;
-	if ( spell->ID == SPELL_ENTRENCH && castSpellProps
-		&& castSpellProps->optionalData == 1
-		&& entrenchPlayer >= 0 && entrenchPlayer < MAXPLAYERS
-		&& players[entrenchPlayer]
-		&& players[entrenchPlayer]->mechanics.entrenchCarriedUid != 0 )
+	if ( spell->ID == SPELL_ENTRENCH && entrenchPlayer >= 0 && entrenchPlayer < MAXPLAYERS
+		&& players[entrenchPlayer] )
 	{
-		using_magicstaff = true;
+		const bool placing = castSpellProps && castSpellProps->optionalData == 1;
+		const bool carrying = players[entrenchPlayer]->mechanics.entrenchCarriedUid != 0;
+		if ( placing || carrying )
+		{
+			if ( placing && carrying && caster->getHP() > 0 ) { castEntrench(caster, entrenchPlayer, castSpellProps); }
+			return nullptr;
+		}
 	}
 
 	if (!spell->elements.first)
@@ -1513,9 +1581,7 @@ Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool
 		}
 	}
 
-	//mod add: Entrench remains a normal mana-costing cast, but its two-stage
-	// client prediction cannot safely enter placement mode after a server fizzle.
-	// Keep the utility interaction deterministic until it has an acknowledgement path.
+	//mod add: Preserve Entrench's existing no-fizzle utility rule for the paid pickup.
 	if ( spell->ID == SPELL_ENTRENCH )
 	{
 		newbie = false;

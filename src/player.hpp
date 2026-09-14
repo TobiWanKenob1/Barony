@@ -2467,6 +2467,9 @@ public:
 		// mod add end
 		// mod add: Entrench carries an original world entity, never an Item.
 		Uint32 entrenchCarriedUid = 0;
+		Uint32 entrenchOwnerRevision = 0;
+		Uint32 entrenchVisualRevision = 0;
+		Uint32 entrenchVisualCarriedUid = 0; // derived from atomic object snapshots on clients
 		real_t entrenchOriginX = 0.0;
 		real_t entrenchOriginY = 0.0;
 		real_t entrenchOriginZ = 0.0;

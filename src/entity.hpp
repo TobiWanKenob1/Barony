@@ -1133,6 +1133,8 @@ public:
 
 	void spawnBlood(int bloodsprite = 160);
 
+	Uint32 entrenchSyncRevision = 0; // Entrench-only atomic world transitions
+
 	// mod add: Merrow reflecting scales
 	bool isMerrowPlayer() const;
 	int getMerrowReflectingScaleCap() const;
