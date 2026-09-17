@@ -821,8 +821,8 @@ public:
 	bool musketQuestJammed() const;
 	void setMusketQuestJammed(bool jammed);
 	ItemType firearmReloadMaterialType() const;
-	Sint32 firearmReloadMaterialCost() const;
-	Sint32 firearmReloadDuration() const;
+	Sint32 firearmReloadMaterialCost(Sint32 rawTinkering) const;
+	Sint32 firearmReloadDuration(Sint32 rawTinkering) const;
 	Sint32 firearmJamChancePercent(Sint32 rawTinkering) const;
 	Sint32 firearmJamRecoveryScrapCost(Sint32 rawTinkering) const;
 	Sint32 firearmReloadTrainingCap() const;

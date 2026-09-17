@@ -11297,7 +11297,7 @@ void actPlayer(Entity* my)
 				if ( doDeathProcedure )
 				{
 					// mod add: Death shatters an Entrench-carried object at the death
-					// position. Disconnect/map cleanup still takes the restore path.
+					// position. Ordinary map cleanup keeps only the portable stash.
 					if ( !client_disconnected[PLAYER_NUM] && stats[PLAYER_NUM]->HP <= 0 )
 					{
 						shatterEntrenchCarriedObjectOnPlayerDeath(PLAYER_NUM, my);

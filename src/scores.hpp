@@ -795,6 +795,8 @@ struct SaveGameInfo {
 		int isCharacterValidFromDLC();
 	};
 	std::vector<Player> players;
+	// Appended save data keeps older positional binary player layouts intact.
+	std::vector<EntrenchStash> entrenchStashes;
 	std::vector<std::pair<std::string, std::string>> map_messages; // map modifiers "sound of pickaxes striking rock" "walls are fortified" etc
 	std::vector<std::pair<std::string, std::string>> additional_data;
 	
@@ -819,6 +821,7 @@ struct SaveGameInfo {
 		fp->property("players", players);
 		fp->property("additional_data", additional_data);
 		fp->property("map_messages", map_messages);
+		fp->propertyVersion("entrench_stashes", game_version >= 502, entrenchStashes);
 		return true;
 	}
 

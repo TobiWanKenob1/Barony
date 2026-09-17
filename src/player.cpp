@@ -3256,8 +3256,8 @@ void Player::init() // for use on new/restart game, UI related
 	mechanics.leoninRacialDarkvisionApplied = false;
 	mechanics.leoninWaterPanickingApplied = false;
 	// mod add end
-	// mod add: A new map/run discards stale Entrench bookkeeping without touching
-	// an entity from the previous map; removal cleanup performs restoration first.
+	// mod add: A genuinely new run discards both portable and map-local Entrench state.
+	mechanics.entrenchStash = EntrenchStash();
 	mechanics.entrenchCarriedUid = 0;
 	mechanics.entrenchVisualCarriedUid = 0;
 	mechanics.entrenchOwnerRevision = 0;
@@ -3313,8 +3313,8 @@ void Player::init() // for use on new/restart game, UI related
 
 void Player::cleanUpOnEntityRemoval()
 {
-	// mod add: carried scenery cannot cross death/disconnect/map boundaries.
-	restoreEntrenchCarriedObject(playernum);
+	// mod add: map transitions retain the semantic stash and discard only old UIDs.
+	detachEntrenchCarriedObject(playernum);
 	// mod add: A removed player cannot finish a pending firearm action.
 	cancelFirearmReload(playernum);
 	cancelFirearmJamPayment(playernum);
@@ -3553,6 +3553,10 @@ real_t Player::WorldUI_t::tooltipInRange(Entity& tooltip)
 
 	real_t dist = entityDist(&tooltip, playerEntity);
 	Entity* parent = uidToEntity(tooltip.parent);
+	if ( parent && isEntrenchCarriedObject(parent) )
+	{
+		return 0.0;
+	}
 
 	real_t maxDist = 24.0;
 	real_t minDist = 4.0;

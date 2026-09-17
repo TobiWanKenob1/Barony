@@ -2290,6 +2290,12 @@ void clientActions(Entity* entity)
 						int dir = (c >> 24) & 0xF;
 						tunnelPortalSetAttributes(entity, duration, dir);
 					}
+					else if ( static_cast<Uint8>(c & 0xFF) == 28 )
+					{
+						// Recreated Entrench furniture has no unique sprite identity.
+						entity->behavior = &actFurniture;
+						entity->skill[2] = c;
+					}
 					break;
 			}
 		}
@@ -9102,11 +9108,6 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 	}},
 
 	//The client cast a spell.
-	{'ENTC', [](){
-		if ( net_packet->len != 5 ) { return; }
-		const int player = net_packet->data[4];
-		if ( player > 0 && player < MAXPLAYERS ) { restoreEntrenchCarriedObject(player); }
-	}},
 	{'SPEL', [](){
 	    const int player = std::min(net_packet->data[4], (Uint8)(MAXPLAYERS - 1));
 		spell_t* thespell = getSpellFromID(SDLNet_Read32(&net_packet->data[5]));

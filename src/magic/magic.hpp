@@ -972,10 +972,11 @@ struct CastSpellProps_t
 void setupSpells();
 void equipSpell(spell_t* spell, int playernum, Item* spellItem);
 Entity* castSpell(Uint32 caster_uid, spell_t* spell, bool using_magicstaff, bool trap, bool usingSpellbook = false, CastSpellProps_t* castSpellProps = nullptr, bool usingFoci = false, bool usingRune = false);
-// mod add: restore an Entrench-carried world entity on player cleanup.
-void restoreEntrenchCarriedObject(int player);
+// mod add: preserve the portable stash while clearing map-local Entrench references.
+void detachEntrenchCarriedObject(int player);
 void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity); // mod add: native death destruction
 void updateEntrenchCarriedObject(int player); // mod add: collisionless hover presentation
+bool resumeEntrenchPlacementAnimation(int player); // mod add: free second-stage placement from any cast source
 bool tryToggleExistingChanneledSpell(int player, spell_t* spell);
 void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool usingTome); //Initiates the spell animation, then hands off the torch to it, which, when finished, calls castSpell.
 int spellGetCastSound(spell_t* spell);

@@ -148,6 +148,117 @@ static void clearEntrenchCarrySnapshot(Player::PlayerMechanics_t& state)
 	state.entrenchOriginDeployedReward = 0;
 }
 
+static Uint32 packEntrenchFlags(const Entity& entity)
+{
+	Uint32 result = 0;
+	for ( int i = 0; i < 24; ++i )
+	{
+		if ( entity.flags[i] ) { result |= (1u << i); }
+	}
+	return result;
+}
+
+static void unpackEntrenchFlags(Entity& entity, Uint32 flags)
+{
+	for ( int i = 0; i < 24; ++i )
+	{
+		entity.flags[i] = (flags & (1u << i)) != 0;
+	}
+}
+
+static bool captureEntrenchStash(Entity* entity, EntrenchStash& result)
+{
+	if ( !entity ) { return false; }
+	EntrenchStash stash;
+	if ( entity->behavior == &actDoor ) { stash.type = EntrenchStash::DOOR; }
+	else if ( entity->behavior == &actFurniture ) { stash.type = EntrenchStash::FURNITURE; }
+	else if ( entity->behavior == &actColliderDecoration && entity->isColliderBreakableContainer()
+		&& entity->colliderDiggable == 0 && !entity->isColliderWall() )
+	{
+		stash.type = EntrenchStash::BREAKABLE_COLLIDER;
+	}
+	else { return false; }
+
+	stash.sprite = entity->sprite;
+	stash.scaleX = entity->scalex; stash.scaleY = entity->scaley; stash.scaleZ = entity->scalez;
+	stash.focalX = entity->focalx; stash.focalY = entity->focaly; stash.focalZ = entity->focalz;
+	stash.sizeX = entity->sizex; stash.sizeY = entity->sizey;
+	stash.z = entity->z; stash.yaw = entity->yaw; stash.pitch = entity->pitch; stash.roll = entity->roll;
+	stash.flags = packEntrenchFlags(*entity);
+
+	if ( stash.type == EntrenchStash::DOOR )
+	{
+		stash.health = entity->doorHealth; stash.maxHealth = entity->doorMaxHealth;
+		stash.doorDir = entity->doorDir; stash.doorLocked = entity->doorLocked; stash.doorStatus = entity->doorStatus;
+		stash.doorDisableLockpicks = entity->doorDisableLockpicks; stash.doorDisableOpening = entity->doorDisableOpening;
+		stash.doorLockpickHealth = entity->doorLockpickHealth;
+		stash.doorPreventLockpickExploit = entity->doorPreventLockpickExploit;
+		stash.doorForceLockedUnlocked = entity->doorForceLockedUnlocked;
+		stash.doorUnlockWhenPowered = entity->doorUnlockWhenPowered;
+		stash.doorStartAngle = entity->doorStartAng;
+	}
+	else if ( stash.type == EntrenchStash::FURNITURE )
+	{
+		stash.health = entity->furnitureHealth; stash.maxHealth = entity->furnitureMaxHealth;
+		stash.furnitureType = entity->furnitureType; stash.furnitureDir = entity->furnitureDir;
+		stash.furnitureTableRandomItemChance = entity->furnitureTableRandomItemChance;
+		stash.furnitureTableSpawnChairs = entity->furnitureTableSpawnChairs;
+	}
+	else
+	{
+		stash.health = entity->colliderCurrentHP; stash.maxHealth = entity->colliderMaxHP;
+		stash.colliderModel = entity->colliderDecorationModel;
+		stash.colliderRotation = entity->colliderDecorationRotation;
+		stash.colliderHeightOffset = entity->colliderDecorationHeightOffset;
+		stash.colliderXOffset = entity->colliderDecorationXOffset; stash.colliderYOffset = entity->colliderDecorationYOffset;
+		stash.colliderCollision = entity->colliderHasCollision;
+		stash.colliderSizeX = entity->colliderSizeX; stash.colliderSizeY = entity->colliderSizeY;
+		stash.colliderDamageTypes = entity->colliderDamageTypes; stash.colliderDiggable = entity->colliderDiggable;
+		stash.colliderHideMonster = entity->colliderHideMonster;
+		stash.colliderSpellEvent = entity->colliderSpellEvent;
+		stash.colliderSpellCooldown = entity->colliderSpellEventCooldown;
+		stash.colliderSpellEventTrigger = entity->colliderSpellEventTrigger;
+		stash.colliderIsMapGenerated = entity->colliderIsMapGenerated;
+
+		if ( entity->colliderContainedEntity != 0 )
+		{
+			Entity* representative = uidToEntity(entity->colliderContainedEntity);
+			if ( !representative || !representative->flags[INVISIBLE]
+				|| !((representative->behavior == &actItem && representative->itemContainer == entity->getUID())
+					|| (representative->behavior == &actGoldBag && representative->goldInContainer == entity->getUID())) )
+			{
+				return false; // Never serialize an arbitrary scripted child or stale UID.
+			}
+		}
+		for ( node_t* node = map.entities->first; node; node = node->next )
+		{
+			Entity* child = static_cast<Entity*>(node->element);
+			if ( !child || !child->flags[INVISIBLE] ) { continue; }
+			EntrenchStash::Content content;
+			if ( child->behavior == &actItem && child->itemContainer == entity->getUID() )
+			{
+				content.kind = EntrenchStash::Content::ITEM;
+				content.type = child->skill[10]; content.status = child->skill[11];
+				content.beatitude = child->skill[12]; content.count = child->skill[13];
+				content.appearance = static_cast<Uint32>(child->skill[14]); content.identified = child->skill[15] != 0;
+				content.runeStoredPWR = child->itemRuneStoredPWRValid ? child->itemRuneStoredPWR : INT_MIN;
+				content.runeCreatorPlayer = child->itemRuneCreatorPlayerValid ? child->itemRuneCreatorPlayer : -1;
+				content.runeInstanceId = static_cast<Uint32>(child->itemRuneInstanceId);
+				content.runeCreatorIdentity = static_cast<Uint32>(child->itemRuneCreatorIdentity);
+			}
+			else if ( child->behavior == &actGoldBag && child->goldInContainer == entity->getUID() )
+			{
+				content.kind = EntrenchStash::Content::GOLD;
+				content.gold = child->goldAmount;
+			}
+			else { continue; }
+			stash.contents.push_back(content);
+		}
+	}
+	result = std::move(stash);
+	return true;
+}
+
 void serverSendEntrenchOwnerState(int player)
 {
 	if ( multiplayer != SERVER || player <= 0 || player >= MAXPLAYERS
@@ -252,52 +363,161 @@ void receiveEntrenchEntityTransform()
 	entity->lastupdateserver = std::max(entity->lastupdateserver, serverTick + 1);
 }
 
-void restoreEntrenchCarriedObject(int player)
+void detachEntrenchCarriedObject(int player)
 {
-	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS || !players[player] )
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] ) { return; }
+	auto& state = players[player]->mechanics;
+	clearEntrenchCarrySnapshot(state);
+	state.entrenchVisualCarriedUid = 0;
+	cast_animation[player].entrenchAwaitingResult = false;
+	cast_animation[player].entrenchCancelPending = false;
+}
+
+static Entity* createEntrenchStashedContent(const EntrenchStash::Content& content, Entity& container)
+{
+	Entity* entity = nullptr;
+	if ( content.kind == EntrenchStash::Content::ITEM )
 	{
-		return;
+		entity = newEntity(-1, 1, map.entities, nullptr);
+		if ( !entity ) { return nullptr; }
+		entity->behavior = &actItem;
+		entity->skill[2] = -5;
+		entity->skill[10] = content.type; entity->skill[11] = content.status;
+		entity->skill[12] = content.beatitude; entity->skill[13] = content.count;
+		entity->skill[14] = static_cast<Sint32>(content.appearance); entity->skill[15] = content.identified ? 1 : 0;
+		entity->itemRuneStoredPWR = content.runeStoredPWR;
+		entity->itemRuneStoredPWRValid = content.runeStoredPWR != INT_MIN ? 1 : 0;
+		entity->itemRuneCreatorPlayer = content.runeCreatorPlayer;
+		entity->itemRuneCreatorPlayerValid = content.runeCreatorPlayer >= 0 ? 1 : 0;
+		entity->itemRuneInstanceId = static_cast<Sint32>(content.runeInstanceId);
+		entity->itemRuneCreatorIdentity = static_cast<Sint32>(content.runeCreatorIdentity);
+		reserveMagicRuneInstanceId(content.runeInstanceId);
+		reserveRuneCreatorIdentity(content.runeCreatorIdentity);
+		entity->itemContainer = container.getUID();
+		entity->flags[USERFLAG1] = true;
+	}
+	else if ( content.kind == EntrenchStash::Content::GOLD )
+	{
+		entity = newEntity(content.gold < 5 ? 1379 : 130, 1, map.entities, nullptr);
+		if ( !entity ) { return nullptr; }
+		entity->behavior = &actGoldBag;
+		entity->goldAmount = content.gold;
+		entity->goldInContainer = container.getUID();
+	}
+	if ( entity )
+	{
+		entity->x = container.x; entity->y = container.y; entity->z = container.z;
+		entity->sizex = 4; entity->sizey = 4;
+		entity->vel_x = entity->vel_y = entity->vel_z = 0.0;
+		entity->flags[INVISIBLE] = true;
+		entity->flags[PASSABLE] = true;
+		entity->flags[UPDATENEEDED] = true;
+	}
+	return entity;
+}
+
+static Entity* rehydrateEntrenchStash(int player)
+{
+	if ( multiplayer == CLIENT || player < 0 || player >= MAXPLAYERS || !players[player]
+		|| !players[player]->entity || players[player]->entity->getHP() <= 0 )
+	{
+		return nullptr;
 	}
 	auto& state = players[player]->mechanics;
-	if ( Entity* entity = uidToEntity(state.entrenchCarriedUid) )
+	if ( state.entrenchCarriedUid != 0 || !state.entrenchStash.valid() ) { return nullptr; }
+	Entity* caster = players[player]->entity;
+	const EntrenchStash& stash = state.entrenchStash;
+	Entity* entity = newEntity(stash.sprite, 1, map.entities, nullptr);
+	if ( !entity ) { return nullptr; }
+	entity->x = caster->x; entity->y = caster->y; entity->z = caster->z - 12.0;
+	entity->yaw = stash.yaw; entity->pitch = stash.pitch; entity->roll = stash.roll;
+	entity->scalex = stash.scaleX; entity->scaley = stash.scaleY; entity->scalez = stash.scaleZ;
+	entity->focalx = stash.focalX; entity->focaly = stash.focalY; entity->focalz = stash.focalZ;
+	entity->sizex = stash.sizeX; entity->sizey = stash.sizeY;
+	unpackEntrenchFlags(*entity, stash.flags);
+	entity->flags[PASSABLE] = true;
+	entity->flags[INVISIBLE] = false;
+	entity->flags[UNCLICKABLE] = true;
+	entity->flags[NOUPDATE] = false;
+	entity->flags[UPDATENEEDED] = true;
+	entity->skill[ENTRENCH_CARRIED_OWNER_SKILL] = player + 1;
+	entity->skill[ENTRENCH_DEPLOYED_OWNER_SKILL] = 0;
+	entity->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] = 0;
+
+	if ( stash.type == EntrenchStash::DOOR )
 	{
-		const bool restoresBridge = entity->behavior == &actDoor
-			&& state.entrenchOriginDoorMode == ENTRENCH_DOOR_MODE_BRIDGE;
-		entity->skill[ENTRENCH_CARRIED_OWNER_SKILL] = 0;
-		entity->x = state.entrenchOriginX;
-		entity->y = state.entrenchOriginY;
-		entity->z = state.entrenchOriginZ;
-		entity->yaw = state.entrenchOriginYaw;
-		entity->pitch = state.entrenchOriginPitch;
-		entity->roll = state.entrenchOriginRoll;
-		entity->flags[PASSABLE] = state.entrenchOriginPassable;
-		entity->flags[INVISIBLE] = state.entrenchOriginInvisible;
-		entity->flags[UNCLICKABLE] = state.entrenchOriginUnclickable;
-		entity->skill[ENTRENCH_DEPLOYED_OWNER_SKILL] = state.entrenchOriginDeployedOwner;
-		entity->skill[ENTRENCH_DEPLOYED_REWARD_SKILL] = state.entrenchOriginDeployedReward;
-		if ( entity->behavior == &actDoor )
+		entity->behavior = &actDoor; entity->doorInit = 1;
+		entity->doorHealth = stash.health; entity->doorMaxHealth = stash.maxHealth; entity->doorOldHealth = stash.health;
+		entity->doorDir = stash.doorDir; entity->doorLocked = 0; entity->doorStatus = 0;
+		entity->doorDisableLockpicks = stash.doorDisableLockpicks; entity->doorDisableOpening = stash.doorDisableOpening;
+		entity->doorLockpickHealth = stash.doorLockpickHealth;
+		entity->doorPreventLockpickExploit = stash.doorPreventLockpickExploit;
+		entity->doorForceLockedUnlocked = stash.doorForceLockedUnlocked;
+		entity->doorUnlockWhenPowered = stash.doorUnlockWhenPowered;
+		entity->doorStartAng = stash.doorStartAngle;
+		entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = ENTRENCH_DOOR_MODE_NONE;
+	}
+	else if ( stash.type == EntrenchStash::FURNITURE )
+	{
+		entity->behavior = &actFurniture; entity->furnitureInit = 1;
+		entity->skill[2] = static_cast<Sint32>(0x80000000u | 28u); // explicit client identity for recreated furniture
+		entity->furnitureHealth = stash.health; entity->furnitureMaxHealth = stash.maxHealth; entity->furnitureOldHealth = stash.health;
+		entity->furnitureType = stash.furnitureType; entity->furnitureDir = stash.furnitureDir;
+		entity->furnitureTableRandomItemChance = stash.furnitureTableRandomItemChance;
+		entity->furnitureTableSpawnChairs = stash.furnitureTableSpawnChairs;
+	}
+	else
+	{
+		entity->behavior = &actColliderDecoration; entity->colliderInit = 1;
+		entity->colliderDecorationModel = stash.colliderModel;
+		entity->colliderDecorationRotation = stash.colliderRotation;
+		entity->colliderDecorationHeightOffset = stash.colliderHeightOffset;
+		entity->colliderDecorationXOffset = stash.colliderXOffset; entity->colliderDecorationYOffset = stash.colliderYOffset;
+		entity->colliderHasCollision = stash.colliderCollision;
+		entity->colliderSizeX = stash.colliderSizeX; entity->colliderSizeY = stash.colliderSizeY;
+		entity->colliderMaxHP = stash.maxHealth; entity->colliderCurrentHP = stash.health; entity->colliderOldHP = stash.health;
+		entity->colliderDiggable = stash.colliderDiggable; entity->colliderDamageTypes = stash.colliderDamageTypes;
+		entity->colliderHideMonster = stash.colliderHideMonster;
+		entity->colliderSpellEvent = stash.colliderSpellEvent;
+		entity->colliderSpellEventCooldown = stash.colliderSpellCooldown;
+		entity->colliderSpellEventTrigger = stash.colliderSpellEventTrigger;
+		entity->colliderSpellTarget = 0;
+		entity->colliderIsMapGenerated = stash.colliderIsMapGenerated;
+		entity->colliderContainedEntity = 0;
+		entity->colliderSetServerSkillOnSpawned();
+		for ( const auto& content : stash.contents )
 		{
-			entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = state.entrenchOriginDoorMode;
-			entity->doorLocked = state.entrenchOriginDoorLocked;
-			entity->doorStatus = state.entrenchOriginDoorStatus;
+			if ( Entity* child = createEntrenchStashedContent(content, *entity) )
+			{
+				if ( entity->colliderContainedEntity == 0 ) { entity->colliderContainedEntity = child->getUID(); }
+			}
 		}
-		TileEntityList.updateEntity(*entity);
-		if ( restoresBridge )
+	}
+	entity->createWorldUITooltip();
+	TileEntityList.updateEntity(*entity);
+	state.entrenchCarriedUid = entity->getUID();
+	state.entrenchOriginZ = stash.z;
+	state.entrenchOriginPassable = (stash.flags & (1u << PASSABLE)) != 0;
+	state.entrenchOriginInvisible = (stash.flags & (1u << INVISIBLE)) != 0;
+	state.entrenchOriginUnclickable = (stash.flags & (1u << UNCLICKABLE)) != 0;
+	state.entrenchOriginDoorLocked = stash.doorLocked;
+	state.entrenchOriginDoorStatus = stash.doorStatus;
+	caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = static_cast<Sint32>(entity->getUID());
+
+	if ( multiplayer == SERVER )
+	{
+		serverUpdateEntitySkill(caster, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
+		for ( int client = 1; client < MAXPLAYERS; ++client )
 		{
-			generatePathMaps();
+			if ( !client_disconnected[client] && !players[client]->isLocalPlayer() )
+			{
+				sendEntityUDP(entity, client, true); // creation must precede ETRN for the new UID
+			}
 		}
 		serverSyncEntrenchEntityTransform(entity, player);
+		serverSendEntrenchOwnerState(player);
 	}
-	clearEntrenchCarrySnapshot(state);
-	if ( players[player]->entity )
-	{
-		players[player]->entity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
-		if ( multiplayer == SERVER )
-		{
-			serverUpdateEntitySkill(players[player]->entity, ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL);
-		}
-	}
-	serverSendEntrenchOwnerState(player);
+	return entity;
 }
 
 void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity)
@@ -340,6 +560,7 @@ void shatterEntrenchCarriedObjectOnPlayerDeath(int player, Entity* playerEntity)
 		TileEntityList.updateEntity(*entity);
 		serverSyncEntrenchEntityTransform(entity, player);
 	}
+	state.entrenchStash = EntrenchStash();
 	clearEntrenchCarrySnapshot(state);
 	playerEntity->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
 	if ( multiplayer == SERVER )
@@ -356,9 +577,13 @@ void updateEntrenchCarriedObject(int player)
 		return;
 	}
 	Entity* caster = players[player]->entity;
-	const Uint32 carriedUid = multiplayer == CLIENT
+	Uint32 carriedUid = multiplayer == CLIENT
 		? players[player]->mechanics.entrenchVisualCarriedUid
 		: players[player]->mechanics.entrenchCarriedUid;
+	if ( multiplayer != CLIENT && carriedUid == 0 && players[player]->mechanics.entrenchStash.valid() )
+	{
+		if ( Entity* rehydrated = rehydrateEntrenchStash(player) ) { carriedUid = rehydrated->getUID(); }
+	}
 	Entity* carried = uidToEntity(carriedUid);
 	if ( !carried || carried->skill[ENTRENCH_CARRIED_OWNER_SKILL] != player + 1 )
 	{
@@ -477,8 +702,15 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 			messagePlayer(player, MESSAGE_HINT, Language::get(7008));
 			return;
 		}
+		EntrenchStash stash;
+		if ( !captureEntrenchStash(target, stash) )
+		{
+			messagePlayer(player, MESSAGE_HINT, Language::get(7008));
+			return;
+		}
 		const bool wasEntrenchedDoor = isEntrenchDoorBarricade(target) || isEntrenchDoorBridge(target);
 		const bool wasEntrenchBridge = isEntrenchDoorBridge(target);
+		state.entrenchStash = std::move(stash);
 		state.entrenchCarriedUid = target->getUID();
 		caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = static_cast<Sint32>(target->getUID());
 		target->skill[ENTRENCH_CARRIED_OWNER_SKILL] = player + 1;
@@ -515,6 +747,11 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		target->y = caster->y;
 		target->z = caster->z - 12.0;
 		TileEntityList.updateEntity(*target);
+		for ( int i = 0; i < MAXPLAYERS; ++i )
+		{
+			if ( selectedEntity[i] == target ) { selectedEntity[i] = nullptr; }
+			if ( client_selected[i] == target ) { client_selected[i] = nullptr; }
+		}
 		if ( wasEntrenchBridge )
 		{
 			generatePathMaps();
@@ -640,6 +877,7 @@ static void castEntrench(Entity* caster, int player, CastSpellProps_t* props)
 		updateEnemyBar(caster, carried, Language::get(674), carried->doorHealth,
 			carried->doorMaxHealth, false, DamageGib::DMG_DEFAULT);
 	}
+	state.entrenchStash = EntrenchStash();
 	clearEntrenchCarrySnapshot(state);
 	caster->skill[ENTRENCH_PLAYER_CARRIED_UID_OR_DOOR_MODE_SKILL] = 0;
 	if ( multiplayer == SERVER )
@@ -740,6 +978,12 @@ void castSpellInit(Uint32 caster_uid, spell_t* spell, bool usingSpellbook, bool 
 				playSoundEntityLocal(players[player]->entity, 163, 64);
 			}
 		}
+		return;
+	}
+	if ( player >= 0 && spell && spell->ID == SPELL_ENTRENCH
+		&& (players[player]->mechanics.entrenchCarriedUid != 0 || players[player]->mechanics.entrenchStash.valid())
+		&& resumeEntrenchPlacementAnimation(player) )
+	{
 		return;
 	}
 

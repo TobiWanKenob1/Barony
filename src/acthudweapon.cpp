@@ -3923,7 +3923,7 @@ void actHudWeapon(Entity* my)
 			HUDWEAPON_SHOOTING_RANGED_WEAPON = RANGED_ANIM_IDLE;
 			if ( reloadActive )
 			{
-				const real_t duration = std::max<Sint32>(1, firearm->firearmReloadDuration());
+				const real_t duration = std::max<Sint32>(1, mechanics.firearmReloadTotalTicks);
 				const real_t progress = 1.0 - mechanics.firearmReloadTicks / duration;
 				const real_t pose = FirearmHudAnimation::envelope(progress, 0.15, 0.80);
 				HUDWEAPON_MOVEX = FirearmHudAnimation::RELOAD_MOVE_X * pose;

@@ -1036,6 +1036,12 @@ void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, 
 	{
 		return;
 	}
+	if ( spell->ID == SPELL_ENTRENCH && players[player]
+		&& (players[player]->mechanics.entrenchCarriedUid != 0 || players[player]->mechanics.entrenchStash.valid())
+		&& resumeEntrenchPlacementAnimation(player) )
+	{
+		return;
+	}
 	if ( !players[player]->hud.magicLeftHand )
 	{
 		return;
@@ -1198,20 +1204,45 @@ void fireOffSpellAnimation(spellcasting_animation_manager_t* animation_manager, 
 	spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_WINDUP1, animation_manager->times_to_circle + HANDMAGIC_TICKS_PER_CIRCLE);
 }
 
-static void requestEntrenchCancel(int player)
+bool resumeEntrenchPlacementAnimation(int player)
 {
-	if ( multiplayer == CLIENT )
+	if ( player < 0 || player >= MAXPLAYERS || !players[player] || !players[player]->entity
+		|| (!players[player]->mechanics.entrenchStash.valid()
+			&& players[player]->mechanics.entrenchCarriedUid == 0) )
 	{
-		strcpy((char*)net_packet->data, "ENTC");
-		net_packet->data[4] = player;
-		net_packet->len = 5;
-		net_packet->address.host = net_server.host;
-		net_packet->address.port = net_server.port;
-		sendPacketSafe(net_sock, -1, net_packet, 0);
-		cast_animation[player].entrenchAwaitingResult = true;
-		cast_animation[player].entrenchCancelPending = true;
+		return false;
 	}
-	else { restoreEntrenchCarriedObject(player); }
+	auto& animation = cast_animation[player];
+	animation.player = player;
+	animation.caster = players[player]->entity->getUID();
+	animation.spell = getSpellFromID(SPELL_ENTRENCH);
+	if ( !animation.spell ) { return false; }
+	animation.active = true;
+	animation.active_spellbook = false;
+	animation.usingRune = false;
+	animation.runeInstanceId = 0;
+	animation.stage = ANIM_SPELL_TOUCH;
+	animation.rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
+	animation.targetUid = 0;
+	animation.circle_count = 0;
+	animation.throw_count = 0;
+	animation.active_count = 0;
+	animation.times_to_circle = 0;
+	animation.consumeMana = false;
+	animation.mana_left = 0;
+	animation.mana_cost = 0;
+	animation.consume_interval = 0;
+	animation.consume_timer = 0;
+	animation.panickingRefundMP = 0;
+	animation.panickingRefundHP = 0;
+	animation.panickingRefundHunger = 0;
+	animation.entrenchAwaitingResult = false;
+	animation.entrenchCancelPending = false;
+	animation.resetRangefinder();
+	animation.rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
+	animation.setRangeFinderLocation();
+	spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_WINDUP2, 0);
+	return true;
 }
 
 void receiveEntrenchOwnerState(Uint32 carriedUid, Uint32 revision)
@@ -1226,7 +1257,6 @@ void receiveEntrenchOwnerState(Uint32 carriedUid, Uint32 revision)
 	if ( animation.entrenchCancelPending )
 	{
 		animation.entrenchCancelPending = false;
-		if ( carriedUid != 0 ) { requestEntrenchCancel(clientnum); }
 		return;
 	}
 	if ( !animation.spell || animation.spell->ID != SPELL_ENTRENCH ) { return; }
@@ -1235,15 +1265,7 @@ void receiveEntrenchOwnerState(Uint32 carriedUid, Uint32 revision)
 		spellcastingAnimationManager_deactivate(&animation);
 		return;
 	}
-	animation.active = true;
-	animation.active_spellbook = false;
-	animation.usingRune = false;
-	animation.stage = ANIM_SPELL_TOUCH;
-	animation.rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
-	animation.targetUid = 0;
-	animation.throw_count = 0;
-	animation.setRangeFinderLocation();
-	spellcastAnimationUpdate(clientnum, MONSTER_POSE_MAGIC_WINDUP2, 0);
+	resumeEntrenchPlacementAnimation(clientnum);
 }
 
 void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* animation_manager)
@@ -1256,10 +1278,6 @@ void spellcastingAnimationManager_deactivate(spellcasting_animation_manager_t* a
 		{
 			// Wait for the in-flight cast before cancelling, so cancellation cannot overtake pickup.
 			animation_manager->entrenchCancelPending = true;
-		}
-		else if ( players[animation_manager->player]->mechanics.entrenchCarriedUid != 0 )
-		{
-			requestEntrenchCancel(animation_manager->player);
 		}
 	}
 
@@ -1565,10 +1583,7 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 		if ( multiplayer == CLIENT && animation_manager->entrenchAwaitingResult ) { return; }
 		if ( players[player]->mechanics.entrenchCarriedUid != 0 )
 		{
-			animation_manager->rangefinder = RANGEFINDER_TOUCH_FLOOR_TILE;
-			animation_manager->targetUid = 0;
-			animation_manager->setRangeFinderLocation();
-			spellcastAnimationUpdate(player, MONSTER_POSE_MAGIC_WINDUP2, 0);
+			resumeEntrenchPlacementAnimation(player);
 		}
 		else { spellcastingAnimationManager_deactivate(animation_manager); }
 	}

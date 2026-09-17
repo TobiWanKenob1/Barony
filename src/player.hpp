@@ -13,6 +13,7 @@
 #pragma once
 #include "interface/interface.hpp"
 #include "magic/magic.hpp"
+#include "magic/entrench.hpp"
 #include "messages.hpp"
 #include "engine/audio/sound.hpp"
 #include "input.hpp"
@@ -2424,6 +2425,9 @@ public:
 		// mod add: Timed firearm reload state. Client and server retain their
 		// own UID for the same equipped firearm and advance it independently.
 		Sint32 firearmReloadTicks = 0;
+		// Cost and duration are fixed when this reload starts.
+		Sint32 firearmReloadTotalTicks = 0;
+		Sint32 firearmReloadMaterialCost = 0;
 		Uint32 firearmReloadItemUid = 0;
 		ItemType firearmReloadItemType = WOODEN_SHIELD;
 		Uint32 firearmReloadToken = 0;
@@ -2466,6 +2470,7 @@ public:
 		bool leoninWaterPanickingApplied = false;
 		// mod add end
 		// mod add: Entrench carries an original world entity, never an Item.
+		EntrenchStash entrenchStash;
 		Uint32 entrenchCarriedUid = 0;
 		Uint32 entrenchOwnerRevision = 0;
 		Uint32 entrenchVisualRevision = 0;

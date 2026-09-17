@@ -1801,6 +1801,13 @@ bool activateMagicRune(int player)
 		return false;
 	}
 	Item* rune = stats[player]->shield;
+	if ( rune->runeGetSpellID() == SPELL_ENTRENCH
+		&& (players[player]->mechanics.entrenchCarriedUid != 0
+			|| players[player]->mechanics.entrenchStash.valid())
+		&& players[player]->isLocalPlayer() )
+	{
+		return resumeEntrenchPlacementAnimation(player);
+	}
 	if ( rune->status == BROKEN )
 	{
 		messagePlayer(player, MESSAGE_EQUIPMENT, "The broken rune can no longer release its magic.");
@@ -8558,29 +8565,31 @@ ItemType Item::firearmReloadMaterialType() const
 	}
 }
 
-Sint32 Item::firearmReloadMaterialCost() const
+Sint32 Item::firearmReloadMaterialCost(Sint32 rawTinkering) const
 {
-	// mod add: Both scrap costs currently match, but this remains
-	// weapon-specific so later balance changes stay centralized.
+	// Reload efficiency uses raw Tinkering only, with no further discount at 100.
+	const Sint32 discount = rawTinkering < 50 ? 0
+		: std::min<Sint32>(5, 1 + (rawTinkering - 50) / 10);
 	switch ( type )
 	{
 		case FLINTLOCK_PISTOL:
+			return std::max<Sint32>(1, 10 - discount);
 		case MUSKET:
-			return 10;
+			return std::max<Sint32>(1, 15 - discount);
 		default:
 			return 0;
 	}
 }
 
-Sint32 Item::firearmReloadDuration() const
+Sint32 Item::firearmReloadDuration(Sint32 rawTinkering) const
 {
-	// mod add: Firearm reload durations (50 ticks per second).
+	const bool legendary = rawTinkering >= SKILL_LEVEL_LEGENDARY;
 	switch ( type )
 	{
 		case FLINTLOCK_PISTOL:
-			return 2 * TICKS_PER_SECOND;
+			return legendary ? 3 * TICKS_PER_SECOND / 2 : 2 * TICKS_PER_SECOND;
 		case MUSKET:
-			return 3 * TICKS_PER_SECOND;
+			return legendary ? 2 * TICKS_PER_SECOND : 3 * TICKS_PER_SECOND;
 		default:
 			return 0;
 	}
@@ -9063,7 +9072,8 @@ static Sint32 playerCountFirearmReloadMaterials(const Item& firearm, int player)
 
 static bool playerConsumeFirearmReloadMaterials(const Item& firearm, int player)
 {
-	const Sint32 materialCost = firearm.firearmReloadMaterialCost();
+	// Match the preflight cost even if proficiency changes during this reload.
+	const Sint32 materialCost = players[player]->mechanics.firearmReloadMaterialCost;
 	return playerConsumeInventoryItemType(player,
 		firearm.firearmReloadMaterialType(), materialCost);
 }
@@ -9095,6 +9105,8 @@ static void clearFirearmReload(int player)
 {
 	auto& m = players[player]->mechanics;
 	m.firearmReloadTicks = 0;
+	m.firearmReloadTotalTicks = 0;
+	m.firearmReloadMaterialCost = 0;
 	m.firearmReloadItemUid = 0;
 	m.firearmReloadItemType = WOODEN_SHIELD;
 	m.firearmReloadToken = 0;
@@ -9219,7 +9231,7 @@ void receiveFirearmReloadReady(int player, ItemType type, Uint32 token)
 		{
 			m.firearmReloadMaterialsCommitted = true;
 			m.firearmReloadCommittedMaterialType = firearm.firearmReloadMaterialType();
-			m.firearmReloadCommittedMaterialCost = firearm.firearmReloadMaterialCost();
+			m.firearmReloadCommittedMaterialCost = m.firearmReloadMaterialCost;
 		}
 		else
 		{
@@ -9285,7 +9297,8 @@ bool tryReloadFirearm(Item& firearm, int player)
 	if ( m.firearmReloadTicks > 0 || m.firearmUnjamTicks > 0
 		|| m.firearmReloadMaterialsCommitted ) { return false; }
 	const ItemType materialType = firearm.firearmReloadMaterialType();
-	const Sint32 materialCost = firearm.firearmReloadMaterialCost();
+	const Sint32 rawTinkering = stats[player]->getProficiency(PRO_LOCKPICKING);
+	const Sint32 materialCost = firearm.firearmReloadMaterialCost(rawTinkering);
 	if ( !remoteFirearmOwner(player) && playerCountFirearmReloadMaterials(firearm, player) < materialCost )
 	{
 		if ( players[player]->isLocalPlayer() )
@@ -9296,7 +9309,10 @@ bool tryReloadFirearm(Item& firearm, int player)
 		}
 		return false;
 	}
-	m.firearmReloadTicks = firearm.firearmReloadDuration();
+	// Sample cost and timing once; payment, refund and HUD use this transaction.
+	m.firearmReloadMaterialCost = materialCost;
+	m.firearmReloadTotalTicks = firearm.firearmReloadDuration(rawTinkering);
+	m.firearmReloadTicks = m.firearmReloadTotalTicks;
 	m.firearmReloadItemUid = firearm.uid;
 	m.firearmReloadItemType = firearm.type;
 	if ( multiplayer == CLIENT )

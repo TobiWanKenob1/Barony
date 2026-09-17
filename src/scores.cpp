@@ -5627,6 +5627,7 @@ int SaveGameInfo::populateFromSession(const int playernum)
 	info->level_track = secretlevel ? 1 : 0;
 	info->players_connected.resize(MAXPLAYERS);
 	info->players.resize(MAXPLAYERS);
+	info->entrenchStashes.resize(MAXPLAYERS);
 	for ( int c = 0; c < MAXPLAYERS; ++c ) {
 		info->players_connected[c] = client_disconnected[c] && !::players[c]->was_connected_to_game ? 0 : 1;
 		if ( info->players_connected[c] ) {
@@ -5823,6 +5824,12 @@ int SaveGameInfo::populateFromSession(const int playernum)
 			for ( auto& pair : ::players[c]->mechanics.escalatingSpellRngRolls )
 			{
 				player.escalatingSpellRngRolls.push_back(pair);
+			}
+			// A map change may save before the carried entity is recreated.
+			// The authoritative semantic stash remains valid throughout that gap.
+			if ( multiplayer != CLIENT )
+			{
+				info->entrenchStashes[c] = ::players[c]->mechanics.entrenchStash;
 			}
 			player.sustainedSpellMPUsedSorcery = ::players[c]->mechanics.sustainedSpellMPUsedSorcery;
 			player.sustainedSpellMPUsedMysticism = ::players[c]->mechanics.sustainedSpellMPUsedMysticism;
@@ -6434,9 +6441,21 @@ int loadGame(int player, const SaveGameInfo& info) {
 
 	// Reserve every persisted identifier before allocating IDs for legacy Runes.
 	// loadGame() is invoked per player, so this must cover the whole save each time.
-	for ( const auto& savedPlayer : info.players )
+	for ( size_t savedPlayerIndex = 0; savedPlayerIndex < info.players.size(); ++savedPlayerIndex )
 	{
+		const auto& savedPlayer = info.players[savedPlayerIndex];
 		reserveSavedRuneMetadata(savedPlayer.stats);
+		if ( savedPlayerIndex < info.entrenchStashes.size() && info.entrenchStashes[savedPlayerIndex].valid() )
+		{
+			for ( const auto& content : info.entrenchStashes[savedPlayerIndex].contents )
+			{
+				if ( content.kind == EntrenchStash::Content::ITEM )
+				{
+					reserveMagicRuneInstanceId(content.runeInstanceId);
+					reserveRuneCreatorIdentity(content.runeCreatorIdentity);
+				}
+			}
+		}
 		for ( const auto& follower : savedPlayer.followers )
 		{
 			reserveSavedRuneMetadata(follower);
@@ -6871,6 +6890,13 @@ int loadGame(int player, const SaveGameInfo& info) {
 	// player rng stuff
 	{
 		auto& mechanics = players[statsPlayer]->mechanics;
+		if ( !info.hiscore_dummy_loading )
+		{
+			mechanics.entrenchStash = multiplayer != CLIENT && player < info.entrenchStashes.size()
+				&& info.entrenchStashes[player].valid() ? info.entrenchStashes[player] : EntrenchStash();
+			mechanics.entrenchCarriedUid = 0;
+			mechanics.entrenchVisualCarriedUid = 0;
+		}
 		mechanics.itemDegradeRng.clear();
 		mechanics.learnedSpells.clear();
 		mechanics.ducksInARow.clear();
