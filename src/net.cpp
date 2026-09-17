@@ -9148,7 +9148,8 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 					spell_t* runeSpell = copySpell(thespell);
 					if ( !runeSpell ) { return; }
 					runeSpell->runeInstanceId = runeInstanceId;
-					if ( !applyMagicRuneStoredPWR(*runeSpell, *rune) )
+					if ( !applyMagicRuneEffectivePWR(*runeSpell, *rune,
+						players[player]->entity) )
 					{
 						spellDeconstructor(runeSpell);
 						return;
@@ -10067,7 +10068,8 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 							}
 							if ( !sourceSpell && !sourceRune ) { return; }
 							ScopedSpellPowerOverride spellSourceScope(sourceSpell, true);
-							ScopedSpellPowerOverride runeItemSourceScope(sourceRune, false);
+							ScopedSpellPowerOverride runeItemSourceScope(sourceRune,
+								players[player]->entity, false);
 							magicOnSpellCastEvent(players[player]->entity, players[player]->entity,
 								nullptr, spellID, eventType, eventValue);
 						}

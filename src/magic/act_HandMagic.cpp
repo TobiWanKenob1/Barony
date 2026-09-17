@@ -1362,7 +1362,7 @@ bool castMagicRuneInit(int player, spell_t* spell, Uint32 runeInstanceId)
 	animation.usingRune = true;
 	animation.runeInstanceId = runeInstanceId;
 	animation.hasSpellPowerOverride = true;
-	animation.spellPowerOverride = rune->runeGetStoredPWR();
+	animation.spellPowerOverride = getMagicRuneEffectivePWR(*rune, players[player]->entity);
 	animation.stage = ANIM_SPELL_CIRCLE;
 	animation.circle_count = 0;
 	animation.throw_count = 0;
@@ -1454,7 +1454,8 @@ void spellcastingAnimationManager_completeSpell(int player, spellcasting_animati
 			spell_t* runeSpell = copySpell(animation_manager->spell);
 			if ( !runeSpell ) { return; }
 			runeSpell->runeInstanceId = animation_manager->runeInstanceId;
-			if ( !applyMagicRuneStoredPWR(*runeSpell, *equippedRune) )
+			if ( !applyMagicRuneEffectivePWR(*runeSpell, *equippedRune,
+				players[player]->entity) )
 			{
 				spellDeconstructor(runeSpell);
 				return;

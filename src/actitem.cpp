@@ -116,11 +116,11 @@ bool inscribeFloorGemWithRuneHammer(int player, Entity* floorItem, int charge)
 	{
 		players[player]->entity->modMP(-manaCost);
 		consumeInscriptionGold();
-		handleSpellbookCastingDegradation(players[player]->entity, spell);
 	};
 	if ( worthlessGlass )
 	{
 		commitInscriptionResources();
+		handleSpellbookCastingDegradation(players[player]->entity, spell);
 		if ( floorItem->skill[13] > 1 )
 		{
 			--floorItem->skill[13];
@@ -139,7 +139,8 @@ bool inscribeFloorGemWithRuneHammer(int player, Entity* floorItem, int charge)
 	Item* rune = createMagicRune(runeGem, spellID, gemstoneStatus,
 		static_cast<Sint16>(floorItem->skill[12]), floorItem->skill[15] != 0, nullptr);
 	if ( !rune ) { return false; }
-	if ( !initializeMagicRuneCraftingProfile(*rune, spell, players[player]->entity) )
+	if ( !initializeMagicRuneCraftingProfile(*rune, spell, players[player]->entity,
+		*spellbook) )
 	{
 		free(rune);
 		return false;
@@ -171,9 +172,10 @@ bool inscribeFloorGemWithRuneHammer(int player, Entity* floorItem, int charge)
 		runeEntity->y = floorItem->y;
 		runeEntity->z = floorItem->z;
 		runeEntity->vel_x = runeEntity->vel_y = runeEntity->vel_z = 0.0;
-		commitInscriptionResources();
 		--floorItem->skill[13];
 		serverUpdateEntitySkill(floorItem, 13);
+		commitInscriptionResources();
+		degradeSpellbookFromLearning(spellbook, player);
 	}
 	else
 	{
@@ -204,6 +206,7 @@ bool inscribeFloorGemWithRuneHammer(int player, Entity* floorItem, int charge)
 		floorItem->itemNotMovingClient = 0;
 		floorItem->flags[INVISIBLE] = true;
 		commitInscriptionResources();
+		degradeSpellbookFromLearning(spellbook, player);
 	}
 	messagePlayer(player, MESSAGE_INTERACTION, "You press %s into the gemstone.", spell->getSpellName());
 	magicOnGuaranteedSpellSchoolTraining(players[player]->entity, spellID);

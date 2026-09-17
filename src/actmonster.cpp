@@ -2343,18 +2343,15 @@ bool makeFollower(int monsterclicked, bool ringconflict, char namesays[64],
 		Item* armor = stats[monsterclicked]->mask;
 		if ( !myStats->mask )
 		{
-			if ( myStats->mask = newItem(armor->type, armor->status,
-				armor->beatitude, armor->count, armor->appearance,
-				armor->identified, nullptr) )
+			if ( myStats->mask = newItemFromExistingItem(*armor, armor->count, nullptr) )
 			{
 				myStats->mask->ownerUid = players[monsterclicked]->entity->getUID();
 			}
 		}
 		else
 		{
-			if ( Item* stolenArmor = newItem(armor->type, armor->status,
-				armor->beatitude, armor->count, armor->appearance,
-				armor->identified, &myStats->inventory) )
+			if ( Item* stolenArmor = newItemFromExistingItem(*armor, armor->count,
+				&myStats->inventory) )
 			{
 				stolenArmor->ownerUid = players[monsterclicked]->entity->getUID();
 			}

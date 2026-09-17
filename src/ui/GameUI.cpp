@@ -6136,9 +6136,9 @@ void StatusEffectQueue_t::loadStatusEffectsJSON()
 		"Unarmed attacks gain +%d damage\nand have a %d%% chance to inflict Bleeding.",
 		"images/ui/HUD/statusfx/retractable_claws.png");
 	registerCustomEffect(kEffectGolemHunger, "golem_charge", "Golem Core",
-		"- Recharge by consuming enchanted items.\n"
-		"- Overcharging causes wild magic.\n"
-		"- Blessed to Cursed core ratio determines CON and CHR and item destruction chance.", "");
+		"Recharge by consuming enchanted items.\n"
+		"\x1E Overcharging causes wild magic.\n"
+		"\x1E Blessed to Cursed core ratio determines CON and CHR and item destruction chance.", "");
 }
 
 int StatusEffectQueue_t::getBaseEffectPosX()
@@ -7987,7 +7987,15 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 						&& players[player]->entity->isBlessedGolemPlayer();
 					tooltipHeader->setText(blessed
 						? "BLESSED GOLEM CORE" : "CURSED GOLEM CORE");
-					tooltipDesc->setText(definition.getDesc(-1).c_str());
+					if ( entry.customVariable > getEntityHungerInterval(player, nullptr,
+						stats[player], HUNGER_INTERVAL_OVERSATIATED) )
+					{
+						tooltipDesc->setText("\x1E You feel magic trying to escape into wild chaos!");
+					}
+					else
+					{
+						tooltipDesc->setText(definition.getDesc(-1).c_str());
+					}
 					tooltipInnerWidth = definition.tooltipWidth;
 				}
 				else if ( effectID == EFF_SALAMANDER_HEART )
@@ -10276,20 +10284,20 @@ void updateStatusEffectQueue(const int player)
 		const int HUNGER_HUNGRY = getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_HUNGRY);
 		const int HUNGER_WEAK = getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_WEAK);
 		const int HUNGER_STARVING = getEntityHungerInterval(player, nullptr, stats[player], HUNGER_INTERVAL_STARVING);
-		int hungerStateToSet = HUNGER_NONE;
-		if ( stats[player]->HUNGER >= HUNGER_OVERSATIATED )
+		int hungerStateToSet = naturalGolem ? stats[player]->HUNGER : HUNGER_NONE;
+		if ( !naturalGolem && stats[player]->HUNGER >= HUNGER_OVERSATIATED )
 		{
 			hungerStateToSet = HUNGER_OVERSATIATED;
 		}
-		else if ( stats[player]->HUNGER <= HUNGER_STARVING )
+		else if ( !naturalGolem && stats[player]->HUNGER <= HUNGER_STARVING )
 		{
 			hungerStateToSet = HUNGER_STARVING;
 		}
-		else if ( stats[player]->HUNGER <= HUNGER_WEAK )
+		else if ( !naturalGolem && stats[player]->HUNGER <= HUNGER_WEAK )
 		{
 			hungerStateToSet = HUNGER_WEAK;
 		}
-		else if ( stats[player]->HUNGER <= HUNGER_HUNGRY )
+		else if ( !naturalGolem && stats[player]->HUNGER <= HUNGER_HUNGRY )
 		{
 			hungerStateToSet = HUNGER_HUNGRY;
 		}
@@ -10315,7 +10323,18 @@ void updateStatusEffectQueue(const int player)
 		}
 		if ( entry && entry->customVariable != hungerStateToSet )
 		{
-			if ( notif && notif->customVariable != hungerStateToSet )
+			const bool golemIconUnchanged = hungerEffectID == StatusEffectQueue_t::kEffectGolemHunger
+				&& getGolemChargeIconVariant(player, entry->customVariable)
+					== getGolemChargeIconVariant(player, hungerStateToSet);
+			if ( golemIconUnchanged )
+			{
+				entry->customVariable = hungerStateToSet;
+				if ( notif )
+				{
+					notif->customVariable = hungerStateToSet;
+				}
+			}
+			else if ( notif && notif->customVariable != hungerStateToSet )
 			{
 				// reset the notification
 				bool erased = false;

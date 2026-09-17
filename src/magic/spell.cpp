@@ -122,12 +122,8 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Entity* effectEntity, b
 	}
 }
 
-ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem)
-	: ScopedSpellPowerOverride(runeItem, false)
-{
-}
-
-ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem, bool replaceMissingOverride)
+ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem,
+	const Entity* runeCaster, bool replaceMissingOverride)
 	: previousEnabled(activeSpellPowerOverride), previousBonus(activeSpellPowerBonus),
 	previousRuneCast(activeRuneCastSource), previousRuneCreatorPlayer(activeRuneCreatorPlayer),
 	previousRuneInstanceId(activeRuneInstanceId),
@@ -138,7 +134,7 @@ ScopedSpellPowerOverride::ScopedSpellPowerOverride(const Item* runeItem, bool re
 		if ( runeItem->runeHasStoredPWR() )
 		{
 			activeSpellPowerOverride = true;
-			activeSpellPowerBonus = runeItem->runeGetStoredPWR();
+			activeSpellPowerBonus = getMagicRuneEffectivePWR(*runeItem, runeCaster);
 		}
 		else if ( replaceMissingOverride )
 		{

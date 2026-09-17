@@ -28,6 +28,8 @@
 #include "mod_tools.hpp"
 #include "scrolls.hpp"
 
+#include <limits>
+
 bool potionUseAbundanceEffect(Item* item, Entity* entity, Entity* usedBy)
 {
 	bool result = false;
@@ -3027,7 +3029,7 @@ void item_ScrollIdentify(Item*& item, int player)
 	GenericGUI[player].openGUI(GUI_TYPE_ITEMFX, item, item->beatitude, item->type, SPELL_NONE);
 }
 
-void item_ScrollLight(Item*& item, int player)
+void item_ScrollLight(Item*& item, int player, bool suppressScrollNarration)
 {
 	int c;
 
@@ -3043,7 +3045,10 @@ void item_ScrollLight(Item*& item, int player)
 
 	if (players[player]->entity->isBlind())
 	{
-		messagePlayer(player, MESSAGE_HINT, Language::get(775));
+		if ( !suppressScrollNarration )
+		{
+			messagePlayer(player, MESSAGE_HINT, Language::get(775));
+		}
 		playSoundPlayer(player, 90, 64);
 		return;
 	}
@@ -3052,11 +3057,17 @@ void item_ScrollLight(Item*& item, int player)
 	{
 		conductIlliterate = false;
 	}
-	messagePlayer(player, MESSAGE_INVENTORY, Language::get(848));
+	if ( !suppressScrollNarration )
+	{
+		messagePlayer(player, MESSAGE_INVENTORY, Language::get(848));
+	}
     
     const auto color = makeColorRGB(150, 150, 150);
 
-	messagePlayer(player, MESSAGE_HINT, Language::get(851));
+	if ( !suppressScrollNarration )
+	{
+		messagePlayer(player, MESSAGE_HINT, Language::get(851));
+	}
     
     const char name[] = "scroll_light";
 	addLight(
@@ -3700,7 +3711,7 @@ void item_ScrollRemoveCurse(Item*& item, int player)
 	}
 }
 
-bool item_ScrollFire(Item*& item, int player)
+bool item_ScrollFire(Item*& item, int player, bool suppressScrollNarration)
 {
 	if (multiplayer == CLIENT)
 	{
@@ -3714,7 +3725,10 @@ bool item_ScrollFire(Item*& item, int player)
 
 	if (players[player]->entity->isBlind())
 	{
-		messagePlayer(player, MESSAGE_HINT, Language::get(775));
+		if ( !suppressScrollNarration )
+		{
+			messagePlayer(player, MESSAGE_HINT, Language::get(775));
+		}
 		playSoundPlayer(player, 90, 64);
 		return false;
 	}
@@ -3733,17 +3747,20 @@ bool item_ScrollFire(Item*& item, int player)
 	{
 		onScrollUseAppraisalIncrease(item, player);
 		item->identified = true;
-		messagePlayer(player, MESSAGE_HINT | MESSAGE_INVENTORY, Language::get(863));
+		if ( !suppressScrollNarration )
+		{
+			messagePlayer(player, MESSAGE_HINT | MESSAGE_INVENTORY, Language::get(863));
+		}
 		return false;
 	}
 	else
 	{
 		playSoundEntity(players[player]->entity, 153, 128); // "FireballExplode.ogg"
-		if ( item->beatitude == 0 )
+		if ( !suppressScrollNarration && item->beatitude == 0 )
 		{
 			messagePlayer(player, MESSAGE_HINT | MESSAGE_STATUS, Language::get(864)); // "The scroll erupts in a tower of flame!"
 		}
-		else if ( item->beatitude > 0 )
+		else if ( !suppressScrollNarration && item->beatitude > 0 )
 		{
 			messagePlayer(player, MESSAGE_HINT | MESSAGE_STATUS, Language::get(6861)); // "The scroll erupts in a cloak of flame!"
 		}
@@ -6142,6 +6159,33 @@ void item_AmuletSexChange(Item*& item, int player)
 	messagePlayer(player, MESSAGE_INVENTORY, Language::get(969));
 }
 
+void degradeSpellbookFromLearning(Item*& spellbook, int player)
+{
+	if ( !spellbook || itemCategory(spellbook) != SPELLBOOK
+		|| spellbook->status <= BROKEN )
+	{
+		return;
+	}
+	Compendium_t::Events_t::eventUpdate(player,
+		Compendium_t::CPDM_SPELLBOOK_CAST_DEGRADES, spellbook->type, 1);
+	spellbook->status = static_cast<Status>(spellbook->status - 1);
+	if ( spellbook->status != BROKEN )
+	{
+		messagePlayer(player, MESSAGE_INVENTORY | MESSAGE_EQUIPMENT, Language::get(2595));
+	}
+	else
+	{
+		messagePlayer(player, MESSAGE_INVENTORY | MESSAGE_EQUIPMENT, Language::get(2596));
+		consumeItem(spellbook, player);
+	}
+
+	if ( stats[player] && stats[player]->playerRace == RACE_INSECTOID
+		&& stats[player]->stat_appearance == 0 )
+	{
+		steamStatisticUpdate(STEAM_STAT_BOOKWORM, STEAM_STAT_INT, 1);
+	}
+}
+
 void item_Spellbook(Item*& item, int player)
 {
 	node_t* node, *nextnode;
@@ -6507,7 +6551,6 @@ void item_Spellbook(Item*& item, int player)
 			if ( itemCategory(item) == SPELLBOOK )
 			{
 				Compendium_t::Events_t::eventUpdate(player, Compendium_t::CPDM_SPELLBOOK_LEARNT, item->type, 1);
-				Compendium_t::Events_t::eventUpdate(player, Compendium_t::CPDM_SPELLBOOK_CAST_DEGRADES, item->type, 1);
 				spellID = getSpellIDFromSpellbook(item->type);
 			}
 			else if ( itemCategory(item) == TOME_SPELL )
@@ -6528,21 +6571,7 @@ void item_Spellbook(Item*& item, int player)
 
 			if ( itemCategory(item) == SPELLBOOK )
 			{
-				item->status = static_cast<Status>(item->status - 1);
-				if ( item->status != BROKEN )
-				{
-					messagePlayer(player, MESSAGE_INVENTORY | MESSAGE_EQUIPMENT, Language::get(2595));
-				}
-				else
-				{
-					messagePlayer(player, MESSAGE_INVENTORY | MESSAGE_EQUIPMENT, Language::get(2596));
-					consumeItem(item, player);
-				}
-
-				if ( stats[player] && stats[player]->playerRace == RACE_INSECTOID && stats[player]->stat_appearance == 0 )
-				{
-					steamStatisticUpdate(STEAM_STAT_BOOKWORM, STEAM_STAT_INT, 1);
-				}
+				degradeSpellbookFromLearning(item, player);
 			}
 			else if ( itemCategory(item) == TOME_SPELL )
 			{
@@ -6939,7 +6968,11 @@ bool itemIsConsumableByGolem(const Item& item)
 
 int getGolemChargeValue(const Item& item)
 {
-	return std::max(1, static_cast<int>(item.getGoldValue()));
+	const Sint64 baseValue = std::max<Sint64>(1, item.getGoldValue());
+	const Sint64 enchantmentLevels = std::max<Sint64>(1,
+		std::abs(static_cast<int>(item.beatitude)));
+	return static_cast<int>(std::min<Sint64>(
+		baseValue * enchantmentLevels, std::numeric_limits<int>::max()));
 }
 
 void item_GolemConsume(Item*& item, int player)

@@ -988,8 +988,8 @@ int spellGetCastSound(spell_t* spell);
 		ScopedSpellPowerOverride(const spell_t* spell, bool replaceMissingOverride);
 		explicit ScopedSpellPowerOverride(const Entity* effectEntity);
 		ScopedSpellPowerOverride(const Entity* effectEntity, bool replaceMissingOverride);
-		explicit ScopedSpellPowerOverride(const Item* runeItem);
-		ScopedSpellPowerOverride(const Item* runeItem, bool replaceMissingOverride);
+		ScopedSpellPowerOverride(const Item* runeItem, const Entity* runeCaster,
+			bool replaceMissingOverride);
 		~ScopedSpellPowerOverride();
 		ScopedSpellPowerOverride(const ScopedSpellPowerOverride&) = delete;
 		ScopedSpellPowerOverride& operator=(const ScopedSpellPowerOverride&) = delete;

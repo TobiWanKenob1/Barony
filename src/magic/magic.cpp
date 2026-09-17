@@ -3528,6 +3528,10 @@ bool Entity::spellEffectPreserveItem(Item* item)
 		{
 			return false;
 		}
+		if ( item->isMagicRune() && item->runeGetSpellID() == SPELL_PRESERVE )
+		{
+			return false;
+		}
 		if ( myStats->getEffectActive(EFF_PRESERVE) )
 		{
 			if ( spell_t* preserveSpell = getActiveMagicEffect(SPELL_PRESERVE) )
@@ -3539,7 +3543,8 @@ bool Entity::spellEffectPreserveItem(Item* item)
 				{
 					cost *= 10;
 				}
-				if ( item->type == AMULET_MAGICREFLECTION || item->type == CLOAK_MAGICREFLECTION )
+				if ( item->type == AMULET_MAGICREFLECTION || item->type == CLOAK_MAGICREFLECTION
+					|| item->type == MAGIC_RUNE )
 				{
 					cost *= 2;
 				}

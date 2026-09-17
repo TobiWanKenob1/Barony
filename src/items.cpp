@@ -397,6 +397,24 @@ Item* newItem(const ItemType type, const Status status, const Sint16 beatitude, 
 	return item;
 }
 
+void copyItemPersistentCustomState(Item& destination, const Item& source)
+{
+	destination.runeSetStoredPWRRaw(source.runeGetStoredPWRRaw());
+	destination.runeSetCreatorPlayer(source.runeGetCreatorPlayer());
+	destination.runeSetInstanceId(source.runeGetInstanceId());
+	destination.runeSetCreatorIdentity(source.runeGetCreatorIdentity());
+}
+
+Item* newItemFromExistingItem(const Item& source, const Sint16 count, list_t* const inventory)
+{
+	Item* item = newItem(source.type, source.status, source.beatitude, count,
+		source.appearance, source.identified, inventory);
+	copyItemPersistentCustomState(*item, source);
+	// This reconstructs the same physical item: preserve its Rune identity while
+	// retaining the fresh allocation-local Item::uid assigned by newItem().
+	return item;
+}
+
 /*-------------------------------------------------------------------------------
 
 	uidToItem
@@ -1720,7 +1738,18 @@ real_t getRuneCrafterCompetence(const spell_t* spell, Entity* creator)
 	return runeEncodeClamp(cFizzle * cExtraMP * cCast);
 }
 
-bool initializeMagicRuneCraftingProfile(Item& rune, spell_t* spell, Entity* creator)
+namespace
+{
+	real_t getFavorableItemBeatitudePWRBonus(const Item& item, const Stat* wielder)
+	{
+		const int effectiveBeatitude = shouldInvertEquipmentBeatitude(wielder)
+			? -static_cast<int>(item.beatitude) : static_cast<int>(item.beatitude);
+		return std::max(0, effectiveBeatitude) * 0.10;
+	}
+}
+
+bool initializeMagicRuneCraftingProfile(Item& rune, spell_t* spell, Entity* creator,
+	const Item& sourceSpellbook)
 {
 	if ( !rune.isMagicRune() || !spell || !creator || !creator->getStats() ) { return false; }
 	spellElement_t* primaryElement = nullptr;
@@ -1733,7 +1762,8 @@ bool initializeMagicRuneCraftingProfile(Item& rune, spell_t* spell, Entity* crea
 		}
 	}
 	const real_t storedPWR = getBonusFromCasterOfSpellElement(creator,
-		creator->getStats(), primaryElement, spell->ID, spell->skillID);
+		creator->getStats(), primaryElement, spell->ID, spell->skillID)
+		+ getFavorableItemBeatitudePWRBonus(sourceSpellbook, creator->getStats());
 	if ( !rune.runeSetStoredPWR(storedPWR) ) { return false; }
 	const ItemType gemType = rune.runeGetVisualGemItemType();
 	const real_t gemValue = std::max(0, items[gemType].gold_value);
@@ -1763,14 +1793,21 @@ bool initializeMagicRuneCraftingProfile(Item& rune, spell_t* spell, Entity* crea
 	return rune.runeSetStoredBreakChance(fixedCost > 0 ? fixedCost * mpFactor : 0.0);
 }
 
-bool applyMagicRuneStoredPWR(spell_t& spell, const Item& rune)
+real_t getMagicRuneEffectivePWR(const Item& rune, const Entity* caster)
+{
+	if ( !rune.runeHasStoredPWR() ) { return 0.0; }
+	return rune.runeGetStoredPWR() + (caster
+		? getFavorableItemBeatitudePWRBonus(rune, caster->getStats()) : 0.0);
+}
+
+bool applyMagicRuneEffectivePWR(spell_t& spell, const Item& rune, const Entity* caster)
 {
 	if ( !rune.runeCanCast() || rune.runeGetSpellID() != spell.ID )
 	{
 		return false;
 	}
 	spell.hasSpellPowerOverride = true;
-	spell.spellPowerOverride = rune.runeGetStoredPWR();
+	spell.spellPowerOverride = getMagicRuneEffectivePWR(rune, caster);
 	spell.runeCreatorPlayer = static_cast<Sint8>(rune.runeGetCreatorPlayer());
 	spell.runeCreatorIdentity = rune.runeGetCreatorIdentity();
 	spell.runeInstanceId = rune.runeGetInstanceId();
@@ -1934,6 +1971,12 @@ bool applyMagicRuneCastStress(Uint32 runeInstanceId, int resourceEquivalent, int
 	if ( breakChance >= 1.0 || (breakChance > 0.0
 		&& local_rng.getU32() < static_cast<Uint32>(breakChance * UINT32_MAX)) )
 	{
+		Entity* ownerEntity = owner >= 0 && owner < MAXPLAYERS && players[owner]
+			? players[owner]->entity : nullptr;
+		if ( ownerEntity && ownerEntity->spellEffectPreserveItem(rune) )
+		{
+			return true;
+		}
 		rune->status = static_cast<Status>(rune->status - 1);
 		messagePlayer(owner, MESSAGE_EQUIPMENT, rune->status == BROKEN
 			? "The rune cracks and its magic goes dark."
@@ -7692,10 +7735,7 @@ void copyItem(Item* const itemToSet, const Item* const itemToCopy) //This should
 	itemToSet->beatitude = itemToCopy->beatitude;
 	itemToSet->count = itemToCopy->count;
 	itemToSet->appearance = itemToCopy->appearance;
-	itemToSet->runeSetStoredPWRRaw(itemToCopy->runeGetStoredPWRRaw());
-	itemToSet->runeSetCreatorPlayer(itemToCopy->runeGetCreatorPlayer());
-	itemToSet->runeSetInstanceId(itemToCopy->runeGetInstanceId());
-	itemToSet->runeSetCreatorIdentity(itemToCopy->runeGetCreatorIdentity());
+	copyItemPersistentCustomState(*itemToSet, *itemToCopy);
 	itemToSet->identified = itemToCopy->identified;
 	itemToSet->uid = itemToCopy->uid;
 	itemToSet->ownerUid = itemToCopy->ownerUid;

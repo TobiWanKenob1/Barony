@@ -4537,7 +4537,8 @@ void Player::HUD_t::updateFrameTooltip(Item* item, const int x, const int y, int
 	{
 		return;
 	}
-	ScopedSpellPowerOverride runePowerScope(item->runeHasStoredPWR(), item->runeGetStoredPWR());
+	ScopedSpellPowerOverride runePowerScope(item->runeHasStoredPWR(),
+		getMagicRuneEffectivePWR(*item, players[player] ? players[player]->entity : nullptr));
 
 	Frame* tooltipContainerFrame = nullptr;
 	Frame* frameMain = nullptr;

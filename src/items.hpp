@@ -933,12 +933,12 @@ bool item_PotionParalysis(Item*& item, Entity* entity, Entity* usedBy);
 Entity* item_PotionPolymorph(Item*& item, Entity* entity, Entity* usedBy);
 void item_ScrollMail(Item*& item, int player);
 void item_ScrollIdentify(Item*& item, int player);
-void item_ScrollLight(Item*& item, int player);
+void item_ScrollLight(Item*& item, int player, bool suppressScrollNarration = false);
 void item_ScrollBlank(Item*& item, int player);
 void item_ScrollEnchantWeapon(Item*& item, int player);
 void item_ScrollEnchantArmor(Item*& item, int player);
 void item_ScrollRemoveCurse(Item*& item, int player);
-bool item_ScrollFire(Item*& item, int player); // return true if exploded into fire.
+bool item_ScrollFire(Item*& item, int player, bool suppressScrollNarration = false); // return true if exploded into fire.
 void item_ScrollFood(Item*& item, int player);
 void item_ScrollConjureArrow(Item*& item, int player);
 void item_ScrollMagicMapping(Item*& item, int player);
@@ -958,10 +958,13 @@ static constexpr Sint32 GOLEM_CHARGE_MAX = 2000;
 static constexpr Sint32 GOLEM_POLARITY_SWITCH_POINT = 5000;
 void item_GolemConsume(Item*& item, int player);
 void item_Spellbook(Item*& item, int player);
+void degradeSpellbookFromLearning(Item*& spellbook, int player);
 void item_ToolLootBag(Item*& item, int player);
 
 //General functions.
 Item* newItem(ItemType type, Status status, Sint16 beatitude, Sint16 count, Uint32 appearance, bool identified, list_t* inventory);
+void copyItemPersistentCustomState(Item& destination, const Item& source);
+Item* newItemFromExistingItem(const Item& source, Sint16 count, list_t* inventory);
 Item* createMagicRune(RuneGemType gem, int spellID, Status status, Sint16 beatitude,
 	bool identified, list_t* inventory = nullptr);
 int getRuneInscriptionManaCost(Status gemstoneStatus, const spell_t* spell, Entity* caster);
@@ -971,8 +974,10 @@ bool consumeSustainedSpellResource(Entity* caster, spell_t* spell, int manaCost)
 bool runeSpellIsSustained(spell_t* spell);
 real_t getRuneDominateStorageEfficiency(const Item& rune);
 real_t getRuneCrafterCompetence(const spell_t* spell, Entity* creator);
-bool initializeMagicRuneCraftingProfile(Item& rune, spell_t* spell, Entity* creator);
-bool applyMagicRuneStoredPWR(spell_t& spell, const Item& rune);
+bool initializeMagicRuneCraftingProfile(Item& rune, spell_t* spell, Entity* creator,
+	const Item& sourceSpellbook);
+real_t getMagicRuneEffectivePWR(const Item& rune, const Entity* caster);
+bool applyMagicRuneEffectivePWR(spell_t& spell, const Item& rune, const Entity* caster);
 bool applyMagicRuneCastStress(Uint32 runeInstanceId, int resourceEquivalent,
 	int requiredOwner = -1);
 Item* findMagicRuneByInstanceId(Uint32 runeInstanceId, int* ownerOut = nullptr,

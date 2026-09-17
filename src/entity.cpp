@@ -3878,18 +3878,18 @@ static GolemWildMagicSchool selectGolemWildMagicSchool(const Sint32 blessedCompo
 		: GolemWildMagicSchool::MYST;
 }
 
-static void applyGolemWildMagicSizeEffect(Entity& source)
+static int applyGolemWildMagicSizeEffect(Entity& source)
 {
 	auto targets = getGolemWildMagicTargets(source, 3.0 * 16.0);
 	if ( targets.empty() )
 	{
-		return;
+		return -1;
 	}
 	Entity* target = targets[local_rng.rand() % targets.size()];
 	Stat* targetStats = target->getStats();
 	if ( !targetStats )
 	{
-		return;
+		return -1;
 	}
 
 	const bool maximise = local_rng.rand() % 2 == 0;
@@ -3906,10 +3906,12 @@ static void applyGolemWildMagicSizeEffect(Entity& source)
 		}
 		playSoundEntity(target, 167, 128);
 		spawnMagicEffectParticles(target->x, target->y, target->z, maximise ? 2335 : 2341);
+		return effect;
 	}
+	return -1;
 }
 
-static void spawnHostileGolemWildMagicSpiritWeapon(Entity& source)
+static bool spawnHostileGolemWildMagicSpiritWeapon(Entity& source)
 {
 	// The spell helper may search one tile around its requested point. Keeping
 	// that point in the adjacent 3x3 guarantees the final summon is within the
@@ -3920,7 +3922,7 @@ static void spawnHostileGolemWildMagicSpiritWeapon(Entity& source)
 		targetTileX * 16.0 + 8.0, targetTileY * 16.0 + 8.0, nullptr);
 	if ( !spirit )
 	{
-		return;
+		return false;
 	}
 	if ( Stat* spiritStats = spirit->getStats() )
 	{
@@ -3943,6 +3945,7 @@ static void spawnHostileGolemWildMagicSpiritWeapon(Entity& source)
 		serverUpdateEntitySkill(spirit, 42);
 		serverUpdateEntityFlag(spirit, USERFLAG2);
 	}
+	return true;
 }
 
 static bool golemWildMagicShamanFormUnlocked(const int player, const int spellID)
@@ -3963,7 +3966,7 @@ static bool golemWildMagicShamanFormUnlocked(const int player, const int spellID
 	return stats[player]->LVL >= requiredLevel;
 }
 
-static void castGolemWildMagicShamanForm(Entity& source)
+static bool castGolemWildMagicShamanForm(Entity& source)
 {
 	const int player = source.isEntityPlayer();
 	const int formSpells[] = {
@@ -3981,7 +3984,13 @@ static void castGolemWildMagicShamanForm(Entity& source)
 	// one candidate. Keep it as a defensive fallback instead of wasting a surge.
 	const int selectedSpell = validForms.empty() ? SPELL_RAT_FORM
 		: validForms[local_rng.rand() % validForms.size()];
-	castSpell(source.getUID(), getSpellFromID(selectedSpell), true, false);
+	spell_t* formSpell = getSpellFromID(selectedSpell);
+	if ( !formSpell )
+	{
+		return false;
+	}
+	castSpell(source.getUID(), formSpell, true, false);
+	return true;
 }
 
 static void applyGolemWildMagicHealingPulse(Entity& source)
@@ -4062,31 +4071,39 @@ static void applyGolemWildMagicCurePulse(Entity& source)
 	}
 }
 
-static void useGolemWildMagicScroll(Entity& source, const ItemType scrollType)
+static bool useGolemWildMagicScroll(Entity& source, const ItemType scrollType)
 {
 	const int player = source.isEntityPlayer();
 	if ( player < 0 || player >= MAXPLAYERS )
 	{
-		return;
+		return false;
 	}
 	Item* scroll = newItem(scrollType, SERVICABLE, 0, 1, local_rng.rand(), true, nullptr);
 	if ( !scroll )
 	{
-		return;
+		return false;
 	}
+	bool applied = false;
 	if ( scrollType == SCROLL_LIGHT )
 	{
-		item_ScrollLight(scroll, player);
+		const bool wasBlind = source.isBlind();
+		item_ScrollLight(scroll, player, true);
+		applied = !wasBlind;
 	}
 	else if ( scrollType == SCROLL_FIRE )
 	{
-		item_ScrollFire(scroll, player);
+		applied = item_ScrollFire(scroll, player, true);
 	}
 	free(scroll);
+	return applied;
 }
 
-static void castGolemWildMagicProjectile(Entity& source, spell_t* spell)
+static bool castGolemWildMagicProjectile(Entity& source, spell_t* spell)
 {
+	if ( !spell )
+	{
+		return false;
+	}
 	const real_t oldYaw = source.yaw;
 	source.yaw = (local_rng.rand() % 360) * PI / 180.0;
 	{
@@ -4094,24 +4111,27 @@ static void castGolemWildMagicProjectile(Entity& source, spell_t* spell)
 		castSpell(source.getUID(), spell, true, false);
 	}
 	source.yaw = oldYaw;
+	bool spawnedProjectile = false;
 	for ( node_t* node = map.entities->first; node; node = node->next )
 	{
 		Entity* projectile = static_cast<Entity*>(node->element);
 		if ( projectile && projectile->behavior == &actMagicMissile
 			&& projectile->golemWildMagicCastEntity )
 		{
+			spawnedProjectile = true;
 			projectile->actmagicAllowFriendlyFireHit = 1;
 			projectile->golemWildMagicCastEntity = false;
 		}
 	}
+	return spawnedProjectile;
 }
 
-static void applyGolemWildMagicLightningSelfHit(Entity& source)
+static bool applyGolemWildMagicLightningSelfHit(Entity& source)
 {
 	Stat* sourceStats = source.getStats();
 	if ( !sourceStats || sourceStats->HP <= 0 )
 	{
-		return;
+		return false;
 	}
 	const int damage = std::max(1, getSpellDamageFromID(SPELL_LIGHTNING,
 		&source, sourceStats, &source, 0.0, false));
@@ -4134,6 +4154,16 @@ static void applyGolemWildMagicLightningSelfHit(Entity& source)
 			getSpellEffectDurationFromID(SPELL_LIGHTNING, &source, sourceStats, &source),
 			true, true, false, false);
 	}
+	return true;
+}
+
+static void messageGolemWildMagic(Entity& source, const char* message)
+{
+	const int player = source.isEntityPlayer();
+	if ( player >= 0 && player < MAXPLAYERS )
+	{
+		messagePlayer(player, MESSAGE_STATUS, "%s", message);
+	}
 }
 
 static void triggerGolemWildMagicSurge(Entity& source, Stat& sourceStats)
@@ -4151,19 +4181,36 @@ static void triggerGolemWildMagicSurge(Entity& source, Stat& sourceStats)
 			switch ( local_rng.rand() % 4 )
 			{
 				case 0:
-					source.setEffect(EFF_CONFUSED,
+					if ( source.setEffect(EFF_CONFUSED,
 						static_cast<Uint8>(source.isEntityPlayer() + 1),
 						getSpellEffectDurationFromID(SPELL_CONFUSE, &source, &sourceStats, &source),
-						true, true, true);
+						true, true, true) )
+					{
+						messageGolemWildMagic(source, "Wild magic clouds your mind.");
+					}
 					break;
 				case 1:
-					spawnHostileGolemWildMagicSpiritWeapon(source);
+					if ( spawnHostileGolemWildMagicSpiritWeapon(source) )
+					{
+						messageGolemWildMagic(source, "Wild magic spawns a hostile spirit weapon.");
+					}
 					break;
 				case 2:
-					applyGolemWildMagicSizeEffect(source);
+					if ( const int sizeEffect = applyGolemWildMagicSizeEffect(source);
+						sizeEffect == EFF_MAXIMISE )
+					{
+						messageGolemWildMagic(source, "Wild magic enlarges a nearby creature.");
+					}
+					else if ( sizeEffect == EFF_MINIMISE )
+					{
+						messageGolemWildMagic(source, "Wild magic shrinks a nearby creature.");
+					}
 					break;
 				case 3:
-					castGolemWildMagicShamanForm(source);
+					if ( castGolemWildMagicShamanForm(source) )
+					{
+						messageGolemWildMagic(source, "Wild magic transforms your body.");
+					}
 					break;
 			}
 			break;
@@ -4171,16 +4218,22 @@ static void triggerGolemWildMagicSurge(Entity& source, Stat& sourceStats)
 			switch ( local_rng.rand() % 4 )
 			{
 				case 0:
-					useGolemWildMagicScroll(source, SCROLL_LIGHT);
+					if ( useGolemWildMagicScroll(source, SCROLL_LIGHT) )
+					{
+						messageGolemWildMagic(source, "Wild magic floods the area with light.");
+					}
 					break;
 				case 1:
 					applyGolemWildMagicHealingPulse(source);
+					messageGolemWildMagic(source, "Wild magic releases a wave of healing.");
 					break;
 				case 2:
 					castSpell(source.getUID(), &spell_dash, true, false);
+					messageGolemWildMagic(source, "Wild magic propels you forward.");
 					break;
 				case 3:
 					applyGolemWildMagicCurePulse(source);
+					messageGolemWildMagic(source, "Wild magic releases a cleansing wave.");
 					break;
 			}
 			break;
@@ -4188,16 +4241,28 @@ static void triggerGolemWildMagicSurge(Entity& source, Stat& sourceStats)
 			switch ( local_rng.rand() % 4 )
 			{
 				case 0:
-					useGolemWildMagicScroll(source, SCROLL_FIRE);
+					if ( useGolemWildMagicScroll(source, SCROLL_FIRE) )
+					{
+						messageGolemWildMagic(source, "Wild magic erupts in flame.");
+					}
 					break;
 				case 1:
-					castGolemWildMagicProjectile(source, &spell_forcebolt);
+					if ( castGolemWildMagicProjectile(source, &spell_forcebolt) )
+					{
+						messageGolemWildMagic(source, "Wild magic fires a force bolt.");
+					}
 					break;
 				case 2:
-					castGolemWildMagicProjectile(source, &spell_acidSpray);
+					if ( castGolemWildMagicProjectile(source, &spell_acidSpray) )
+					{
+						messageGolemWildMagic(source, "Wild magic sprays acid.");
+					}
 					break;
 				case 3:
-					applyGolemWildMagicLightningSelfHit(source);
+					if ( applyGolemWildMagicLightningSelfHit(source) )
+					{
+						messageGolemWildMagic(source, "Wild magic strikes you with lightning.");
+					}
 					break;
 			}
 			break;
@@ -15146,7 +15211,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 									qty = armor->count;
 								}
 
-								Item* stolenArmor = newItem(armor->type, armor->status, armor->beatitude, qty, armor->appearance, armor->identified, nullptr);
+								Item* stolenArmor = newItemFromExistingItem(*armor, qty, nullptr);
 								if ( Item* chestItem = Entity::addItemToVoidChestServer(-1, stolenArmor, true, nullptr) )
 								{
 									if ( chestItem != stolenArmor )
@@ -15181,7 +15246,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 								if ( !mimicSentToVoid )
 								{
 									messagePlayer(playerhit, MESSAGE_COMBAT, Language::get(6085), armor->getName());
-									Item* stolenArmor = newItem(armor->type, armor->status, armor->beatitude, qty, armor->appearance, armor->identified, &myStats->inventory);
+									Item* stolenArmor = newItemFromExistingItem(*armor, qty, &myStats->inventory);
 									stolenArmor->ownerUid = hit.entity->getUID();
 									stolenArmor->isDroppable = armor->isDroppable;
 									if ( myStats->getEffectActive(EFF_MIMIC_VOID) )
@@ -15346,7 +15411,7 @@ void Entity::attack(int pose, int charge, Entity* target)
 									armor->count--;
 								}
 								messagePlayer(playerhit, MESSAGE_COMBAT, Language::get(688), armor->getName());
-								Item* stolenArmor = newItem(armor->type, armor->status, armor->beatitude, qty, armor->appearance, armor->identified, &myStats->inventory);
+								Item* stolenArmor = newItemFromExistingItem(*armor, qty, &myStats->inventory);
 								stolenArmor->ownerUid = hit.entity->getUID();
 								if ( playerhit > 0 && multiplayer == SERVER && !players[playerhit]->isLocalPlayer() )
 								{

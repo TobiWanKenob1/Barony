@@ -5646,6 +5646,10 @@ bool GenericGUIMenu::isItemRepairable(const Item* item, int repairScroll)
 
 		return false;
 	}
+	if ( item->type == MAGIC_RUNE )
+	{
+		return false;
+	}
 	else if ( repairScroll == SCROLL_REPAIR )
 	{
 		if ( item->status == EXCELLENT )
@@ -8193,7 +8197,8 @@ bool GenericGUIMenu::executeOnItemClick(Item* item)
 	{
 		// Item-targeting Rune spells outlive castSpell() while the player chooses a
 		// target. Snapshot the authoritative Rune source for the eventual event.
-		ScopedSpellPowerOverride runeSourceScope(itemEffectScrollItem, true);
+		ScopedSpellPowerOverride runeSourceScope(itemEffectScrollItem,
+			players[gui_player]->entity, true);
 		if ( itemfxGUI.currentMode == ItemEffectGUI_t::ITEMFX_MODE_SCROLL_REPAIR
 			|| itemfxGUI.currentMode == ItemEffectGUI_t::ITEMFX_MODE_SCROLL_CHARGING )
 		{
@@ -24237,7 +24242,8 @@ void GenericGUIMenu::ItemEffectGUI_t::getItemEffectCost(Item* itemUsedWith, int&
 	Item* sourceRune = parentGUI.itemEffectScrollItem;
 	ScopedSpellPowerOverride runePowerScope(
 		sourceRune && sourceRune->isMagicRune() && sourceRune->runeHasStoredPWR(),
-		sourceRune ? sourceRune->runeGetStoredPWR() : 0.0);
+		sourceRune ? getMagicRuneEffectivePWR(*sourceRune,
+			players[parentGUI.gui_player]->entity) : 0.0);
 
 	if ( currentMode == ITEMFX_MODE_RESTORE )
 	{

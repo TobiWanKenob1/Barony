@@ -3715,7 +3715,9 @@ Sint32 getStatAttributeBonusFromItem(const int player, Item& item, std::string& 
 
 void ItemTooltips_t::formatItemIcon(const int player, std::string tooltipType, Item& item, std::string& str, int iconIndex, std::string& conditionalAttribute, Frame* parentFrame)
 {
-	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(), item.runeGetStoredPWR());
+	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(),
+		getMagicRuneEffectivePWR(item, player >= 0 && player < MAXPLAYERS && players[player]
+			? players[player]->entity : nullptr));
 #ifndef EDITOR
 	//auto itemTooltip = tooltips[tooltipType];
 	static Stat itemDummyStat(0);
@@ -5197,7 +5199,9 @@ void ItemTooltips_t::formatItemIcon(const int player, std::string tooltipType, I
 
 void ItemTooltips_t::formatItemDescription(const int player, std::string tooltipType, Item& item, std::string& str)
 {
-	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(), item.runeGetStoredPWR());
+	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(),
+		getMagicRuneEffectivePWR(item, player >= 0 && player < MAXPLAYERS && players[player]
+			? players[player]->entity : nullptr));
 	if ( tooltipType.find("tooltip_spell_") != std::string::npos )
 	{
 		str = getSpellDescriptionText(player, item);
@@ -5224,7 +5228,9 @@ void ItemTooltips_t::formatItemDescription(const int player, std::string tooltip
 
 void ItemTooltips_t::formatItemDetails(const int player, std::string tooltipType, Item& item, std::string& str, std::string detailTag, Frame* parentFrame)
 {
-	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(), item.runeGetStoredPWR());
+	ScopedSpellPowerOverride runePowerScope(item.runeHasStoredPWR(),
+		getMagicRuneEffectivePWR(item, player >= 0 && player < MAXPLAYERS && players[player]
+			? players[player]->entity : nullptr));
 #ifndef EDITOR
 	if ( !stats[player] )
 	{
@@ -13075,6 +13081,10 @@ void EquipmentModelOffsets_t::readFromFile(std::string monsterName, int monsterT
 	if ( !PHYSFS_getRealDir(filename.c_str()) )
 	{
 		//printlog("[JSON]: Error: Could not locate json file %s", filename.c_str());
+		if ( monsterType == MERROW )
+		{
+			printlog("[MERROW]: Could not load required equipment position data %s", filename.c_str());
+		}
 		return;
 	}
 

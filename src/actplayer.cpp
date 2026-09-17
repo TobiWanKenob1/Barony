@@ -14614,6 +14614,22 @@ void actPlayer(Entity* my)
 					entity->focaly = limbs[playerRace][10][1] - 2.5; // -2
 					entity->focalz = limbs[playerRace][10][2]; // .5
 				}
+				else if ( playerRace == MERROW
+					&& (entity->sprite == items[TOOL_BLINDFOLD].index
+						|| entity->sprite == items[TOOL_BLINDFOLD_FOCUS].index
+						|| entity->sprite == items[TOOL_BLINDFOLD_TELEPATHY].index) )
+				{
+					// Failsafe for peers missing the required Merrow model_positions entry.
+					// These are the effective values from the released Merrow data file.
+					entity->focalx = limbs[MERROW][10][0] - 0.1;
+					entity->focaly = limbs[MERROW][10][1] + 0.15;
+					entity->focalz = limbs[MERROW][10][2];
+					entity->pitch = my->pitch - PI / 4;
+					entity->roll = PI / 2;
+					entity->scalex = 1.01;
+					entity->scaley = 1.01;
+					entity->scalez = 1.01;
+				}
 				else
 				{
 					entity->focalx = limbs[playerRace][10][0] + .35; // .35
