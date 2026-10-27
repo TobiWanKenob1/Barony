@@ -7913,6 +7913,14 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 		// refreshes an already-open tooltip without recreating the status icon.
 		currentTooltipVariable = players[player]->entity->getLeoninClawTier();
 	}
+	else if ( entry.effect == EFF_GROWTH
+		&& players[player] && players[player]->entity
+		&& players[player]->entity->isMerrowPlayer() )
+	{
+		// Match the scale count used by combat and refresh while hovering.
+		// Other users of EFF_GROWTH retain their normal tooltip behavior.
+		currentTooltipVariable = players[player]->entity->getMerrowReflectingScales();
+	}
 	else if ( entry.effect == kEffectGolemHunger
 		&& players[player] && players[player]->entity )
 	{
@@ -8107,8 +8115,20 @@ bool StatusEffectQueue_t::doStatusEffectTooltip(StatusEffectQueueEntry_t& entry,
 						uppercaseString(newHeader);
 						tooltipHeader->setText(newHeader.c_str());
 
-						tooltipDesc->setText(reflectDefinition.getDesc(-1).c_str());
-						tooltipInnerWidth = reflectDefinition.tooltipWidth;
+						// Build a private description for Merrow scales; do not modify
+						// the shared EFF_MAGICREFLECT definition used by vanilla effects.
+						const int scaleCount = std::max(0, std::min(6, currentTooltipVariable));
+						const int dodgeChance = std::max(0, (scaleCount - 1) * 10);
+						std::string scaleDesc = reflectDefinition.getDesc(-1).c_str();
+						if ( !scaleDesc.empty() && scaleDesc.back() != '\n' )
+						{
+							scaleDesc += '\n';
+						}
+						scaleDesc += "\x1E ";
+						scaleDesc += std::to_string(dodgeChance);
+						scaleDesc += "% to evade attacks";
+						tooltipDesc->setText(scaleDesc.c_str());
+						tooltipInnerWidth = std::max(reflectDefinition.tooltipWidth, 230);
 					}
 					else
 					{// mod add end
