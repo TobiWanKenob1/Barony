@@ -687,9 +687,12 @@ public:
 	Sint32& itemFamiliarINT = skill[56];
 	Sint32& itemFamiliarPER = skill[57];
 	Sint32& itemFamiliarCHR = skill[58];
-	// actItem-only Wraith lore identity. Other behavior aliases of skill[59]
-	// remain unchanged and are never interpreted through this name.
-	Sint32& itemWraithLoreInstanceId = skill[59];
+	// Lore item IDs formerly overlapped entityShowOnMap (skill[59]) and made
+	// books/mail permanently visible on everyone's minimap. READABLE_BOOK and
+	// SCROLL_MAIL instead reuse the Familiar init slot (skill[45]); the two
+	// item types are mutually exclusive. Never interpret skill[45] as Familiar
+	// state on a book or letter.
+	Sint32& itemWraithLoreInstanceId = skill[45];
 	real_t& itemWaterBob; //fskill[2]
 	real_t& itemLevitate = fskill[3];
 	real_t& itemLevitateStartZ = fskill[4];

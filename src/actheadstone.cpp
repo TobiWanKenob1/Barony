@@ -101,10 +101,26 @@ void actHeadstone(Entity* my)
 
 	if ( multiplayer == CLIENT )
 	{
-		if ( !HEADSTONE_INIT )
+		const bool justInitialized = !HEADSTONE_INIT;
+		if ( justInitialized )
 		{
 			HEADSTONE_INIT = 1;
 			my->createWorldUITooltip();
+			// The inscription is randomized only by the host. Do not render
+			// an unread-lore marker with a guessed text ID before confirmation.
+			HEADSTONE_MESSAGE = -1;
+		}
+		// A request can arrive before the host has initialized the grave.
+		// Retry at a bounded interval until we receive an authoritative ENTS.
+		if ( HEADSTONE_MESSAGE < 0 && (justInitialized
+			|| my->ticks % (TICKS_PER_SECOND * 2) == 0) )
+		{
+			strcpy(reinterpret_cast<char*>(net_packet->data), "WGRQ");
+			net_packet->data[4] = static_cast<Uint8>(clientnum);
+			SDLNet_Write32(my->getUID(), &net_packet->data[5]);
+			net_packet->address = net_server;
+			net_packet->len = 9;
+			sendPacketSafe(net_sock, -1, net_packet, 0);
 		}
 		return;
 	}
@@ -115,6 +131,9 @@ void actHeadstone(Entity* my)
 		my->createWorldUITooltip();
 		HEADSTONE_INIT = 1;
 		HEADSTONE_MESSAGE = rng.rand();
+		// Wraith minimap IDs depend on this value; clients must hash the
+		// authoritative inscription rather than their uninitialized skill[4].
+		serverUpdateEntitySkill(my, 4);
 		HEADSTONE_GHOUL = (rng.rand() % 4 == 0);
 	}
 

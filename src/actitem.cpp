@@ -670,7 +670,34 @@ void actItem(Entity* my)
 		{
 			my->flags[INVISIBLE] = false;
 		}
+		// 4.05 wrote lore IDs into skill[59], which vanilla uses for its
+		// minimap timer. Migrate recognizable legacy IDs *before* constructing
+		// the Item so read-state references survive a loaded save when possible.
+		const bool worldLoreItem = my->skill[10] == READABLE_BOOK || my->skill[10] == SCROLL_MAIL;
+		bool migratedLoreId = false;
+		if ( worldLoreItem && my->itemWraithLoreInstanceId == 0 && my->skill[59] != 0 )
+		{
+			const int mapSource = static_cast<int>(my->getEntityShowOnMapSource());
+			if ( mapSource < Entity::SHOW_MAP_DEFAULT || mapSource > Entity::SHOW_MAP_DETECT_MONSTER )
+			{
+				my->itemWraithLoreInstanceId = my->skill[59];
+				my->skill[59] = 0;
+				migratedLoreId = true;
+				serverUpdateEntitySkill(my, 59);
+			}
+		}
 		item = newItemFromEntity(my, true);
+		// Give every world book/mail a stable physical ID and replicate it to
+		// clients (including after an on-disk 4.05 migration).
+		if ( item && worldLoreItem )
+		{
+			if ( my->itemWraithLoreInstanceId == 0 && item->wraithLoreInstanceId != 0 )
+			{
+				my->itemWraithLoreInstanceId = static_cast<Sint32>(item->wraithLoreInstanceId);
+				migratedLoreId = true;
+			}
+			if ( migratedLoreId ) { serverUpdateEntitySkill(my, 45); }
+		}
 		/*if ( currentlevel > 0 && my->ticks == 1 )
 		{
 			if ( items[item->type].category != TOME_SPELL && items[item->type].category != SPELLBOOK )

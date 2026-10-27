@@ -508,7 +508,7 @@ void copyItemPersistentCustomStateToEntity(Entity& destination, const Item& sour
 	destination.itemIngredientCount1 = static_cast<Sint32>(source.ingredientCounts[1]);
 	destination.itemIngredientCount2 = static_cast<Sint32>(source.ingredientCounts[2]);
 	destination.itemIngredientCount3 = static_cast<Sint32>(source.ingredientCounts[3]);
-	destination.itemFamiliarInitialized = source.familiarInitialized ? 1 : 0;
+	destination.itemFamiliarInitialized = source.type == AMULET_FAMILIAR && source.familiarInitialized ? 1 : 0;
 	destination.itemFamiliarInstanceId = static_cast<Sint32>(source.familiarInstanceId);
 	destination.itemFamiliarHP = source.familiarHP;
 	destination.itemFamiliarMAXHP = source.familiarMAXHP;
@@ -522,7 +522,11 @@ void copyItemPersistentCustomStateToEntity(Entity& destination, const Item& sour
 	destination.itemFamiliarINT = source.familiarINT;
 	destination.itemFamiliarPER = source.familiarPER;
 	destination.itemFamiliarCHR = source.familiarCHR;
-	destination.itemWraithLoreInstanceId = static_cast<Sint32>(source.wraithLoreInstanceId);
+	if ( source.type == READABLE_BOOK || source.type == SCROLL_MAIL )
+	{
+		// skill[45] is also itemFamiliarInitialized; only lore items use it here.
+		destination.itemWraithLoreInstanceId = static_cast<Sint32>(source.wraithLoreInstanceId);
+	}
 }
 
 void copyItemPersistentCustomStateFromEntity(Item& destination, const Entity& source)
@@ -539,7 +543,8 @@ void copyItemPersistentCustomStateFromEntity(Item& destination, const Entity& so
 	destination.ingredientCounts[1] = static_cast<Uint32>(source.itemIngredientCount1);
 	destination.ingredientCounts[2] = static_cast<Uint32>(source.itemIngredientCount2);
 	destination.ingredientCounts[3] = static_cast<Uint32>(source.itemIngredientCount3);
-	destination.familiarInitialized = source.itemFamiliarInitialized != 0;
+	destination.familiarInitialized = source.skill[10] == AMULET_FAMILIAR
+		&& source.itemFamiliarInitialized != 0;
 	destination.familiarInstanceId = static_cast<Uint32>(source.itemFamiliarInstanceId);
 	destination.familiarHP = source.itemFamiliarHP;
 	destination.familiarMAXHP = source.itemFamiliarMAXHP;
@@ -553,7 +558,9 @@ void copyItemPersistentCustomStateFromEntity(Item& destination, const Entity& so
 	destination.familiarINT = source.itemFamiliarINT;
 	destination.familiarPER = source.itemFamiliarPER;
 	destination.familiarCHR = source.itemFamiliarCHR;
-	destination.wraithLoreInstanceId = static_cast<Uint32>(source.itemWraithLoreInstanceId);
+	destination.wraithLoreInstanceId = (source.skill[10] == READABLE_BOOK
+		|| source.skill[10] == SCROLL_MAIL)
+		? static_cast<Uint32>(source.itemWraithLoreInstanceId) : 0;
 	reserveFamiliarInstanceId(destination.familiarInstanceId);
 	reserveWraithLoreInstanceId(destination.wraithLoreInstanceId);
 	destination.wraithLoreEnsureInstanceId();

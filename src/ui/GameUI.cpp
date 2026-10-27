@@ -30447,18 +30447,10 @@ void Player::Inventory_t::activateItemContextMenuOption(Item* item, ItemContextM
 			{
 				if ( itemTypeIsOil(item->type) )
 				{
-					const bool coatedWeaponEquipped = stats[player]
-						&& itemCanReceiveOil(stats[player]->weapon);
-					const bool quiverEquipped = stats[player] && stats[player]->shield
-						&& itemTypeIsQuiver(stats[player]->shield->type);
-					if ( coatedWeaponEquipped || quiverEquipped )
-					{
-						GenericGUI[player].openGUI(GUI_TYPE_ITEMFX, item, item->beatitude, item->type, SPELL_NONE);
-					}
-					else
-					{
-						playerTryEquipItemAndUpdateServer(player, item, true);
-					}
+					// Inventory Apply must not silently become Equip when no target
+					// is wielded. The separate Equip action remains available.
+					// Hotbar dispatch is intentionally unchanged.
+					GenericGUI[player].openGUI(GUI_TYPE_ITEMFX, item, item->beatitude, item->type, SPELL_NONE);
 				}
 				else
 				{

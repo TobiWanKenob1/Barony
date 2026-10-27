@@ -14490,9 +14490,24 @@ void actParticleSapCenter(Entity* my)
 							// pickedUp is the new inventory stack for server, free the original items
 							free(item);
 							item = nullptr;
+							if ( isHarpoon && !stats[parent->skill[2]]->weapon )
+							{
+								// A fist attack may block equipping; defer by UID so a later
+								// tick can retry without interrupting the swing.
+								players[parent->skill[2]]->hotbar.pendingHarpoonReturnUid = pickedUp->uid;
+							}
 							if ( multiplayer != CLIENT && !stats[parent->skill[2]]->weapon )
 							{
-								useItem(pickedUp, parent->skill[2]);
+								if ( !isHarpoon || (players[parent->skill[2]]->hud.swapWeaponGimpTimer <= 0
+									&& players[parent->skill[2]]->hud.pickaxeGimpTimer <= 0
+									&& (!players[parent->skill[2]]->hud.weapon || players[parent->skill[2]]->hud.weapon->skill[0] == 0)) )
+								{
+									useItem(pickedUp, parent->skill[2]);
+								}
+								if ( isHarpoon && stats[parent->skill[2]]->weapon )
+								{
+									players[parent->skill[2]]->hotbar.pendingHarpoonReturnUid = 0;
+								}
 							}
 							//mod add: added harpoon
 							auto& hotbar_t = players[parent->skill[2]]->hotbar;

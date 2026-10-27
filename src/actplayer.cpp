@@ -394,6 +394,80 @@ int getWraithAddressedMailLoreId(int player)
 		+ static_cast<Uint32>(std::max(0, player))) % NUM_SCROLL_MAIL_OPTIONS);
 }
 
+// A local Wraith's lore history is authoritative on the host. The existing
+// WKNO packet carries learned monster types, not physical objects. Use a
+// separate bounded protocol; never send one player's read history to another.
+static bool wraithLoreClientCanReceive(int player)
+{
+	return multiplayer == SERVER && player > 0 && player < MAXPLAYERS
+		&& players[player] && !players[player]->isLocalPlayer()
+		&& !client_disconnected[player];
+}
+
+static void sendWraithLoreReadUpdate(int player, WraithLoreKind kind, Uint64 id)
+{
+	if ( !wraithLoreClientCanReceive(player) || id == 0 ) { return; }
+	strcpy(reinterpret_cast<char*>(net_packet->data), "WLRD");
+	net_packet->data[4] = static_cast<Uint8>(player);
+	net_packet->data[5] = static_cast<Uint8>(kind);
+	SDLNet_Write32(static_cast<Uint32>(id >> 32), &net_packet->data[6]);
+	SDLNet_Write32(static_cast<Uint32>(id), &net_packet->data[10]);
+	net_packet->address = net_clients[player - 1];
+	net_packet->len = 14;
+	sendPacketSafe(net_sock, -1, net_packet, player - 1);
+}
+
+static void syncWraithReadHistory(int player)
+{
+	if ( !wraithLoreClientCanReceive(player) ) { return; }
+	const auto& wraith = players[player]->mechanics.wraith;
+	// Reconstruct state after loading or reconnect; never alter save data.
+	strcpy(reinterpret_cast<char*>(net_packet->data), "WLRC");
+	net_packet->data[4] = static_cast<Uint8>(player);
+	net_packet->address = net_clients[player - 1];
+	net_packet->len = 5;
+	sendPacketSafe(net_sock, -1, net_packet, player - 1);
+
+	auto sendChunked = [&](WraithLoreKind kind, const auto& ids)
+	{
+		static constexpr int kMaxPerPacket = 24;
+		int count = 0;
+		int offset = 7;
+		auto flush = [&]()
+		{
+			if ( count == 0 ) { return; }
+			net_packet->data[6] = static_cast<Uint8>(count);
+			net_packet->len = offset;
+			net_packet->address = net_clients[player - 1];
+			sendPacketSafe(net_sock, -1, net_packet, player - 1);
+		};
+		for ( auto rawId : ids )
+		{
+			const Uint64 id = static_cast<Uint64>(rawId);
+			if ( id == 0 ) { continue; }
+			if ( count == 0 )
+			{
+				strcpy(reinterpret_cast<char*>(net_packet->data), "WLRB");
+				net_packet->data[4] = static_cast<Uint8>(player);
+				net_packet->data[5] = static_cast<Uint8>(kind);
+				offset = 7;
+			}
+			SDLNet_Write32(static_cast<Uint32>(id >> 32), &net_packet->data[offset]);
+			SDLNet_Write32(static_cast<Uint32>(id), &net_packet->data[offset + 4]);
+			offset += 8;
+			if ( ++count == kMaxPerPacket )
+			{
+				flush();
+				count = 0;
+			}
+		}
+		flush();
+	};
+	sendChunked(WRAITH_LORE_BOOK, wraith.readBookObjectIds);
+	sendChunked(WRAITH_LORE_MAIL, wraith.readMailObjectIds);
+	sendChunked(WRAITH_LORE_GRAVESTONE, wraith.readGravestoneObjectIds);
+}
+
 void syncWraithPossessionKnowledge(int player)
 {
 	if ( player < 0 || player >= MAXPLAYERS || !players[player] )
@@ -420,6 +494,9 @@ void syncWraithPossessionKnowledge(int player)
 	net_packet->address = net_clients[player - 1];
 	net_packet->len = offset;
 	sendPacketSafe(net_sock, -1, net_packet, player - 1);
+	// This same hook runs after restoring a Wraith save, so the client
+	// receives its whole read history as well as learned possession types.
+	syncWraithReadHistory(player);
 }
 
 void replaceWraithLearnedPossessionTypes(int player, const std::vector<Monster>& types)
@@ -507,6 +584,9 @@ bool processWraithLoreRead(int player, WraithLoreKind kind, int textId, Uint64 p
 		default:
 			return false;
 	}
+
+	// Reading counts even when the possession-learning RNG roll fails.
+	sendWraithLoreReadUpdate(player, kind, physicalObjectId);
 
 	if ( quarterGravestoneChance )
 	{

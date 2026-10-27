@@ -138,6 +138,45 @@ void drawMinimap(const int player, SDL_Rect rect, bool drawingSharedMap)
 	assert(minimapSurface);
 	SDL_LockSurface(minimapSurface);
 
+	// 4.06: lore points belong only to the *viewing* Wraith. Do not mark
+	// unexplored tiles or use seen-text sets: each physical object is unique.
+	const bool viewingWraith = player >= 0 && player < MAXPLAYERS
+		&& players[player] && players[player]->isLocalPlayer()
+		&& stats[player] && stats[player]->playerRace == RACE_WRAITH;
+	auto showUnreadWraithLore = [&](const Entity* entity) -> bool
+	{
+		if ( !viewingWraith || !entity || entity->x < 0 || entity->y < 0
+			|| entity->x >= map.width * 16 || entity->y >= map.height * 16 )
+		{
+			return false;
+		}
+		const int x = static_cast<int>(entity->x / 16);
+		const int y = static_cast<int>(entity->y / 16);
+		if ( !minimap[y][x] ) { return false; }
+		const auto& wraith = players[player]->mechanics.wraith;
+		if ( entity->behavior == &actItem )
+		{
+			const Uint32 id = static_cast<Uint32>(entity->itemWraithLoreInstanceId);
+			if ( id == 0 ) { return false; }
+			if ( entity->skill[10] == READABLE_BOOK )
+			{
+				return wraith.readBookObjectIds.count(id) == 0;
+			}
+			if ( entity->skill[10] == SCROLL_MAIL )
+			{
+				return wraith.readMailObjectIds.count(id) == 0;
+			}
+		}
+		else if ( entity->behavior == &actHeadstone )
+		{
+			const int textId = entity->skill[4] % 17;
+			if ( textId < 0 ) { return false; }
+			const Uint64 id = getWraithGravestoneLoreObjectId(entity, textId);
+			return id != 0 && wraith.readGravestoneObjectIds.count(id) == 0;
+		}
+		return false;
+	};
+
 	std::vector<Entity*> entityPointsOfInterest;
 	std::unordered_set<int> customWalls;
 	// get special points of interest (exits, items, revealed monsters, etc)
@@ -213,7 +252,8 @@ void drawMinimap(const int player, SDL_Rect rect, bool drawingSharedMap)
 			{
 				entityPointsOfInterest.push_back(entity);
 			}
-			else if ( entity->behavior == &actItem && entity->itemShowOnMap == 1 )
+			else if ( (entity->behavior == &actItem && entity->itemShowOnMap == 1)
+				|| showUnreadWraithLore(entity) )
 			{
 				entityPointsOfInterest.push_back(entity);
 			}
@@ -826,7 +866,8 @@ void drawMinimap(const int player, SDL_Rect rect, bool drawingSharedMap)
 
 				deathboxSkulls.push_back(std::make_pair(color, std::make_pair(skullx, skully)));
 			}
-			else if ( entity->behavior == &actItem && entity->itemShowOnMap == 1 )
+			else if ( (entity->behavior == &actItem && entity->itemShowOnMap == 1)
+				|| showUnreadWraithLore(entity) )
 			{
 				int x = std::min<int>(std::max<int>(0, entity->x / 16), map.width - 1);
 				int y = std::min<int>(std::max<int>(0, entity->y / 16), map.height - 1);

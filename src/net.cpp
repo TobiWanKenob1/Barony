@@ -3468,6 +3468,11 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 						entity->itemRuneCreatorIdentity = net_packet->len >= 34
 							? static_cast<Sint32>(SDLNet_Read32(&net_packet->data[30])) : 0;
 					}
+					else if ( (entity->skill[10] == READABLE_BOOK || entity->skill[10] == SCROLL_MAIL)
+						&& net_packet->len >= 20 )
+					{
+						entity->itemWraithLoreInstanceId = static_cast<Sint32>(SDLNet_Read32(&net_packet->data[16]));
+					}
 					else if ( entity->skill[10] == AMULET_FAMILIAR && net_packet->len >= 72 )
 					{
 						Sint32* fields[] = { &entity->itemFamiliarInitialized, &entity->itemFamiliarInstanceId,
@@ -5550,6 +5555,58 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 		replaceWraithLearnedPossessionTypes(player, learned);
 	}},
 
+	// Authoritative Wraith read history, delivered only to the owning client.
+	{'WLRC', [](){
+		if ( multiplayer != CLIENT || net_packet->len != 5 ) { return; }
+		const int player = net_packet->data[4];
+		if ( player != clientnum || player < 0 || player >= MAXPLAYERS
+			|| !players[player] ) { return; }
+		auto& wraith = players[player]->mechanics.wraith;
+		wraith.readBookObjectIds.clear();
+		wraith.readMailObjectIds.clear();
+		wraith.readGravestoneObjectIds.clear();
+	}},
+	{'WLRD', [](){
+		if ( multiplayer != CLIENT || net_packet->len != 14 ) { return; }
+		const int player = net_packet->data[4];
+		const int kind = net_packet->data[5];
+		if ( player != clientnum || player < 0 || player >= MAXPLAYERS
+			|| !players[player] || kind > WRAITH_LORE_MAIL ) { return; }
+		const Uint64 id = (static_cast<Uint64>(SDLNet_Read32(&net_packet->data[6])) << 32)
+			| SDLNet_Read32(&net_packet->data[10]);
+		if ( !id || (kind != WRAITH_LORE_GRAVESTONE && id > UINT32_MAX) ) { return; }
+		auto& wraith = players[player]->mechanics.wraith;
+		switch ( kind )
+		{
+			case WRAITH_LORE_BOOK: wraith.readBookObjectIds.insert(static_cast<Uint32>(id)); break;
+			case WRAITH_LORE_MAIL: wraith.readMailObjectIds.insert(static_cast<Uint32>(id)); break;
+			case WRAITH_LORE_GRAVESTONE: wraith.readGravestoneObjectIds.insert(id); break;
+		}
+	}},
+	{'WLRB', [](){
+		if ( multiplayer != CLIENT || net_packet->len < 7 ) { return; }
+		const int player = net_packet->data[4];
+		const int kind = net_packet->data[5];
+		const int count = net_packet->data[6];
+		if ( player != clientnum || player < 0 || player >= MAXPLAYERS
+			|| !players[player] || kind > WRAITH_LORE_MAIL || count > 24
+			|| net_packet->len != 7 + count * 8 ) { return; }
+		auto& wraith = players[player]->mechanics.wraith;
+		for ( int i = 0; i < count; ++i )
+		{
+			const int offset = 7 + 8 * i;
+			const Uint64 id = (static_cast<Uint64>(SDLNet_Read32(&net_packet->data[offset])) << 32)
+				| SDLNet_Read32(&net_packet->data[offset + 4]);
+			if ( id == 0 || (kind != WRAITH_LORE_GRAVESTONE && id > UINT32_MAX) ) { continue; }
+			switch ( kind )
+			{
+				case WRAITH_LORE_BOOK: wraith.readBookObjectIds.insert(static_cast<Uint32>(id)); break;
+				case WRAITH_LORE_MAIL: wraith.readMailObjectIds.insert(static_cast<Uint32>(id)); break;
+				case WRAITH_LORE_GRAVESTONE: wraith.readGravestoneObjectIds.insert(id); break;
+			}
+		}
+	}},
+
 	// get item
 	{'ITEM', [](){
 		Item* item = newItem(
@@ -5584,7 +5641,25 @@ static std::unordered_map<Uint32, void(*)()> clientPacketHandlers = {
 			{
 				// Returning weapons are server-authoritative, but the owning client must
 				// re-equip its received ITEM so useItem() sends the equip state back.
-				useItem(pickedUp, clientnum);
+				if ( pickedUp->type == HARPOON )
+				{
+					players[clientnum]->hotbar.pendingHarpoonReturnUid = pickedUp->uid;
+					if ( players[clientnum]->hud.swapWeaponGimpTimer == 0
+						&& players[clientnum]->hud.pickaxeGimpTimer == 0
+						&& (!players[clientnum]->hud.weapon || players[clientnum]->hud.weapon->skill[0] == 0) )
+					{
+						useItem(pickedUp, clientnum);
+					}
+					if ( stats[clientnum]->weapon )
+					{
+						players[clientnum]->hotbar.pendingHarpoonReturnUid = 0;
+					}
+				}
+				else
+				{
+					// Vanilla Boomerang path unchanged.
+					useItem(pickedUp, clientnum);
+				}
 
 				auto& hotbar_t = players[clientnum]->hotbar;
 				auto& hotbar = hotbar_t.slots();
@@ -8545,6 +8620,24 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 		sendPacketSafe(net_sock, -1, net_packet, x - 1);
 	}},
 
+	// Client has spawned a gravestone locally and needs the host's random
+	// inscription to calculate the same stable Wraith physical lore ID.
+	{'WGRQ', [](){
+		if ( net_packet->len != 9 ) { return; }
+		const int player = net_packet->data[4];
+		if ( player <= 0 || player >= MAXPLAYERS || client_disconnected[player]
+			|| players[player]->isLocalPlayer() ) { return; }
+		Entity* grave = uidToEntity(SDLNet_Read32(&net_packet->data[5]));
+		if ( !grave || grave->behavior != &actHeadstone || grave->skill[0] == 0 ) { return; }
+		strcpy(reinterpret_cast<char*>(net_packet->data), "ENTS");
+		SDLNet_Write32(grave->getUID(), &net_packet->data[4]);
+		net_packet->data[8] = 4;
+		SDLNet_Write32(static_cast<Uint32>(grave->skill[4]), &net_packet->data[9]);
+		net_packet->address = net_clients[player - 1];
+		net_packet->len = 13;
+		sendPacketSafe(net_sock, -1, net_packet, player - 1);
+	}},
+
 	// client request item details.
 	{'ITMU', [](){
 		const int x = net_packet->data[4];
@@ -8606,6 +8699,11 @@ static std::unordered_map<Uint32, void(*)()> serverPacketHandlers = {
 					SDLNet_Write32(static_cast<Uint32>(entity->itemRuneInstanceId), &net_packet->data[26]);
 					SDLNet_Write32(static_cast<Uint32>(entity->itemRuneCreatorIdentity), &net_packet->data[30]);
 					net_packet->len = 34;
+				}
+				else if ( entity->skill[10] == READABLE_BOOK || entity->skill[10] == SCROLL_MAIL )
+				{
+					SDLNet_Write32(static_cast<Uint32>(entity->itemWraithLoreInstanceId), &net_packet->data[16]);
+					net_packet->len = 20;
 				}
 				else if ( entity->skill[10] == AMULET_FAMILIAR )
 				{

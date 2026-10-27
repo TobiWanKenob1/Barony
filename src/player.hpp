@@ -2313,6 +2313,8 @@ public:
 		bool hotbarHasFocus = false;
 		int magicBoomerangHotbarSlot = -1;
 		int harpoonHotbarSlot = -1; //mod add
+		// Persist across HUD reset on level transition; inventory UID is revalidated.
+		Uint32 pendingHarpoonReturnUid = 0;
 		int magicDuckHotbarSlot = -1;
 		Uint32 hotbarTooltipLastGameTick = 0;
 		SDL_Rect hotbarBox;

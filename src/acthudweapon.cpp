@@ -645,6 +645,40 @@ void actHudWeapon(Entity* my)
 		--bowGimpTimer;
 	}
 
+	// Knightly: a returned Harpoon can arrive during an unarmed attack.
+	// Never interrupt that attack, override another weapon, or dereference a
+	// stale inventory pointer.  Boomerang behavior is deliberately unchanged.
+	if ( players[HUDWEAPON_PLAYERNUM]->hotbar.pendingHarpoonReturnUid != 0 )
+	{
+		const Uint32 pendingUid = players[HUDWEAPON_PLAYERNUM]->hotbar.pendingHarpoonReturnUid;
+		if ( !stats[HUDWEAPON_PLAYERNUM] || stats[HUDWEAPON_PLAYERNUM]->weapon )
+		{
+			players[HUDWEAPON_PLAYERNUM]->hotbar.pendingHarpoonReturnUid = 0;
+		}
+		else
+		{
+			Item* candidate = uidToItem(pendingUid);
+			bool inInventory = false;
+			for ( node_t* node = stats[HUDWEAPON_PLAYERNUM]->inventory.first; node; node = node->next )
+			{
+				if ( node->element == candidate ) { inInventory = true; break; }
+			}
+			if ( !candidate || !inInventory || candidate->type != HARPOON )
+			{
+				players[HUDWEAPON_PLAYERNUM]->hotbar.pendingHarpoonReturnUid = 0;
+			}
+			else if ( !gamePaused && swapWeaponGimpTimer <= 0
+				&& pickaxeGimpTimer <= 0 && HUDWEAPON_CHOP == 0 )
+			{
+				useItem(candidate, HUDWEAPON_PLAYERNUM);
+				if ( stats[HUDWEAPON_PLAYERNUM]->weapon )
+				{
+					players[HUDWEAPON_PLAYERNUM]->hotbar.pendingHarpoonReturnUid = 0;
+				}
+			}
+		}
+	}
+
 	// swimming
 	if (players[HUDWEAPON_PLAYERNUM] && players[HUDWEAPON_PLAYERNUM]->entity)
 	{

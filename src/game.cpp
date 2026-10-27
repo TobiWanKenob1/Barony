@@ -981,9 +981,19 @@ static void returnHarpoonOnLevelChange(Entity* entity)
             free(item);
             item = nullptr;
 
-            if ( multiplayer != CLIENT && !stats[player]->weapon )
+            if ( !stats[player]->weapon )
             {
-                useItem(pickedUp, player);
+                players[player]->hotbar.pendingHarpoonReturnUid = pickedUp->uid;
+                if ( multiplayer != CLIENT && players[player]->hud.swapWeaponGimpTimer == 0
+                    && players[player]->hud.pickaxeGimpTimer == 0
+                    && (!players[player]->hud.weapon || players[player]->hud.weapon->skill[0] == 0) )
+                {
+                    useItem(pickedUp, player);
+                    if ( stats[player]->weapon )
+                    {
+                        players[player]->hotbar.pendingHarpoonReturnUid = 0;
+                    }
+                }
             }
 
             // Restore the slot it occupied before being thrown.

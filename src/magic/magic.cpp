@@ -1826,7 +1826,10 @@ Entity* spellEffectPolymorph(Entity* target, Entity* parent, bool fromMagicSpell
 				MONSTER_UNUSED_6,
 				MONSTER_UNUSED_7,
 				MONSTER_UNUSED_8,
-				MOTH_SMALL
+				MOTH_SMALL,
+				// Knightly playable identities and familiar have no ordinary monster form.
+				// Keep them out of random monster polymorph (allies and enemies).
+				MERROW, LEONIN, GOLEM, BAT_FAMILIAR, WRAITH
 	        };
 			typesToSkip.insert(targetStats->type);
 			if ( target->monsterAllyGetPlayerLeader() )

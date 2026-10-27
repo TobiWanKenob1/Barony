@@ -12357,7 +12357,10 @@ void Entity::attack(int pose, int charge, Entity* target)
 				{
 					miss = false;
 				}
-				else if ( bat || (hitstats && (hitstats->getEffectActive(EFF_AGILITY) 
+				else if ( bat || (hit.entity->behavior == &actPlayer
+					&& hit.entity->isMerrowPlayer()
+					&& hit.entity->getMerrowReflectingScales() > 1)
+					|| (hitstats && (hitstats->getEffectActive(EFF_AGILITY)
 					|| hit.entity->mistFormDodge(true, this)
 					|| (hitstats->getEffectActive(EFF_MAGIC_GREASE) && hitstats->type == GREMLIN)
 					|| (hitstats && hitstats->type == DRYAD
@@ -12424,6 +12427,13 @@ void Entity::attack(int pose, int charge, Entity* target)
 						if ( bat )
 						{
 							baseChance = std::max(baseChance, 60);
+						}
+						// Use vanilla evasion (not an additional roll), so ordinary
+						// flanking/backstab and weapon-bypass behavior stays intact.
+						if ( hit.entity->behavior == &actPlayer && hit.entity->isMerrowPlayer() )
+						{
+							const int scales = std::max(1, std::min(6, hit.entity->getMerrowReflectingScales()));
+							baseChance = std::max(baseChance, (scales - 1) * 10);
 						}
 						if ( hitstats && hitstats->getEffectActive(EFF_AGILITY) )
 						{

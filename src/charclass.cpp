@@ -3967,6 +3967,11 @@ void initClass(const int player)
 			item2 = itemPickup(player, item);
 			hotbar[5].item = item2->uid;
 			free(item);
+
+			// Knightly 4.06: two throwing tomahawks, without changing hotbar slots.
+			item = newItem(BRONZE_TOMAHAWK, SERVICABLE, 0, 2, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
 		}
 	}
 	else if ( client_classes[player] == CLASS_RUNESMITH )
@@ -4076,6 +4081,15 @@ void initClass(const int player)
 			free(item);
 
 			item = newItem(POTION_RESTOREMAGIC, EXCELLENT, 0, 2, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			// Knightly 4.06: early-game offensive consumables.
+			item = newItem(POTION_ACID, EXCELLENT, 0, 2, 0, true, nullptr);
+			item2 = itemPickup(player, item);
+			free(item);
+
+			item = newItem(POTION_SICKNESS, EXCELLENT, 0, 2, 0, true, nullptr);
 			item2 = itemPickup(player, item);
 			free(item);
 

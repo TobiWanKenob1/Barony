@@ -49,7 +49,17 @@ void spawnAmuletFamiliarIngredientBag(Entity* recipient, Entity* source)
 	const bool isHumanOrGreenSlime = sourceStats && (sourceStats->type == HUMAN
 		|| (sourceStats->type == SLIME
 			&& MonsterData_t::getKeyFromSprite(source->sprite, SLIME) == "slime green"));
-	const int generatedCount = 2 + local_rng.rand() % (isHumanOrGreenSlime ? 7 : 3);
+	// Buff slime drops only. Humans retain their existing 2-8 range.
+	int generatedCount = 0;
+	if ( sourceStats && sourceStats->type == SLIME )
+	{
+		const bool green = MonsterData_t::getKeyFromSprite(source->sprite, SLIME) == "slime green";
+		generatedCount = green ? 3 + local_rng.rand() % 10 : 3 + local_rng.rand() % 4;
+	}
+	else
+	{
+		generatedCount = 2 + local_rng.rand() % (isHumanOrGreenSlime ? 7 : 3);
+	}
 
 	Entity* bag = newEntity(-1, 1, map.entities, nullptr);
 	bag->flags[INVISIBLE] = true;
